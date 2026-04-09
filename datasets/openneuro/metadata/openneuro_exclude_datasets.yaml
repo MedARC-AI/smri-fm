@@ -1,0 +1,89 @@
+# non-human species
+# https://docs.google.com/spreadsheets/d/1rsVlKg0vBzkx7XUGK4joky9cM8umtkQRpJ2Y-5d6x7c/edit
+- ds001981
+- ds002134
+- ds002307
+- ds002374
+- ds002551
+- ds002868
+- ds002870
+- ds002885
+- ds003325
+- ds003463
+- ds003646
+- ds003647
+- ds003830
+- ds003928
+- ds003929
+- ds003959
+- ds003989
+- ds004092
+- ds004114
+- ds004116
+- ds004125
+- ds004127
+- ds004145
+- ds004161
+- ds004254
+- ds004265
+- ds004305
+- ds004402
+- ds004441
+- ds004465
+- ds004509
+- ds004598
+- ds004620
+- ds004632
+- ds004644
+- ds004738
+- ds004784
+- ds004797
+- ds004819
+- ds004913
+- ds004959
+- ds004962
+- ds005077
+- ds005093
+- ds005137
+- ds005186
+- ds005233
+- ds005236
+- ds005402
+- ds005424
+- ds005431
+- ds005467
+- ds005496
+- ds005497
+- ds005521
+- ds005534
+- ds005605
+- ds005635
+- ds005636
+- ds005687
+- ds005688
+- ds005839
+- ds005895
+- ds006123
+- ds006218
+- ds006269
+- ds006366
+- ds006402
+- ds006407
+- ds006613
+- ds006663
+- ds006670
+- ds006691
+- ds006721
+- ds006746
+- ds007028
+- ds007195
+- ds007392
+
+# bad/missing data
+- ds003710  # empty
+- ds001365  # negative ages
+- ds006224  # empty
+
+# duplicated datasets
+- ds001966  # duplicate of ds003012
+- ds005595  # subset of HCP-A
