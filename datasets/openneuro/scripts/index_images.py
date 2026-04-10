@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import nibabel as nib
@@ -21,7 +22,7 @@ def main():
             print("\n".join(map(str, path_list)), file=f)
     print(f"total images: {len(path_list)}")
 
-    outpath = Path("metadata/openneuro_index.csv")
+    outpath = Path("metadata/openneuro_images.csv")
     print(f"saving to {outpath}")
 
     if outpath.exists():
@@ -42,7 +43,9 @@ def main():
         except Exception as e:
             print(f"SKIP {path}: {e}")
             continue
-        records.append({**meta, **info, "path": str(path)})
+
+        md5 = md5sum(root / path)
+        records.append({**meta, **info, "md5": md5, "path": str(path)})
 
         if (ii + 1) % 1000 == 0 or (ii + 1) == len(path_list):
             print(f"saving {ii + 1}/{len(path_list)}, total: {len(records)}", flush=True)
@@ -72,9 +75,18 @@ def read_header(path: Path):
     return info
 
 
+def md5sum(path: Path):
+    try:
+        s = subprocess.check_output(["md5sum", str(path)]).decode()
+        s = s.strip().split()[0]
+    except Exception:
+        s = None
+    return s
+
+
 def save_records(records: list[dict], outpath: Path):
     df = pd.DataFrame.from_records(records)
-    cols = ["suffix", "shape", "pixdim", "dtype", "orient", "size", "path"]
+    cols = ["suffix", "shape", "pixdim", "dtype", "orient", "size", "md5", "path"]
     for col in cols:
         df[col] = df.pop(col)
     df.to_csv(outpath, index=False)
