@@ -19,6 +19,8 @@ dependencies = [
     "pre-commit",
     "pytest",
     "scipy",
+    "seaborn",
+    "tabulate",
     "torch==2.8.0",
     "torchvision",
     "tqdm",
