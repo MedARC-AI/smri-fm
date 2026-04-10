@@ -15,7 +15,6 @@ AGE_COLS = {
     "ds002886": "age_ses-T1",
     "ds003425": "Age_Sess1",
     "ds003710": "age_ses-1",
-    "ds004856": "AgeMRI_W1",
     "ds005027": "ScanAge",
 }
 
@@ -117,6 +116,29 @@ def load_participants(path: Path, dataset: str) -> pd.DataFrame | None:
     return out
 
 
+def load_participants_ds004856(path: Path, dataset: str):
+    # special loader for DLBS bc this is a nice longitudinal dataset
+    df = pd.read_csv(path, sep="\t", dtype=str)
+    out = df[["participant_id", "Sex", "AgeMRI_W1", "AgeMRI_W2", "AgeMRI_W3"]].copy()
+    out.columns = ["sub", "sex", "age-wave1", "age-wave2", "age-wave3"]
+    out = pd.wide_to_long(out, ["age"], i="sub", j="ses", sep="-", suffix="wave[1-3]")
+    out = out.reset_index()
+    out = out[["sub", "ses", "sex", "age"]]
+    out.insert(0, "dataset", dataset)
+    out["sub"] = out["sub"].map(normalize_sub)
+    out["sex"] = out["sex"].map(normalize_sex)
+    out["age"] = out["age"].map(normalize_age)
+    out = out.dropna(subset="age")
+    out = out.sort_values(["sub", "ses"])
+    return out
+
+
+# Override loader for special cases
+DS_LOADERS = {
+    "ds004856": load_participants_ds004856,
+}
+
+
 def main():
     root = Path("data/openneuro")
     outpath = Path("metadata/openneuro_participants.csv")
@@ -131,7 +153,8 @@ def main():
             continue
 
         try:
-            result = load_participants(tsv, dataset)
+            loader = DS_LOADERS.get(dataset, load_participants)
+            result = loader(tsv, dataset)
             if result is not None:
                 frames.append(result)
         except Exception as e:
