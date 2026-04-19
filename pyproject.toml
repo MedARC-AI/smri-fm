@@ -28,6 +28,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+preprocessing = [
+    "antspyx",
+    "templateflow",
+    "tensorflow[and-cuda]",
+    "tf-keras",
+    "surfa",
+    "voxelmorph",
+    "neurite",
+]
+
+[project.scripts]
+anat-preproc = "preprocessing.pipeline:main"
+
+[tool.setuptools.packages.find]
+exclude = ["preprocessing*"]
 
 [tool.setuptools_scm]
 version_file = "src/_version.py"
