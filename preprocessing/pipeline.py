@@ -53,7 +53,6 @@ DEFAULT_TEMPLATE_BRAIN = None  # resolved lazily in main()
 
 # ── SynthSeg ──────────────────────────────────────────────────────────────────
 
-DEFAULT_SYNTHSEG_OUTPUT = Path(__file__).parent / "data" / "derivatives" / "synthseg"
 
 # Static FreeSurfer label → name mapping for the _dseg.nii.gz sidecar TSV.
 # These are the integer voxel values written into the segmentation labelmap.
@@ -699,16 +698,12 @@ def _partition(items: list, n: int):
 
 
 def main() -> None:
-    default_bids = Path(__file__).parent / "data" / "raw"
-    default_out = Path(__file__).parent / "data" / "processed"
-    default_logs = Path(__file__).parent / "data" / "logs"
-
     parser = argparse.ArgumentParser(description="Anat preprocessing pipeline")
-    parser.add_argument("--bids", default=default_bids, type=Path)
+    parser.add_argument("--bids", default=Path("/data/input"), type=Path)
     parser.add_argument("--subject", default=None, type=str)
-    parser.add_argument("--output", default=default_out, type=Path)
-    parser.add_argument("--log_dir", default=default_logs, type=Path)
-    parser.add_argument("--n_workers", default=48, type=int)
+    parser.add_argument("--output", default=Path("/data/output"), type=Path)
+    parser.add_argument("--log_dir", default=Path("/data/logs"), type=Path)
+    parser.add_argument("--n_workers", default=os.cpu_count() // 2, type=int)
     parser.add_argument("--itk_threads", default=2, type=int)
     parser.add_argument("--template_brain", default=None, type=Path)
     parser.add_argument(
@@ -731,9 +726,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--synthseg_output",
-        default=DEFAULT_SYNTHSEG_OUTPUT,
+        default=None,
         type=Path,
-        help="Output directory for SynthSeg derivatives.",
+        help="Output directory for SynthSeg derivatives (default: <output>/../derivatives/synthseg).",
     )
     parser.add_argument(
         "--synthseg_workers",
@@ -747,10 +742,12 @@ def main() -> None:
     out_dir = args.output.resolve()
     log_dir = args.log_dir.resolve()
     template_brain = (args.template_brain or _get_default_template_brain()).resolve()
-    synthseg_dir = args.synthseg_output.resolve()
+    synthseg_dir = (args.synthseg_output or args.output.parent / "derivatives" / "synthseg").resolve()
 
     for d in (bids_dir, out_dir, log_dir):
         d.mkdir(parents=True, exist_ok=True)
+    if args.synthseg:
+        synthseg_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine SynthSeg worker count: one worker per GPU on a multi-GPU node
     # so each worker is pinned to its own GPU (see _synthseg_pool_init).

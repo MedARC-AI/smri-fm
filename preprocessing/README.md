@@ -44,20 +44,22 @@ Run against a BIDS directory:
 
 ```bash
 docker run --rm --gpus all \
-  -v /path/to/bids:/app/preprocessing/data/raw \
-  -v /path/to/output:/app/preprocessing/data/processed \
-  -v /path/to/logs:/app/preprocessing/data/logs \
+  -v /path/to/bids:/data/input \
+  -v /path/to/output:/data/output \
+  -v /path/to/logs:/data/logs \
   smri-fm-preproc --n_workers 48
 ```
 
-With SynthSeg and a custom derivatives directory:
+With SynthSeg:
 
 ```bash
 docker run --rm --gpus all \
-  -v /path/to/bids:/app/preprocessing/data/raw \
-  -v /path/to/output:/app/preprocessing/data/processed \
-  -v /path/to/logs:/app/preprocessing/data/logs \
-  -v /path/to/derivatives:/app/preprocessing/data/derivatives \
+  -v /path/to/bids:/data/input \
+  -v /path/to/output:/data/output \
+  -v /path/to/logs:/data/logs \
+  -v /path/to/derivatives:/data/derivatives \
   smri-fm-preproc --n_workers 48 --synthseg
 ```
+
+The container defaults to `/data/input`, `/data/output`, and `/data/logs` — just mount your directories there. When `--synthseg` is passed, derivatives land in `/data/derivatives/synthseg` by default (sibling to `output`).
 
