@@ -39,9 +39,17 @@ def _pool_init(log_file: Path, itk_threads: int) -> None:
 
 SUPPORTED_SUFFIXES = ("T1w", "T2w", "FLAIR")
 TEMPLATE_SPACE = "MNI152NLin2009cAsym"
-# TEMPLATEFLOW_HOME=/opt/templateflow is baked into the Docker image at build time.
-DEFAULT_TEMPLATE_DIR = Path("/opt/templateflow") / f"tpl-{TEMPLATE_SPACE}"
-DEFAULT_TEMPLATE_BRAIN = DEFAULT_TEMPLATE_DIR / f"tpl-{TEMPLATE_SPACE}_res-01_desc-brain_T1w.nii.gz"
+
+
+def _get_default_template_brain() -> Path:
+    import templateflow.api as tflow
+
+    return Path(
+        str(tflow.get(TEMPLATE_SPACE, resolution=1, desc="brain", suffix="T1w", extension=".nii.gz"))
+    )
+
+
+DEFAULT_TEMPLATE_BRAIN = None  # resolved lazily in main()
 
 # ── SynthSeg ──────────────────────────────────────────────────────────────────
 
@@ -372,9 +380,7 @@ def _detect_gpu_count() -> int:
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-            capture_output=True,
-            text=True,
-            timeout=5,
+            capture_output=True, text=True, timeout=5,
         )
         return len(result.stdout.strip().splitlines())
     except (subprocess.SubprocessError, FileNotFoundError):
@@ -425,11 +431,10 @@ def run_synthseg(
     cpu_only: bool,
     timeout: float = 600,
 ) -> None:
-    # Use Python 3.12 venv (with TF 2.21 + CUDA 12 + cuDNN 9.x) to call the
-    # mri_synthseg script directly, bypassing FreeSurfer's Python 3.8 which
-    # ships TF 2.12 + cuDNN 8.x and does not support Blackwell (sm_120).
-    # mri_synthseg batch mode requires --i/--o/--vol/--qc to be .txt files
-    # listing one path per line, not direct paths.
+    # Use the venv's Python (with tf-nightly + CUDA 12.8 supporting Blackwell sm_120)
+    # to invoke mri_synthseg. FreeSurfer's bundled Python 3.8 ships TF 2.12 which
+    # cannot use Blackwell GPUs.
+    # Batch mode requires --i/--o/--vol/--qc to be .txt files listing one path per line.
     synthseg_script = Path(os.environ["FREESURFER_HOME"]) / "python" / "scripts" / "mri_synthseg"
 
     tmp_dir = vol_csvs[0].parent
@@ -443,26 +448,18 @@ def run_synthseg(
     qc_txt.write_text("\n".join(str(p) for p in qc_csvs) + "\n")
 
     cmd = [
-        "/opt/venv/bin/python",
-        str(synthseg_script),  # container-specific venv path
-        "--i",
-        str(input_txt),
-        "--o",
-        str(output_txt),
+        "/opt/venv/bin/python", str(synthseg_script),
+        "--i", str(input_txt),
+        "--o", str(output_txt),
         "--parc",
         "--robust",
-        "--vol",
-        str(vol_txt),
-        "--qc",
-        str(qc_txt),
-        "--threads",
-        str(threads),
+        "--vol", str(vol_txt),
+        "--qc", str(qc_txt),
+        "--threads", str(threads),
     ]
     if cpu_only:
         cmd.append("--cpu")
-    # TF_USE_LEGACY_KERAS=1 makes tensorflow.keras use tf-keras (Keras 2)
-    # instead of Keras 3, which is the default in TF 2.16+. mri_synthseg
-    # was written for Keras 2 and fails with Keras 3.
+    # TF_USE_LEGACY_KERAS=1 forces tf-keras (Keras 2); mri_synthseg breaks on Keras 3.
     env = os.environ.copy()
     env["TF_USE_LEGACY_KERAS"] = "1"
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
@@ -713,7 +710,7 @@ def main() -> None:
     parser.add_argument("--log_dir", default=default_logs, type=Path)
     parser.add_argument("--n_workers", default=48, type=int)
     parser.add_argument("--itk_threads", default=2, type=int)
-    parser.add_argument("--template_brain", default=DEFAULT_TEMPLATE_BRAIN, type=Path)
+    parser.add_argument("--template_brain", default=None, type=Path)
     parser.add_argument(
         "--synthseg",
         action="store_true",
@@ -749,7 +746,7 @@ def main() -> None:
     bids_dir = args.bids.resolve()
     out_dir = args.output.resolve()
     log_dir = args.log_dir.resolve()
-    template_brain = args.template_brain.resolve()
+    template_brain = (args.template_brain or _get_default_template_brain()).resolve()
     synthseg_dir = args.synthseg_output.resolve()
 
     for d in (bids_dir, out_dir, log_dir):
@@ -763,7 +760,7 @@ def main() -> None:
     if args.synthseg_workers is not None:
         synthseg_workers = args.synthseg_workers
 
-    log_file = log_dir / "preprocessing.log"
+    log_file = log_dir / "run.log"
     setup_logging(log_file)
 
     if not template_brain.exists():

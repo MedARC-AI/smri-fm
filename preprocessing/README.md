@@ -43,7 +43,7 @@ docker build -f preprocessing/Dockerfile -t smri-fm-preproc .
 Run against a BIDS directory:
 
 ```bash
-docker run --rm \
+docker run --rm --gpus all \
   -v /path/to/bids:/app/preprocessing/data/raw \
   -v /path/to/output:/app/preprocessing/data/processed \
   -v /path/to/logs:/app/preprocessing/data/logs \
@@ -53,7 +53,7 @@ docker run --rm \
 With SynthSeg and a custom derivatives directory:
 
 ```bash
-docker run --rm \
+docker run --rm --gpus all \
   -v /path/to/bids:/app/preprocessing/data/raw \
   -v /path/to/output:/app/preprocessing/data/processed \
   -v /path/to/logs:/app/preprocessing/data/logs \
