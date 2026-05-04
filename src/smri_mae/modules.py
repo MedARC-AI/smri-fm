@@ -36,33 +36,38 @@ class Attention(nn.Module):
         super().__init__()
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        context_dim = context_dim or dim
+        self.is_cross_attn = context_dim is not None
 
-        # using separate q, k, v weights so that xavier init uses the correct dim.
-        # although perhaps technically it should be initialized wrt the head dim..
-        # but this is what original mae does.
-        self.q = nn.Linear(dim, dim, bias=qkv_bias)
-        self.k = nn.Linear(context_dim, dim, bias=qkv_bias)
-        self.v = nn.Linear(context_dim, dim, bias=qkv_bias)
+        if self.is_cross_attn:
+            # cross-attention: Q from x, fused KV from context
+            self.q = nn.Linear(dim, dim, bias=qkv_bias)
+            self.kv = nn.Linear(context_dim, 2 * dim, bias=qkv_bias)
+        else:
+            # self-attention: single fused QKV GEMM
+            self.qkv = nn.Linear(dim, 3 * dim, bias=qkv_bias)
         self.proj = nn.Linear(dim, dim, bias=proj_bias)
 
     def extra_repr(self):
-        return f"num_heads={self.num_heads}"
+        kind = "cross" if self.is_cross_attn else "self"
+        return f"type={kind}, num_heads={self.num_heads}"
 
     def forward(
         self,
         x: Float[Tensor, "B N D"],
         context: Float[Tensor, "B M D"] | None = None,
     ) -> Float[Tensor, "B N D"]:
-        if context is None:
-            context = x
         B, N, D = x.shape
-        _, M, _ = context.shape
-        h = self.num_heads
+        h, dh = self.num_heads, self.head_dim
 
-        q = self.q(x).reshape(B, N, h, D // h).transpose(1, 2)
-        k = self.k(context).reshape(B, M, h, D // h).transpose(1, 2)
-        v = self.v(context).reshape(B, M, h, D // h).transpose(1, 2)
+        if self.is_cross_attn:
+            M = context.shape[1]
+            q = self.q(x).reshape(B, N, h, dh).transpose(1, 2)
+            kv = self.kv(context).reshape(B, M, 2, h, dh).permute(2, 0, 3, 1, 4)
+            k, v = kv.unbind(0)
+        else:
+            qkv = self.qkv(x).reshape(B, N, 3, h, dh).permute(2, 0, 3, 1, 4)
+            q, k, v = qkv.unbind(0)
+
         x = F.scaled_dot_product_attention(q, k, v)
         x = x.transpose(1, 2).reshape(B, N, D)
         x = self.proj(x)
@@ -107,6 +112,7 @@ class Block(nn.Module):
     ) -> None:
         super().__init__()
         self.norm1 = norm_layer(dim)
+        self.norm_context = norm_layer(context_dim) if context_dim is not None else None
         self.attn = Attention(
             dim=dim,
             num_heads=num_heads,
@@ -130,7 +136,7 @@ class Block(nn.Module):
         context: Float[Tensor, "B M D"] | None = None,
     ) -> Float[Tensor, "B N D"]:
         # should the context also be normalized? capi doesn't, so I guess not
-        x = x + self.drop_path1(self.attn(self.norm1(x), context=context))
+        x = x + self.drop_path1(self.attn(self.norm1(x), context=self.norm_context(context) if context is not None else None))
         x = x + self.drop_path2(self.mlp(self.norm2(x)))
         return x
 
