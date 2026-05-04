@@ -261,16 +261,9 @@ def sync_checkpoints_to_r2(args: DictConfig, output_dir: Path) -> None:
         "sync",
         str(output_dir),
         str(r2_sync_url),
-        "--exclude",
-        "*",
-        "--include",
-        "checkpoint-*.pth",
-        "--include",
-        "checkpoint-last.pth",
-        "--delete",
+        "--profile r2"
+        
     ]
-    if r2_sync_profile:
-        cmd.extend(["--profile", str(r2_sync_profile)])
     print(f"syncing checkpoints to R2: {output_dir} -> {r2_sync_url}")
     subprocess.run(cmd, check=True)
 
