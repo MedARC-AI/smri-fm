@@ -171,7 +171,7 @@ class MaskedEncoder(nn.Module):
         Int[Tensor, "B L"] | None,
     ]:
         """
-        x: input data, e.g. shape [B, C, H, W] for image or [B, C, D, H, W] for volume
+        x: input data shape [B, C, D, H, W] 
         mask: visible mask, 1 = visible, 0 = invisible. broadcastable shape
         mask_ratio: mask ratio for uniform random masking
 
@@ -281,23 +281,32 @@ class MaskedDecoder(nn.Module):
             "context projection required except for cross decoding"
         )
 
+        context_dim = embed_dim if context_dim is None else context_dim
         self.cross_decode = cross_decode
+        self.context_dim = context_dim
         self.has_class_token = class_token
         self.no_embed_class = no_embed_class
 
         self.cls_token = nn.Parameter(torch.empty(1, 1, embed_dim)) if class_token else None
-        if not no_embed_class:
-            self.cls_token_pos = nn.Parameter(torch.empty(1, 1, embed_dim)) if class_token else None
-
+        self.cls_token_pos = (
+            nn.Parameter(torch.empty(1, 1, embed_dim))
+            if class_token and not no_embed_class
+            else None
+        )
         self.mask_token = nn.Parameter(torch.empty(1, 1, embed_dim))
 
         # decoder position embedding, encodes query position information into masks
         self.pos_embed = pos_embed
 
-        if context_dim and not no_context_proj:
-            self.proj = nn.Linear(context_dim, embed_dim)
-        else:
-            self.proj = nn.Identity()
+        self.proj = (
+            nn.Identity()
+            if no_context_proj or context_dim == embed_dim
+            else nn.Linear(context_dim, embed_dim)
+        )
+
+        block_context_dim = None
+        if cross_decode:
+            block_context_dim = context_dim if no_context_proj else embed_dim
 
         self.blocks = nn.ModuleList(
             [
@@ -307,9 +316,9 @@ class MaskedDecoder(nn.Module):
                     qkv_bias=qkv_bias,
                     proj_bias=proj_bias,
                     mlp_ratio=mlp_ratio,
-                    context_dim=context_dim if no_context_proj else None,
+                    context_dim=block_context_dim,
                 )
-                for ii in range(depth)
+                for _ in range(depth)
             ]
         )
 
@@ -397,10 +406,11 @@ class MaskedDecoder(nn.Module):
         x = self.cat_tokens(x)
         for block in self.blocks:
             x = block(x, context=context)
+
+        x = self.norm(x)
         _, x = self.chunk_tokens(x)
 
         pred = x[:, pred_offset:]
-        pred = self.norm(pred)
         pred = self.head(pred)
         return pred
 
@@ -511,7 +521,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
             mlp_ratio=mlp_ratio,
             class_token=class_token and not cross_decode,  # cls not active for cross-decode
             no_embed_class=no_embed_class,
-            no_context_proj=cross_decode,  # don't project embeds for cross-decode
+            no_context_proj=False
         )
 
         # mae style target normalization
@@ -922,24 +932,11 @@ def _convert_from_timm(state_dict: dict[str, Tensor]) -> dict[str, Tensor]:
             if reg_tokens:
                 out_dict["reg_token_pos"] = p[:, int(class_token) : num_prefix_tokens, :]
         elif "qkv" in name:
-            q, k, v = p.chunk(3, dim=0)
-            out_dict[name.replace("qkv", "q")] = q
-            out_dict[name.replace("qkv", "k")] = k
-            out_dict[name.replace("qkv", "v")] = v
+            # timm fused qkv maps directly to our fused qkv
+            out_dict[name] = p
         else:
             out_dict[name] = p
     return out_dict
-
-
-def vit_small(**kwargs):
-    model_args = dict(embed_dim=384, depth=12, num_heads=6)
-    return _create_vit(**model_args, **kwargs)
-
-
-def vit_large(**kwargs):
-    model_args = dict(embed_dim=1024, depth=24, num_heads=16)
-    return _create_vit(**model_args, **kwargs)
-
 
 def mae_vit_small(**kwargs):
     model_args = dict(embed_dim=384, depth=12, num_heads=6)
