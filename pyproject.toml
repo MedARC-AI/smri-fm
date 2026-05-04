@@ -27,7 +27,7 @@ dependencies = [
     "seaborn",
     "tabulate",
     "timm",
-    "torch==2.8.0",
+    "torch",
     "torchvision",
     "tqdm",
     "wandb",
