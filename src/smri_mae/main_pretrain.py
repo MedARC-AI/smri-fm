@@ -229,9 +229,9 @@ def create_data_loaders(args: DictConfig):
             collate_fn=collate_fn,
             sampler=sampler,
             shuffle=shuffle,
-            num_workers=args.num_workers
-            if is_train_dataset
-            else args.get("eval_num_workers", args.num_workers),
+            num_workers=args.num_workers,
+            prefetch_factor=args.get("prefetch_factor", 2) if args.num_workers > 0 else None,
+            persistent_workers=args.num_workers > 0,
             pin_memory=True,
             drop_last=True,
         )
@@ -316,10 +316,6 @@ def train_one_epoch(
                 with_state=False,
             )
 
-        loss_value = loss.item()
-        if not math.isfinite(loss_value):
-            raise RuntimeError(f"Loss is {loss_value}, stopping training")
-
         grad_norm = ut.backward_step(
             loss / args.accum_iter,
             optimizer,
@@ -328,20 +324,17 @@ def train_one_epoch(
             max_norm=args.clip_grad,
         )
 
-        metric_logger.update(loss=loss_value)
         if need_update:
-            metric_logger.update(lr=lr)
+            loss_value = loss.item()
+            if not math.isfinite(loss_value):
+                raise RuntimeError(f"Loss is {loss_value}, stopping training")
             grad_norm_value = grad_norm.item()
-            metric_logger.update(grad=grad_norm_value)
-
-        if log_wandb:
-            log_stats = {"train/loss": loss_value}
-            if need_update:
-                log_stats.update({"train/lr": lr, "train/grad": grad_norm_value})
-            wandb.log(log_stats, step=int(1000 * (epoch + batch_step / epoch_num_batches)))
-
-        if device.type == "cuda":
-            torch.cuda.synchronize()
+            metric_logger.update(loss=loss_value, lr=lr, grad=grad_norm_value)
+            if log_wandb:
+                wandb.log(
+                    {"train/loss": loss_value, "train/lr": lr, "train/grad": grad_norm_value},
+                    step=int(1000 * (epoch + batch_step / epoch_num_batches)),
+                )
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
@@ -380,31 +373,28 @@ def evaluate(
         if use_cuda and not args.presend_cuda:
             batch = ut.send_data(batch, device)
 
-            batch_step = batch_idx + 1
+        batch_step = batch_idx + 1
 
-            images = batch["image"]
-            img_mask = batch.get("img_mask")
-            visible_mask = batch["visible_mask"]
+        images = batch["image"]
+        img_mask = batch.get("img_mask")
+        visible_mask = batch["visible_mask"]
 
-            with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=args.amp):
-                loss, state = model(
-                    images,
-                    img_mask=img_mask,
-                    visible_mask=visible_mask,
-                    mask_ratio=args.mask_ratio,
-                    pred_mask_ratio=args.pred_mask_ratio,
-                )
+        with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=args.amp):
+            loss, state = model(
+                images,
+                img_mask=img_mask,
+                visible_mask=visible_mask,
+                mask_ratio=args.mask_ratio,
+                pred_mask_ratio=args.pred_mask_ratio,
+            )
 
-            metric_logger.update(loss=loss)
+        metric_logger.update(loss=loss)
 
-            if batch_step == example_step:
-                example_data = {
-                    "batch": ut.send_data(batch, "cpu"),
-                    "state": ut.send_data(state, "cpu"),
-                }
-
-            if device.type == "cuda":
-                torch.cuda.synchronize()
+        if batch_step == example_step:
+            example_data = {
+                "batch": ut.send_data(batch, "cpu"),
+                "state": ut.send_data(state, "cpu"),
+            }
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()

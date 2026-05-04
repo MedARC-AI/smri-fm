@@ -72,8 +72,8 @@ eval_datasets:
   - aabc_val
 
 # Data loader.
-num_workers: 4
-eval_num_workers: 0
+num_workers: 8
+prefetch_factor: 4
 presend_cuda: false
 
 # Optimization.
@@ -91,7 +91,7 @@ clip_grad: 1.0
 amp: true
 amp_dtype: bfloat16
 
-compile: false
+compile: true
 
 # Checkpointing.
 ckpt: null
