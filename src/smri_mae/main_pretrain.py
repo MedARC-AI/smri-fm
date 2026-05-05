@@ -79,7 +79,7 @@ def main(args: DictConfig):
     print("config:", OmegaConf.to_yaml(args), sep="\n")
 
     # data loaders
-    train_loader, eval_loaders = create_data_loaders(args)
+    train_loader, eval_loaders, mask_fn = create_data_loaders(args)
 
     # model
     model = MODELS_DICT[args.model](
@@ -155,6 +155,7 @@ def main(args: DictConfig):
             lr_schedule,
             epoch,
             device,
+            mask_fn=mask_fn,
         )
 
         eval_stats = {}
@@ -167,6 +168,7 @@ def main(args: DictConfig):
                 epoch,
                 device,
                 eval_name=name,
+                mask_fn=mask_fn,
             )
             eval_stats.update(stats)
             eval_plots.update(plots)
@@ -202,7 +204,8 @@ def create_data_loaders(args: DictConfig):
     print("mask generator:", mask_fn, sep="\n")
 
     # mask collate needed even if mask_fn is None to pad the masks to the right shape
-    collate_fn = partial(masking.mask_collate, mask_fn=mask_fn)
+    # masking is deferred to the training loop so it runs on GPU
+    collate_fn = partial(masking.mask_collate, mask_fn=None)
 
     data_loaders = {}
     dataset_names = [args.train_dataset] + args.eval_datasets
@@ -217,6 +220,8 @@ def create_data_loaders(args: DictConfig):
         if dataset_type == "vol-wds":
             samples_per_epoch = dataset_config.pop("samples_per_epoch")
             dataset = mri_data.make_mri_wds_dataset(img_size=args.img_size, **dataset_config)
+            # batch and collate inside workers so the main thread receives pre-assembled batches
+            dataset = dataset.batched(args.batch_size, collation_fn=collate_fn, partial=False)
             sampler = None
             # the shuffle happens inside the dataset with a buffer.
             shuffle = False
@@ -225,15 +230,15 @@ def create_data_loaders(args: DictConfig):
 
         loader = WebLoader(
             dataset,
-            batch_size=args.batch_size,
-            collate_fn=collate_fn,
+            batch_size=None,
+            collate_fn=None,
             sampler=sampler,
             shuffle=shuffle,
             num_workers=args.num_workers,
             prefetch_factor=args.get("prefetch_factor", 2) if args.num_workers > 0 else None,
             persistent_workers=args.num_workers > 0,
             pin_memory=True,
-            drop_last=True,
+            drop_last=False,
         )
 
         # setting the epoch length is needed for infinite wds loaders
@@ -244,7 +249,7 @@ def create_data_loaders(args: DictConfig):
         data_loaders[dataset_name] = loader
 
     train_loader = data_loaders.pop(args.train_dataset)
-    return train_loader, data_loaders
+    return train_loader, data_loaders, mask_fn
 
 
 def sync_checkpoints_to_r2(args: DictConfig, output_dir: Path) -> None:
@@ -266,6 +271,7 @@ def train_one_epoch(
     lr_schedule: Sequence[float],
     epoch: int,
     device: torch.device,
+    mask_fn: masking.PatchMasking | None = None,
 ):
     model.train()
 
@@ -302,9 +308,9 @@ def train_one_epoch(
         if need_update:
             ut.update_lr(optimizer.param_groups, lr)
 
-        images = batch["image"]
+        images = batch["image"].float()
         img_mask = batch.get("img_mask")
-        visible_mask = batch["visible_mask"]
+        visible_mask = mask_fn(img_mask).unsqueeze(1) if mask_fn is not None else batch.get("visible_mask")
 
         with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=args.amp):
             loss = model(
@@ -350,6 +356,7 @@ def evaluate(
     epoch: int,
     device: torch.device,
     eval_name: str,
+    mask_fn: masking.PatchMasking | None = None,
 ):
     model.eval()
 
@@ -375,9 +382,9 @@ def evaluate(
 
         batch_step = batch_idx + 1
 
-        images = batch["image"]
+        images = batch["image"].float()
         img_mask = batch.get("img_mask")
-        visible_mask = batch["visible_mask"]
+        visible_mask = mask_fn(img_mask).unsqueeze(1) if mask_fn is not None else batch.get("visible_mask")
 
         with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=args.amp):
             loss, state = model(

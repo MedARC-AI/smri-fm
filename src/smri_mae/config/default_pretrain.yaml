@@ -49,22 +49,25 @@ model_kwargs:
 datasets:
   aabc_train:
     type: vol-wds
-    url: datasets/aabc/aabc-{000000..000308}.tar
+    url: datasets/aabc/prepped/aabc-{000000..000327}.tar
     shuffle: true
     buffer_size: 1000
     samples_per_epoch: 10000
+    preprocessed: true
 
   aabc_train_subset:
     type: vol-wds
-    url: datasets/aabc/aabc-000000.tar
+    url: datasets/aabc/prepped/aabc-000000.tar
     shuffle: false
     samples_per_epoch: 16
+    preprocessed: true
 
   aabc_val:
     type: vol-wds
-    url: datasets/aabc/aabc-000309.tar
+    url: datasets/aabc/prepped/aabc-000327.tar
     shuffle: false
     samples_per_epoch: 16
+    preprocessed: true
 
 train_dataset: aabc_train
 eval_datasets:
@@ -74,12 +77,12 @@ eval_datasets:
 # Data loader.
 num_workers: 8
 prefetch_factor: 4
-presend_cuda: false
+presend_cuda: true
 
 # Optimization.
 epochs: 400
-batch_size: 1
-accum_iter: 16
+batch_size: 16
+accum_iter: 4
 
 base_lr: 0.003
 min_lr: 1e-6
@@ -91,7 +94,7 @@ clip_grad: 1.0
 amp: true
 amp_dtype: bfloat16
 
-compile: true
+compile: false
 
 # Checkpointing.
 ckpt: null
