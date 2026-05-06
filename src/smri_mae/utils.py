@@ -461,30 +461,29 @@ def update_wd(param_groups, weight_decay: float | None = None):
 # added device argument
 
 
-def send_data(x, device=None):
+def send_data(x, device=None, dtype_map=None):
     if device is None:
         device = torch.device("cuda")
     else:
         device = torch.device(device)
 
     if isinstance(x, torch.Tensor):
-        x = x.to(device=device, non_blocking=True)
-        return x
+        dtype = dtype_map.get(x.dtype) if dtype_map else None
+        return x.to(device=device, dtype=dtype, non_blocking=True)
     if isinstance(x, dict):
-        return {k: send_data(v, device=device) for k, v in x.items()}
+        return {k: send_data(v, device=device, dtype_map=dtype_map) for k, v in x.items()}
     if isinstance(x, list):
-        return [send_data(v, device=device) for v in x]
+        return [send_data(v, device=device, dtype_map=dtype_map) for v in x]
     return x
 
 
-def pre_send_to_cuda_wrapper(generator, device=None):
+def pre_send_to_cuda_wrapper(generator, device=None, dtype_map=None):
     """From apex"""
     data = None
     stream = torch.cuda.Stream(device)
     for next_data in generator:
-        # Move to GPU
         with torch.cuda.stream(stream):
-            next_data = send_data(next_data, device=device)
+            next_data = send_data(next_data, device=device, dtype_map=dtype_map)
         if data is not None:
             yield data
         torch.cuda.current_stream(device).wait_stream(stream)

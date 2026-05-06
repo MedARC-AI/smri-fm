@@ -27,6 +27,14 @@ _version.py
 /DLBS/
 /BrainIAC/
 *.tar
+*.npy
+/datasets/aabc/files/
+*.pth
+
+#Heavy dir
+checkpoints/
+checkpoints_tmp/
+wandb/
 
 # Local scratch/tmp
 .scratch

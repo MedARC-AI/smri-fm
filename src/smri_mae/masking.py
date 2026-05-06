@@ -8,18 +8,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.utils.data import default_collate
 from jaxtyping import Float, Int
 from .modules import Patchify3D
 from .utils import filter_kwargs
 
 
-class PatchMasking(nn.Module):
+class RandomMasking(nn.Module):
     def __init__(
         self,
-        mask_ratio: float,
-        img_size: int | tuple[int, ...],
-        patch_size: int | tuple[int, ...],
+        mask_ratio: float = 0.0,
+        img_size: int | tuple[int, ...] = (208, 240, 208),
+        patch_size: int | tuple[int, ...] = 16,
     ):
         super().__init__()
         self.mask_ratio = mask_ratio
@@ -32,73 +31,44 @@ class PatchMasking(nn.Module):
     def extra_repr(self):
         return f"mask_ratio={self.mask_ratio}"
 
-    def _prepare_img_mask(
-        self,
-        img_mask: Tensor | None = None,
-        device: torch.device | None = None,
-    ) -> tuple[Tensor, bool]:
-        single_sample = True
-        if img_mask is None:
-            img_mask = torch.ones((1, 1, *self.img_size), device=device)
-        else:
-            img_mask = img_mask.to(device=device) if device is not None else img_mask
-            spatial_ndim = len(self.img_size)
-            single_sample = img_mask.ndim == spatial_ndim
-            if img_mask.ndim == spatial_ndim:
-                img_mask = img_mask.reshape(1, 1, *img_mask.shape)
-            elif img_mask.ndim == spatial_ndim + 1:
-                img_mask = img_mask.unsqueeze(1)
-            elif img_mask.ndim != spatial_ndim + 2:
-                raise ValueError(
-                    f"expected mask with {spatial_ndim}, {spatial_ndim + 1}, "
-                    f"or {spatial_ndim + 2} dims, got shape {tuple(img_mask.shape)}"
-                )
-            img_mask = img_mask.expand((img_mask.shape[0], 1, *self.img_size))
-        return img_mask, single_sample
-
-    def _patch_mask_from_img_mask(self, img_mask: Tensor) -> tuple[Tensor, Tensor]:
+    def patch_mask_from_img_mask(self, img_mask: Tensor) -> Tensor:
+        if img_mask.shape[2:] != self.img_size:
+            raise ValueError(
+                f"expected mask spatial shape {self.img_size}, got {tuple(img_mask.shape)}"
+            )
         mask_patches = self.patchify(img_mask)
-        patch_mask = mask_patches.any(dim=-1)
-        return patch_mask, mask_patches
+        return mask_patches.any(dim=-1)
 
-    def _num_keep(self, valid_patch_mask: Tensor) -> int:
-        min_count = valid_patch_mask.sum(dim=1).min()
-        return int((1 - self.mask_ratio) * min_count.item())
-
-    def _unpatchify_patch_mask(
-        self,
-        patch_mask: Tensor,
-        mask_patches: Tensor,
-        single_sample: bool,
-    ) -> Tensor:
-        mask_patches = patch_mask.to(mask_patches.dtype).unsqueeze(-1).expand_as(mask_patches)
-        mask = self.patchify.unpatchify(mask_patches)
-        mask = mask[:, 0]  # [B, D, H, W]
-        if single_sample:
-            mask = mask[0]
+    def patch_mask_to_volume(self, patch_mask: Tensor) -> Tensor:
+        patch_mask_patches = patch_mask.bool().unsqueeze(-1).expand(-1, -1, self.patchify.patch_dim)
+        mask = self.patchify.unpatchify(patch_mask_patches)[:, 0]
         return mask
 
-
-class RandomMasking(PatchMasking):
     def forward(
         self,
-        img_mask: Tensor | None = None,
+        img_mask: Tensor,
         device: torch.device | None = None,
     ) -> Tensor:
-        img_mask, single_sample = self._prepare_img_mask(img_mask, device=device)
-        patch_mask, mask_patches = self._patch_mask_from_img_mask(img_mask)
-        patch_mask, _ = trim_patch_mask(
-            patch_mask.float(), mask_ratio=self.mask_ratio, shuffle=True
-        )
-        return self._unpatchify_patch_mask(patch_mask, mask_patches, single_sample)
+        img_mask = img_mask.to(device=device)
+        if img_mask.shape[2:] != self.img_size:
+            raise ValueError(
+                f"expected mask spatial shape {self.img_size}, got {tuple(img_mask.shape)}"
+            )
+
+        mask_patches = self.patchify(img_mask)
+        patch_mask = mask_patches.any(dim=-1)
+        patch_mask, _ = trim_patch_mask(patch_mask.float(), self.mask_ratio, shuffle=True)
+        mask_patches = mask_patches * patch_mask.to(mask_patches.dtype).unsqueeze(-1)
+        mask = self.patchify.unpatchify(mask_patches)
+        return mask[:, 0]  # [B, D, H, W]
 
 
-class BlockMasking(PatchMasking):
+class BlockMasking(RandomMasking):
     def __init__(
         self,
-        mask_ratio: float,
-        img_size: int | tuple[int, ...],
-        patch_size: int | tuple[int, ...],
+        mask_ratio: float = 0.0,
+        img_size: int | tuple[int, ...] = (208, 240, 208),
+        patch_size: int | tuple[int, ...] = 16,
         block_size: int | tuple[int, int, int] = (2, 2, 2),
         max_block_attempts: int = 1_000,
     ):
@@ -114,23 +84,36 @@ class BlockMasking(PatchMasking):
             f"max_block_attempts={self.max_block_attempts}"
         )
 
+    def _num_keep(self, valid_patch_mask: Tensor) -> int:
+        min_count = valid_patch_mask.sum(dim=1).min()
+        num_keep = int((1 - self.mask_ratio) * valid_patch_mask.shape[1])
+        return int(min_count.clamp(max=num_keep).item())
+
     def forward(
         self,
-        img_mask: Tensor | None = None,
+        img_mask: Tensor,
         device: torch.device | None = None,
     ) -> Tensor:
-        img_mask, single_sample = self._prepare_img_mask(img_mask, device=device)
-        valid_patch_mask, mask_patches = self._patch_mask_from_img_mask(img_mask)
+        img_mask = img_mask.to(device=device)
+        if img_mask.shape[2:] != self.img_size:
+            raise ValueError(
+                f"expected mask spatial shape {self.img_size}, got {tuple(img_mask.shape)}"
+            )
+
+        mask_patches = self.patchify(img_mask)
+        valid_patch_mask = mask_patches.any(dim=-1)
         visible_patch_mask = self._visible_patch_mask(valid_patch_mask)
-        return self._unpatchify_patch_mask(visible_patch_mask, mask_patches, single_sample)
+        mask_patches = mask_patches * visible_patch_mask.to(mask_patches.dtype).unsqueeze(-1)
+        mask = self.patchify.unpatchify(mask_patches)
+        return mask[:, 0]  # [B, D, H, W]
 
     def _visible_patch_mask(self, valid_patch_mask: Tensor) -> Tensor:
-        len_keep = self._num_keep(valid_patch_mask)
+        num_keep = self._num_keep(valid_patch_mask)
         masked_patch_mask = torch.zeros_like(valid_patch_mask, dtype=torch.bool)
         valid_counts = valid_patch_mask.sum(dim=1)
 
         for batch_idx in range(valid_patch_mask.shape[0]):
-            num_masked = int(valid_counts[batch_idx].item()) - len_keep
+            num_masked = int(valid_counts[batch_idx].item()) - num_keep
             valid_grid = valid_patch_mask[batch_idx].reshape(self.grid_size)
             masked_grid = self._sample_block_mask(valid_grid, num_masked)
             masked_patch_mask[batch_idx] = masked_grid.flatten()
@@ -186,9 +169,9 @@ class BlockMasking(PatchMasking):
 class HybridMasking(BlockMasking):
     def __init__(
         self,
-        mask_ratio: float,
-        img_size: int | tuple[int, ...],
-        patch_size: int | tuple[int, ...],
+        mask_ratio: float = 0.0,
+        img_size: int | tuple[int, ...] = (208, 240, 208),
+        patch_size: int | tuple[int, ...] = 16,
         block_size: int | tuple[int, int, int] = (2, 2, 2),
         random_fraction: float = 0.5,
         block_fraction: float = 0.5,
@@ -216,13 +199,13 @@ class HybridMasking(BlockMasking):
         )
 
     def _visible_patch_mask(self, valid_patch_mask: Tensor) -> Tensor:
-        len_keep = self._num_keep(valid_patch_mask)
+        num_keep = self._num_keep(valid_patch_mask)
         masked_patch_mask = torch.zeros_like(valid_patch_mask, dtype=torch.bool)
         valid_counts = valid_patch_mask.sum(dim=1)
         fraction_sum = self.random_fraction + self.block_fraction
 
         for batch_idx in range(valid_patch_mask.shape[0]):
-            total_masked = int(valid_counts[batch_idx].item()) - len_keep
+            total_masked = int(valid_counts[batch_idx].item()) - num_keep
             num_random_masked = round(total_masked * self.random_fraction / fraction_sum)
             num_block_masked = total_masked - num_random_masked
 
@@ -266,7 +249,7 @@ MASKING_DICT = {
 }
 
 
-def create_masking(name: str, **kwargs) -> PatchMasking:
+def create_masking(name: str, **kwargs) -> RandomMasking:
     if name not in MASKING_DICT:
         valid = ", ".join(sorted(MASKING_DICT))
         raise ValueError(f"Unknown masking mode {name!r}. Available modes: {valid}.")
@@ -276,56 +259,9 @@ def create_masking(name: str, **kwargs) -> PatchMasking:
     return mask_fn
 
 
-def mask_collate(
-    samples: list[dict[str, Tensor]], *, mask_fn: PatchMasking | None = None
-) -> dict[str, Tensor]:
-    """
-    Generates a visible mask for each sample, and pads the shape with singleton
-    dimensions for batching.
-    """
-    for sample in samples:
-        image = sample["image"]
-        img_mask = sample.get("img_mask")
-        if img_mask is not None:
-            sample["img_mask"] = _unsqueeze_as(img_mask, image)
-    metas = [sample.pop("meta", None) for sample in samples]
-    batch = default_collate(samples)
-    if mask_fn is not None:
-        img_mask = batch.get("img_mask")
-        if img_mask is None:
-            img_mask = torch.ones(
-                (batch["image"].shape[0], *mask_fn.img_size),
-                dtype=batch["image"].dtype,
-                device=batch["image"].device,
-            )
-        visible_mask = mask_fn(img_mask)
-        batch["visible_mask"] = _unsqueeze_batch_mask_as(visible_mask, batch["image"])
-    if any(meta is not None for meta in metas):
-        batch["meta"] = metas
-    return batch
-
-
-def _unsqueeze_as(x: Tensor, other: Tensor) -> Tensor:
-    assert other.ndim >= x.ndim
-    x = x.reshape((1,) * (other.ndim - x.ndim) + x.shape)
-    return x
-
-
-def _unsqueeze_batch_mask_as(x: Tensor, other: Tensor) -> Tensor:
-    spatial_ndim = other.ndim - 2
-    if x.ndim == spatial_ndim:
-        x = x.reshape(1, 1, *x.shape)
-    elif x.ndim == spatial_ndim + 1:
-        x = x.unsqueeze(1)
-    elif x.ndim != spatial_ndim + 2:
-        raise ValueError(f"cannot broadcast mask shape {tuple(x.shape)} to {tuple(other.shape)}")
-    return x
-
-
 def trim_patch_mask(
     patch_mask: Float[Tensor, "B N"],
-    mask_ratio: float | None = None,
-    len_keep: int | None = None,
+    mask_ratio: float,
     shuffle: bool = False,
     generator: torch.Generator | None = None,
 ) -> tuple[Float[Tensor, "B N"], Int[Tensor, "B L"]]:
@@ -333,7 +269,6 @@ def trim_patch_mask(
     Trim a batch of patch masks to the same number of patches.
     Kept patches are selected randomly (shuffle=True) or sequentially (shuffle=False).
     """
-    assert not (mask_ratio and len_keep), "can't set both mask_ratio and len_keep"
     B, N = patch_mask.shape
     device = patch_mask.device
 
@@ -345,14 +280,12 @@ def trim_patch_mask(
         patch_mask = patch_mask.gather(1, shuffle_ids)
 
     # all masks trimmed to have the same size, no bigger than the smallest mask
+    num_keep = int((1 - mask_ratio) * N)
     min_count = patch_mask.sum(dim=1).min()
-    if mask_ratio is not None:
-        len_keep = int((1 - mask_ratio) * min_count.item())
-    else:
-        len_keep = min_count if len_keep is None else min_count.clamp(max=len_keep)
+    num_keep = min_count.clamp(max=num_keep)
 
     # discard extra patches
-    patch_mask = patch_mask * (patch_mask.cumsum(dim=1) <= len_keep)
+    patch_mask = patch_mask * (patch_mask.cumsum(dim=1) <= num_keep)
 
     # shuffle patches back to original order
     if shuffle:

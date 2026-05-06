@@ -27,6 +27,26 @@ def fig2pil(fig) -> Image.Image:
     return image
 
 
+def raw_stats_from_batch(batch: dict) -> tuple[Tensor | None, Tensor | None]:
+    metas = batch.get("meta")
+    if not metas:
+        return None, None
+
+    means = []
+    stds = []
+    for meta in metas:
+        try:
+            mean = meta["raw_mean"]
+            std = meta["raw_std"]
+        except (KeyError, TypeError):
+            return None, None
+        if mean in ("", None) or std in ("", None):
+            return None, None
+        means.append(float(mean))
+        stds.append(float(std))
+    return torch.tensor(means), torch.tensor(stds)
+
+
 def plot_mask_pred(
     target: Tensor,
     pred: Tensor,
@@ -41,11 +61,18 @@ def plot_mask_pred(
     cmap: str = "gray",
     figsize: tuple[float, float] | None = None,
     mask_style: str = "blank",
+    raw_mean: float | Tensor | None = None,
+    raw_std: float | Tensor | None = None,
 ):
     del visible_mask
 
     target_vol = _select_volume(target, sample_idx=sample_idx, channel_idx=channel_idx)
     pred_vol = _select_volume(pred, sample_idx=sample_idx, channel_idx=channel_idx)
+    if raw_mean is not None and raw_std is not None:
+        raw_mean = _select_scalar(raw_mean, sample_idx=sample_idx)
+        raw_std = _select_scalar(raw_std, sample_idx=sample_idx)
+        target_vol = target_vol * raw_std + raw_mean
+        pred_vol = pred_vol * raw_std + raw_mean
     pred_mask_vol = (
         torch.zeros_like(target_vol)
         if pred_mask is None
@@ -85,18 +112,19 @@ def plot_mask_pred(
 
     _crop_view_items(view_items)
 
-    fig, axes = _make_figure_canvas(view_items, figsize=figsize)
-    fig.text(0.055, 0.74, "Masked", ha="right", va="center", color="#cbd5e1", fontsize=6)
-    fig.text(
-        0.055,
-        0.43,
-        "Pred",
-        ha="right",
-        va="center",
-        color="#cbd5e1",
-        fontsize=6,
-    )
-    fig.text(0.055, 0.13, "Actual", ha="right", va="center", color="#cbd5e1", fontsize=6)
+    fig, axes, layout = _make_figure_canvas(view_items, figsize=figsize)
+    for item, x in zip(view_items, layout["col_centers"]):
+        fig.text(
+            x,
+            layout["title_y"],
+            item["title"],
+            ha="center",
+            va="center",
+            color="#f8fafc",
+            fontsize=7,
+        )
+    for label, y in zip(("Masked", "Pred", "Actual"), layout["row_centers"]):
+        fig.text(layout["label_x"], y, label, ha="right", va="center", color="#cbd5e1", fontsize=6)
 
     for item, top_ax, middle_ax, bottom_ax in zip(view_items, axes[0], axes[1], axes[2]):
         top_ax.imshow(
@@ -111,7 +139,6 @@ def plot_mask_pred(
             _draw_patch_boxes(top_ax, item["mask"], item["patch_rc"])
         elif mask_style != "blank":
             raise ValueError("mask_style must be 'blank' or 'boxes'")
-        top_ax.set_title(item["title"], color="#f8fafc", fontsize=7, pad=2)
         _style_axis(top_ax)
 
         middle_ax.imshow(
@@ -149,6 +176,15 @@ def _select_volume(
     if x.ndim == 3:
         return x
     raise ValueError(f"expected a 3D volume tensor, got shape {tuple(x.shape)}")
+
+
+def _select_scalar(value: float | Tensor, sample_idx: int = 0) -> float:
+    if isinstance(value, Tensor):
+        value = value.detach().float().cpu()
+        if value.ndim > 0:
+            value = value.reshape(-1)[sample_idx]
+        return float(value)
+    return float(value)
 
 
 def _central_slice(
@@ -239,6 +275,33 @@ def _masked_input_display(
     return _apply_display_mask(display, img_mask, fill_value)
 
 
+def _crop_view_items(view_items: list[dict]) -> None:
+    for item in view_items:
+        mask = item["img_mask"]
+        if mask is None:
+            mask = item["actual"] != item["actual"].min()
+        row_slice, col_slice = _content_crop(mask, item["patch_rc"])
+        for key in ("target", "composite", "actual", "mask"):
+            item[key] = item[key][row_slice, col_slice]
+        if item["img_mask"] is not None:
+            item["img_mask"] = item["img_mask"][row_slice, col_slice]
+
+
+def _content_crop(mask: Tensor, patch_size: tuple[int, int]) -> tuple[slice, slice]:
+    mask = mask.detach().cpu() > 0
+    if not mask.any():
+        return slice(None), slice(None)
+
+    rows, cols = mask.nonzero(as_tuple=True)
+    patch_h, patch_w = patch_size
+    height, width = mask.shape
+    row0 = max((int(rows.min()) // patch_h - 1) * patch_h, 0)
+    row1 = min((int(rows.max()) // patch_h + 2) * patch_h, height)
+    col0 = max((int(cols.min()) // patch_w - 1) * patch_w, 0)
+    col1 = min((int(cols.max()) // patch_w + 2) * patch_w, width)
+    return slice(row0, row1), slice(col0, col1)
+
+
 def _as_3tuple(value: int | tuple[int, int, int]) -> tuple[int, int, int]:
     if isinstance(value, int):
         return (value, value, value)
@@ -272,8 +335,9 @@ def _make_figure_canvas(
     widths = [int(item["target"].shape[1]) for item in view_items]
     heights = [int(item["target"].shape[0]) for item in view_items]
     row_h = max(heights)
+    num_rows = 3
     fig_w = left + right + sum(widths) + col_gap * (len(widths) - 1)
-    fig_h = top + bottom + row_h * 2 + row_gap
+    fig_h = top + bottom + row_h * num_rows + row_gap * (num_rows - 1)
 
     scale = 1.35
     if figsize is not None:
@@ -283,12 +347,16 @@ def _make_figure_canvas(
     figsize = (fig_w * scale / dpi, fig_h * scale / dpi)
     fig = plt.figure(figsize=figsize, dpi=dpi, facecolor="#0b0f14")
 
-    axes = [[], []]
+    axes = [[] for _ in range(num_rows)]
+    col_centers = []
     x = left
     for width, height in zip(widths, heights):
-        top_y = bottom + row_h + row_gap + (row_h - height) / 2
-        bottom_y = bottom + (row_h - height) / 2
-        for row, y in enumerate((top_y, bottom_y)):
+        col_centers.append((x + width / 2) / fig_w)
+        ys = [
+            bottom + (num_rows - row - 1) * (row_h + row_gap) + (row_h - height) / 2
+            for row in range(num_rows)
+        ]
+        for row, y in enumerate(ys):
             axes[row].append(
                 fig.add_axes(
                     [
@@ -301,7 +369,18 @@ def _make_figure_canvas(
                 )
             )
         x += width + col_gap
-    return fig, axes
+    row_centers = [
+        (bottom + (num_rows - row - 1) * (row_h + row_gap) + row_h / 2) / fig_h
+        for row in range(num_rows)
+    ]
+    layout = {
+        "col_centers": col_centers,
+        "row_centers": row_centers,
+        "label_x": (left - 8) / fig_w,
+        "title_y": (fig_h - top / 2) / fig_h,
+    }
+
+    return fig, axes, layout
 
 
 def _style_axis(ax) -> None:

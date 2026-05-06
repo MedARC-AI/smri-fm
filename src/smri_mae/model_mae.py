@@ -219,7 +219,9 @@ class MaskedEncoder(nn.Module):
             # grid order. (nb as a hack you can set mask_ratio=0.0 to get random instead of
             # trailing trim.)
             patch_mask, mask_ids = trim_patch_mask(
-                patch_mask, mask_ratio=mask_ratio, shuffle=mask_ratio is not None
+                patch_mask,
+                mask_ratio=0.0 if mask_ratio is None else mask_ratio,
+                shuffle=mask_ratio is not None,
             )
             mask_patches = mask_patches * patch_mask.unsqueeze(-1)
             # nb, unnecessary computation for convenience
@@ -619,7 +621,9 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         # trim prediction patches
         pred_patch_mask = pred_mask_patches.any(dim=-1).to(pred_mask.dtype)
         pred_patch_mask, pred_ids = trim_patch_mask(
-            pred_patch_mask, mask_ratio=pred_mask_ratio, shuffle=pred_mask_ratio is not None
+            pred_patch_mask,
+            mask_ratio=0.0 if pred_mask_ratio is None else pred_mask_ratio,
+            shuffle=pred_mask_ratio is not None,
         )
         pred_mask_patches = pred_mask_patches * pred_patch_mask.unsqueeze(-1)
         B, Q = pred_ids.shape

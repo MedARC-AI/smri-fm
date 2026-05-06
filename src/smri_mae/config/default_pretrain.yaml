@@ -13,10 +13,22 @@ img_size: [208, 240, 208]
 patch_size: 16
 
 # Masking.
-mask_ratio: 0.75
+mask_ratio: 0.8
 pred_mask_ratio: null
 masking: random
 masking_kwargs: {}
+
+# Train-time MRI augmentation. Applied once per loaded train volume before
+# masking. Evaluation stays unaugmented.
+augmentation:
+  enabled: true
+  pad_range: [4, 8]
+  scale: [0.9, 1.1]
+  shift: [-0.1, 0.1]
+  noise_std: [0.0, 0.03]
+  blur:
+    p: 0.1
+    sigma: [0.3, 0.6]
 
 # Hybrid 3D masking example.
 # masking: hybrid
@@ -48,30 +60,25 @@ model_kwargs:
 # Datasets.
 datasets:
   aabc_train:
-    type: vol-wds
-    url: datasets/aabc/prepped/aabc-{000000..000327}.tar
+    local: datasets/aabc/mds
+    split: train
+    batch_size: 64
     shuffle: true
-    buffer_size: 1000
-    samples_per_epoch: 10000
-    preprocessed: true
-
-  aabc_train_subset:
-    type: vol-wds
-    url: datasets/aabc/prepped/aabc-000000.tar
-    shuffle: false
-    samples_per_epoch: 16
-    preprocessed: true
+    shuffle_seed: 7338
+    epoch_size: 10000
+    shuffle_block_size: 1000
+    drop_last: true
 
   aabc_val:
-    type: vol-wds
-    url: datasets/aabc/prepped/aabc-000327.tar
+    local: datasets/aabc/mds
+    split: val
+    batch_size: 64
     shuffle: false
-    samples_per_epoch: 16
-    preprocessed: true
+    shuffle_seed: 7338
+    drop_last: false
 
 train_dataset: aabc_train
 eval_datasets:
-  - aabc_train_subset
   - aabc_val
 
 # Data loader.
@@ -79,10 +86,13 @@ num_workers: 8
 prefetch_factor: 4
 presend_cuda: true
 
+# Synchronizing step profiler. Set to a small value, e.g. 10, for bottleneck checks.
+profile_steps: 10
+
 # Optimization.
 epochs: 400
-batch_size: 16
-accum_iter: 4
+batch_size: 64
+accum_iter: 1
 
 base_lr: 0.003
 min_lr: 1e-6
@@ -113,6 +123,6 @@ seed: 7338
 eval_seed: 7338
 debug: false
 
-wandb: false
+wandb: true
 wandb_entity: null
 wandb_project: smri-fm

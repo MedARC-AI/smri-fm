@@ -9,8 +9,6 @@ description = "MedARC sMRI foundation model"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
-    "braceexpand",
-    "cloudpathlib",
     "einops",
     "huggingface-hub",
     "ipython",
@@ -31,7 +29,7 @@ dependencies = [
     "torchvision",
     "tqdm",
     "wandb",
-    "webdataset",
+    "mosaicml-streaming",
 ]
 
 [project.optional-dependencies]
