@@ -158,6 +158,10 @@ class Patchify3D(nn.Module):
 
         T, H, W = self.img_size
         p_t, p_h, p_w = self.patch_size
+        if T % p_t or H % p_h or W % p_w:
+            raise ValueError(
+                f"img_size {self.img_size} must be divisible by patch_size {self.patch_size}"
+            )
         self.grid_size = (T // p_t, H // p_h, W // p_w)
         self.num_patches = math.prod(self.grid_size)
         self.patch_dim = in_chans * math.prod(self.patch_size)
