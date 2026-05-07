@@ -44,6 +44,17 @@ class RandomMasking(nn.Module):
         mask = self.patchify.unpatchify(patch_mask_patches)[:, 0]
         return mask
 
+    def visible_patch_mask_from_valid(
+        self,
+        valid_patch_mask: Tensor,
+    ) -> tuple[Tensor, Tensor]:
+        visible_patch_mask, visible_ids = trim_patch_mask(
+            valid_patch_mask.float(),
+            self.mask_ratio,
+            shuffle=True,
+        )
+        return visible_patch_mask.bool(), visible_ids
+
     def forward(
         self,
         img_mask: Tensor,
@@ -86,8 +97,7 @@ class BlockMasking(RandomMasking):
 
     def _num_keep(self, valid_patch_mask: Tensor) -> int:
         min_count = valid_patch_mask.sum(dim=1).min()
-        num_keep = int((1 - self.mask_ratio) * valid_patch_mask.shape[1])
-        return int(min_count.clamp(max=num_keep).item())
+        return int((1 - self.mask_ratio) * min_count.item())
 
     def forward(
         self,
@@ -119,6 +129,17 @@ class BlockMasking(RandomMasking):
             masked_patch_mask[batch_idx] = masked_grid.flatten()
 
         return valid_patch_mask & ~masked_patch_mask
+
+    def visible_patch_mask_from_valid(
+        self,
+        valid_patch_mask: Tensor,
+    ) -> tuple[Tensor, Tensor]:
+        visible_patch_mask = self._visible_patch_mask(valid_patch_mask.bool())
+        visible_ids = visible_patch_mask.nonzero(as_tuple=False)[:, 1].reshape(
+            valid_patch_mask.shape[0],
+            -1,
+        )
+        return visible_patch_mask, visible_ids
 
     def _sample_block_mask(
         self,
@@ -279,10 +300,9 @@ def trim_patch_mask(
         restore_ids = torch.argsort(shuffle_ids, dim=1)
         patch_mask = patch_mask.gather(1, shuffle_ids)
 
-    # all masks trimmed to have the same size, no bigger than the smallest mask
-    num_keep = int((1 - mask_ratio) * N)
+    # all masks trimmed to have the same valid-brain patch count
     min_count = patch_mask.sum(dim=1).min()
-    num_keep = min_count.clamp(max=num_keep)
+    num_keep = int((1 - mask_ratio) * min_count.item())
 
     # discard extra patches
     patch_mask = patch_mask * (patch_mask.cumsum(dim=1) <= num_keep)
