@@ -29,13 +29,12 @@ from .modules import (
     Block,
     LayerNorm,
     Patchify3D,
-    StridedPatchify3D,
     AbsolutePosEmbed,
     SeparablePosEmbed,
     SinCosPosEmbed3D,
     Normalize,
 )
-from .masking import trim_patch_mask, pad_image_mask
+from .masking import trim_patch_mask
 from .utils import filter_kwargs
 
 
@@ -182,12 +181,9 @@ class MaskedEncoder(nn.Module):
         - mask: observed mask, 1 = observed, 0 = unobserved. same shape as input
         - mask_ids: indices of visible patches [B L]
         """
-        dtype = x.dtype
-        device = x.device
-
         # apply mask to the input
         if mask is not None:
-            mask = mask.to(device=device, dtype=dtype).expand_as(x)
+            mask = mask.to(device=x.device, dtype=x.dtype).expand_as(x)
             x = mask * x
 
         # patchify input
@@ -198,13 +194,11 @@ class MaskedEncoder(nn.Module):
         if mask is not None:
             mask_patches = self.patchify(mask)
             patch_num_obs = mask_patches.sum(dim=-1)
-            patch_mask = (patch_num_obs > 0).to(dtype)
-            # rescale input to compensate for number of observed values
-            # similar to dropout scaling
+            patch_mask = (patch_num_obs > 0).to(x.dtype)
             if self.mask_drop_scale:
                 x = x * (P / patch_num_obs.unsqueeze(-1).clamp(min=1.0))
         elif mask_ratio is not None:
-            patch_mask = torch.ones((B, N), dtype=dtype, device=device)
+            patch_mask = torch.ones((B, N), dtype=x.dtype, device=x.device)
             mask_patches = patch_mask.unsqueeze(-1).expand(-1, -1, P)
         else:
             patch_mask = mask_patches = None
@@ -214,32 +208,60 @@ class MaskedEncoder(nn.Module):
         x = self.pos_embed(x)
 
         if mask is not None or mask_ratio is not None:
-            # trim mask to get equal number of visible patches per sample in batch.
-            # patches sampled randomly if mask_ratio is not None, and otherwise in raster
-            # grid order. (nb as a hack you can set mask_ratio=0.0 to get random instead of
-            # trailing trim.)
             patch_mask, mask_ids = trim_patch_mask(
                 patch_mask,
                 mask_ratio=0.0 if mask_ratio is None else mask_ratio,
                 shuffle=mask_ratio is not None,
             )
             mask_patches = mask_patches * patch_mask.unsqueeze(-1)
-            # nb, unnecessary computation for convenience
             mask = self.patchify.unpatchify(mask_patches)
-
-            # keep only visible patches
             x = x.gather(1, mask_ids.unsqueeze(-1).expand(-1, -1, x.shape[-1]))
         else:
             mask_ids = None
 
-        # transformer
+        cls_embeds, reg_embeds, patch_embeds = self.forward_patch_embeds(x)
+        return cls_embeds, reg_embeds, patch_embeds, mask, mask_ids
+
+    def forward_patch_embeds(
+        self,
+        x: Float[Tensor, "B L D"],
+    ) -> tuple[
+        Float[Tensor, "B 1 D"] | None,
+        Float[Tensor, "B R D"] | None,
+        Float[Tensor, "B L D"],
+    ]:
         x = self.cat_tokens(x)
         for block in self.blocks:
             x = block(x)
         x = self.norm(x)
 
         cls_embeds, reg_embeds, patch_embeds = self.chunk_tokens(x)
-        return cls_embeds, reg_embeds, patch_embeds, mask, mask_ids
+        return cls_embeds, reg_embeds, patch_embeds
+
+    def forward_visible_ids(
+        self,
+        x: Tensor,
+        visible_ids: Int[Tensor, "B L"],
+        img_mask: Tensor | None = None,
+    ) -> tuple[
+        Float[Tensor, "B 1 D"] | None,
+        Float[Tensor, "B R D"] | None,
+        Float[Tensor, "B L D"],
+    ]:
+        if img_mask is not None:
+            img_mask = img_mask.to(device=x.device, dtype=x.dtype).expand_as(x)
+            x = img_mask * x
+
+        x = self.patchify(x)
+        if self.mask_drop_scale and img_mask is not None:
+            mask_patches = self.patchify(img_mask)
+            patch_num_obs = mask_patches.sum(dim=-1)
+            x = x * (self.patchify.patch_dim / patch_num_obs.unsqueeze(-1).clamp(min=1.0))
+        x = self.patch_embed(x)
+        x = self.pos_embed(x)
+        visible_ids = visible_ids.to(device=x.device)
+        x = x.gather(1, visible_ids.unsqueeze(-1).expand(-1, -1, x.shape[-1]))
+        return self.forward_patch_embeds(x)
 
     def forward_embedding(
         self,
@@ -247,7 +269,11 @@ class MaskedEncoder(nn.Module):
         mask: Tensor | None = None,
         mask_ratio: float | None = None,
     ):
-        cls_embeds, reg_embeds, patch_embeds, *_ = self.forward(x, mask=mask, mask_ratio=mask_ratio)
+        cls_embeds, reg_embeds, patch_embeds, *_ = self.forward(
+            x,
+            mask=mask,
+            mask_ratio=mask_ratio,
+        )
         return cls_embeds, reg_embeds, patch_embeds
 
 
@@ -306,10 +332,6 @@ class MaskedDecoder(nn.Module):
             else nn.Linear(context_dim, embed_dim)
         )
 
-        block_context_dim = None
-        if cross_decode:
-            block_context_dim = context_dim if no_context_proj else embed_dim
-
         self.blocks = nn.ModuleList(
             [
                 Block(
@@ -318,7 +340,7 @@ class MaskedDecoder(nn.Module):
                     qkv_bias=qkv_bias,
                     proj_bias=proj_bias,
                     mlp_ratio=mlp_ratio,
-                    context_dim=block_context_dim,
+                    context_dim=context_dim if no_context_proj else None,
                 )
                 for _ in range(depth)
             ]
@@ -437,8 +459,6 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         no_embed_class: bool = False,
         drop_path_rate: float = 0.0,
         mask_drop_scale: bool = False,
-        t_pred_stride: int = 1,
-        pred_edge_pad: int = 0,
         no_decode_pos: bool = False,
         pos_embed: Literal["abs", "sep", "sincos"] = "sincos",
         decoding: Literal["attn", "cross", "crossreg"] = "attn",
@@ -451,8 +471,6 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         assert not decoding == "crossreg" or reg_tokens > 0, "crossreg decoding requires registers"
 
         self.decoding = decoding
-        self.t_pred_stride = t_pred_stride  # legacy strided prediction; keep at 1 for sMRI
-        self.pred_edge_pad = pred_edge_pad  # don't predict edges of visible patches
         self.no_decode_pos = no_decode_pos  # don't pos encode embeddings in decoder
 
         # patchify reshapes input into sequence of flattened patches, shape [B, N, P]
@@ -489,16 +507,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
             mask_drop_scale=mask_drop_scale,
         )
 
-        # legacy strided prediction setup from MAE-ST; not used for initial sMRI runs.
-        if t_pred_stride > 1:
-            self.pred_patchify = StridedPatchify3D(
-                img_size=img_size,
-                patch_size=patch_size,
-                in_chans=in_chans,
-                t_stride=t_pred_stride,
-            )
-        else:
-            self.pred_patchify = patchify
+        self.pred_patchify = patchify
 
         # fall back to encoder architecture width
         decoder_embed_dim = decoder_embed_dim or embed_dim
@@ -523,7 +532,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
             mlp_ratio=mlp_ratio,
             class_token=class_token and not cross_decode,  # cls not active for cross-decode
             no_embed_class=no_embed_class,
-            no_context_proj=False
+            no_context_proj=cross_decode,  # don't project embeds for cross-decode
         )
 
         # mae style target normalization
@@ -541,37 +550,10 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         self.init_weights()
 
     def extra_repr(self):
-        return (
-            f"decoding={self.decoding}, t_pred_stride={self.t_pred_stride}, "
-            f"pred_edge_pad={self.pred_edge_pad}, no_decode_pos={self.no_decode_pos}"
-        )
+        return f"decoding={self.decoding}, no_decode_pos={self.no_decode_pos}"
 
     def init_weights(self):
         self.apply(_init_weights)
-
-    def prepare_masks(
-        self,
-        img_mask: Tensor | None,
-        visible_mask: Tensor | None,
-        pred_mask: Tensor | None,
-        shape: tuple[int, ...],
-        dtype: torch.dtype,
-        device: torch.device,
-    ):
-        if img_mask is not None:
-            img_mask = _expand_volume_mask(img_mask, shape, dtype, device)
-
-        if visible_mask is None:
-            visible_mask = img_mask
-        else:
-            visible_mask = _expand_volume_mask(visible_mask, shape, dtype, device)
-
-        if pred_mask is None:
-            pred_mask = img_mask
-        else:
-            pred_mask = _expand_volume_mask(pred_mask, shape, dtype, device)
-
-        return img_mask, visible_mask, pred_mask
 
     def prepare_targets(self, images: Tensor, img_mask: Tensor | None):
         """
@@ -594,6 +576,51 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
 
         return targets_patches, targets_stats
 
+    def prepare_masks(
+        self,
+        img_mask: Tensor,
+        visible_mask: Tensor | None,
+        pred_mask: Tensor | None,
+        shape: tuple[int, ...],
+        dtype: torch.dtype,
+        device: torch.device,
+    ):
+        img_mask = _expand_volume_mask(img_mask, shape, dtype, device)
+
+        if visible_mask is None:
+            visible_mask = img_mask
+        else:
+            visible_mask = img_mask * _expand_volume_mask(visible_mask, shape, dtype, device)
+
+        if pred_mask is None:
+            pred_mask = img_mask
+        else:
+            pred_mask = img_mask * _expand_volume_mask(pred_mask, shape, dtype, device)
+
+        return img_mask, visible_mask, pred_mask
+
+    def prepare_mask_stats(
+        self,
+        img_mask: Tensor,
+        *,
+        mask_ratio: float,
+        include_stats: bool = False,
+    ) -> dict:
+        mask_ratio = float(mask_ratio)
+        stats = {"mask_ratio": mask_ratio}
+        if include_stats:
+            valid_patch_mask = self.pred_patchify(img_mask).any(dim=-1)
+            valid_tokens = valid_patch_mask.sum(dim=1)
+            num_visible = int((1 - mask_ratio) * valid_tokens.min().item())
+            stats.update(
+                {
+                    "visible_tokens_mean": float(num_visible),
+                    "valid_patch_tokens_mean": float(valid_tokens.float().mean().item()),
+                    "valid_patch_tokens_min": float(valid_tokens.min().item()),
+                }
+            )
+        return stats
+
     def prepare_pred_mask(
         self,
         visible_mask: Tensor,
@@ -608,27 +635,18 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         if pred_mask is None:
             pred_mask = torch.ones_like(visible_mask)
 
-        # pad edges of visible mask to avoid interpolating across patch edges
-        if self.pred_edge_pad:
-            visible_mask = pad_image_mask(visible_mask, pad=self.pred_edge_pad)
-
-        # don't decode visible pixels (duh)
         pred_mask = pred_mask * (1 - visible_mask)
 
-        # patchify
-        pred_mask_patches = self.pred_patchify(pred_mask)  # [B, N, P]
-
-        # trim prediction patches
-        pred_patch_mask = pred_mask_patches.any(dim=-1).to(pred_mask.dtype)
+        pred_mask_patches = self.pred_patchify(pred_mask)
+        pred_patch_mask = pred_mask_patches.any(dim=-1).to(pred_mask_patches.dtype)
+        # Randomize even when keeping all prediction candidates, because samples with
+        # more valid brain patches are trimmed to the batch minimum.
         pred_patch_mask, pred_ids = trim_patch_mask(
             pred_patch_mask,
             mask_ratio=0.0 if pred_mask_ratio is None else pred_mask_ratio,
-            shuffle=pred_mask_ratio is not None,
+            shuffle=True,
         )
         pred_mask_patches = pred_mask_patches * pred_patch_mask.unsqueeze(-1)
-        B, Q = pred_ids.shape
-        assert Q > 0, "empty pred_ids"
-
         return pred_mask_patches, pred_ids
 
     def forward_decoder(
@@ -695,26 +713,34 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
     def forward(
         self,
         images: Tensor,
-        img_mask: Tensor | None = None,
-        visible_mask: Tensor | None = None,
-        pred_mask: Tensor | None = None,
-        mask_ratio: float | None = 0.75,
+        img_mask: Tensor,
+        mask_ratio: float,
         pred_mask_ratio: float | None = None,
+        mask_fn=None,
+        include_mask_stats: bool = False,
         with_state: bool = True,
-    ) -> Tensor | tuple[Tensor, dict[str, Tensor]]:
+    ) -> Tensor | tuple[Tensor, dict[str, Tensor]] | tuple[Tensor, dict]:
         _validate_volume_images(images)
+        visible_mask = mask_fn(img_mask, device=images.device) if mask_fn is not None else None
         img_mask, visible_mask, pred_mask = self.prepare_masks(
             img_mask,
             visible_mask,
-            pred_mask,
+            None,
             shape=images.shape,
             dtype=images.dtype,
             device=images.device,
         )
+        mask_stats = self.prepare_mask_stats(
+            img_mask,
+            mask_ratio=mask_ratio,
+            include_stats=include_mask_stats,
+        )
         targets_patches, targets_stats = self.prepare_targets(images, img_mask)
 
         cls_embeds, reg_embeds, patch_embeds, visible_mask, visible_ids = self.encoder(
-            images, mask=visible_mask, mask_ratio=mask_ratio
+            images,
+            mask=visible_mask,
+            mask_ratio=None if mask_fn is not None else mask_ratio,
         )
 
         pred_mask_patches, pred_ids = self.prepare_pred_mask(
@@ -728,7 +754,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         loss = self.forward_loss(preds, targets_patches, pred_mask_patches, pred_ids)
 
         if not with_state:
-            return loss
+            return loss, mask_stats
 
         pred_mask = self.pred_patchify.unpatchify(pred_mask_patches)
         pred_images = self.forward_pred_images(
@@ -747,6 +773,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
             "pred_ids": pred_ids,
             "preds": preds,
             "pred_images": pred_images,
+            "mask_stats": mask_stats,
         }
         return loss, state
 
@@ -759,7 +786,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         _validate_volume_images(x)
         if mask is not None:
             mask = _expand_volume_mask(mask, x.shape, x.dtype, x.device)
-        return self.encoder.forward_embedding(x, mask, mask_ratio)
+        return self.encoder.forward_embedding(x, mask=mask, mask_ratio=mask_ratio)
 
     @staticmethod
     def from_checkpoint(ckpt_path: str, **kwargs) -> "MaskedAutoencoderViT":
