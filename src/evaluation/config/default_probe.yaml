@@ -13,12 +13,17 @@ model_kwargs:
   embedding_dim: 8
   input_shape: [1, 8, 8, 8]
 
-task_kwargs:
+# Task-specific configs are keyed by task id. Each task can parse this section
+# into its own typed TaskConfig subclass.
+task_configs:
   "3":
     source: synthetic
     n_train: 32
     n_validation: 16
     noise_std: 0.1
 
-probe_kwargs:
+# Shared frozen-backbone probe settings.
+probe_config:
+  head: ridge
   alpha: 1.0
+  kwargs: {}

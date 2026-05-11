@@ -5,7 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-from evaluation import DummyBackbone, run_evals, run_evals_from_config
+from evaluation import DummyBackbone, ProbeConfig, run_evals, run_evals_from_config
+from evaluation.tasks.task3_brain_age import BrainAgeTaskConfig
 
 
 def test_run_evals_task3_probe_with_dummy_model(tmp_path):
@@ -16,8 +17,10 @@ def test_run_evals_task3_probe_with_dummy_model(tmp_path):
         output_dir=tmp_path,
         seed=123,
         model_kwargs={"embedding_dim": 4, "input_shape": [1, 4, 4, 4]},
-        task_kwargs={"3": {"n_train": 12, "n_validation": 6, "noise_std": 0.0}},
-        probe_kwargs={"alpha": 0.1},
+        task_configs={
+            "3": BrainAgeTaskConfig(n_train=12, n_validation=6, noise_std=0.0)
+        },
+        probe_config=ProbeConfig(alpha=0.1),
     )
 
     run_dir = tmp_path / "eval_probe" / "3__dummy"
@@ -36,6 +39,8 @@ def test_run_evals_task3_probe_with_dummy_model(tmp_path):
     metadata = json.loads((task_dir / "run_metadata.json").read_text())
     assert metadata["profile"] == "probe"
     assert metadata["backbone_trainable_parameters"] == 0
+    assert metadata["task_config"]["n_train"] == 12
+    assert metadata["probe_config"]["head"] == "ridge"
 
 
 def test_run_evals_freezes_provided_backbone(tmp_path):
@@ -47,7 +52,7 @@ def test_run_evals_freezes_provided_backbone(tmp_path):
         profile="probe",
         tasks=["3"],
         output_dir=tmp_path,
-        task_kwargs={"3": {"n_train": 8, "n_validation": 4}},
+        task_configs={"3": {"n_train": 8, "n_validation": 4}},
     )
 
     assert all(not parameter.requires_grad for parameter in backbone.parameters())
@@ -62,10 +67,13 @@ def test_run_evals_from_default_probe_config(tmp_path):
                 "model_kwargs:",
                 "  embedding_dim: 4",
                 "  input_shape: [1, 4, 4, 4]",
-                "task_kwargs:",
+                "task_configs:",
                 "  '3':",
                 "    n_train: 8",
                 "    n_validation: 4",
+                "probe_config:",
+                "  head: ridge",
+                "  alpha: 0.5",
             ]
         )
     )
