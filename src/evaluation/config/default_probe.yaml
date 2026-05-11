@@ -1,0 +1,24 @@
+model: dummy
+profile: probe
+tasks: ["3"]
+
+output_dir: fomo26_runs
+data_dir: fomo26_data
+name: null
+
+seed: 4466
+device: cpu
+
+model_kwargs:
+  embedding_dim: 8
+  input_shape: [1, 8, 8, 8]
+
+task_kwargs:
+  "3":
+    source: synthetic
+    n_train: 32
+    n_validation: 16
+    noise_std: 0.1
+
+probe_kwargs:
+  alpha: 1.0
