@@ -13,7 +13,8 @@ _version.py
 
 # Virtual environment
 .venv/
-.python-version
+# too many conflicts
+uv.lock
 
 # Environment variables
 .env
@@ -35,6 +36,4 @@ tmp
 # AI assistants
 .claude/
 .codex
-
-# uv (too many conflicts)
-uv.lock
+CLAUDE.md

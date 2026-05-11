@@ -10,30 +10,30 @@
 #SBATCH --error=slurms/%j.err
 
 # Usage:
-#   sbatch scripts/preprocess.sbatch <dataset> [extra pipeline flags]
+#   sbatch scripts/preprocess.sbatch <input_dir> [extra pipeline flags]
 #
 # Examples:
-#   sbatch scripts/preprocess.sbatch mydataset
-#   sbatch scripts/preprocess.sbatch mydataset --synthseg
-#   sbatch scripts/preprocess.sbatch mydataset --subject sub-001
+#   sbatch scripts/preprocess.sbatch /path/to/dataset
+#   sbatch scripts/preprocess.sbatch /path/to/dataset --cpu
+#   sbatch scripts/preprocess.sbatch /path/to/dataset --batch-id 0 --batch-size 100
 
 set -euo pipefail
 
-DATASET="${1:?Usage: sbatch scripts/preprocess.sbatch <dataset> [extra pipeline flags]}"
+INPUT="${1:?Usage: sbatch scripts/preprocess.sbatch <input_dir> [extra pipeline flags]}"
 shift
 
 mkdir -p slurms
 export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}"
 
-N_WORKERS="${SLURM_CPUS_PER_TASK:-8}"
+SYNTHSEG_THREADS="${SLURM_CPUS_PER_TASK:-8}"
 
-echo "Dataset:   $DATASET"
-echo "Workers:   $N_WORKERS"
-echo "GPUs:      ${SLURM_GPUS_PER_TASK:-0}"
-echo "Extra args: $*"
+echo "Input:            $INPUT"
+echo "SynthSeg threads: $SYNTHSEG_THREADS"
+echo "GPUs:             ${SLURM_GPUS_PER_TASK:-0}"
+echo "Extra args:       $*"
 echo "==============================="
 
-uv run --extra preprocessing preprocessing/pipeline.py \
-    --dataset "$DATASET" \
-    --n_workers "$N_WORKERS" \
+uv run python src/preprocessing/pipeline.py \
+    --input "$INPUT" \
+    --synthseg-threads "$SYNTHSEG_THREADS" \
     "$@"

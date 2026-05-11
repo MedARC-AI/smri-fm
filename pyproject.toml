@@ -9,32 +9,30 @@ description = "MedARC sMRI foundation model"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+    "antspyx",
     "ipython",
     "jupyter",
     "matplotlib",
+    "nibabel",
     "numpy",
     "omegaconf",
     "pandas",
     "pre-commit",
     "pytest",
+    "pyyaml",
+    "scikit-learn",
     "scipy",
     "seaborn",
     "tabulate",
+    "templateflow",
     "torch==2.8.0",
     "torchvision",
     "tqdm",
     "wandb",
 ]
 
-[project.optional-dependencies]
-preprocessing = [
-    "antspyx",
-    "nibabel",
-    "templateflow",
-]
-
 [tool.setuptools.packages.find]
-exclude = ["preprocessing*"]
+where = ["src"]
 
 [tool.setuptools_scm]
 version_file = "src/_version.py"

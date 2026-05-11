@@ -32,15 +32,15 @@ The full pipeline also writes SynthSeg derivatives under `<input>/derivatives/sy
 
 ## Local Runtime
 
-Use `uv` from the repo root:
+Install the unified environment from the repo root:
 
 ```bash
-uv sync --extra preprocessing
+uv sync
 ```
 
-The pipeline expects an input directory with an `images/` subdirectory:
+The pipeline scans `<input>` recursively for `.nii.gz` files and writes
+outputs alongside them:
 
-- raw inputs: `<input>/images/`
 - processed outputs: `<input>/processed/`
 - logs: `<input>/logs/`
 - derivatives: `<input>/derivatives/`
@@ -48,7 +48,13 @@ The pipeline expects an input directory with an `images/` subdirectory:
 Run the full pipeline:
 
 ```bash
-uv run --extra preprocessing preprocessing/pipeline.py --input <input>
+uv run python src/preprocessing/pipeline.py --input <input>
+```
+
+Or submit as a Slurm job:
+
+```bash
+sbatch scripts/preprocess.sbatch <input>
 ```
 
 The default SynthSeg backend is:
