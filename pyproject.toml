@@ -10,7 +10,10 @@ readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "antspyx",
+    "einops",
+    "huggingface-hub",
     "ipython",
+    "jaxtyping",
     "jupyter",
     "matplotlib",
     "nibabel",
@@ -25,10 +28,12 @@ dependencies = [
     "seaborn",
     "tabulate",
     "templateflow",
+    "timm",
     "torch==2.8.0",
     "torchvision",
     "tqdm",
     "wandb",
+    "mosaicml-streaming",
 ]
 
 [tool.setuptools.packages.find]

@@ -24,9 +24,19 @@ uv.lock
 .ipynb_checkpoints
 
 # Local data directories
-**/data
+/preprocessing/data/
 /DLBS/
 /BrainIAC/
+*.tar
+*.npy
+/datasets/aabc/files/
+*.pth
+*.mds
+
+#Heavy dir
+checkpoints/
+checkpoints_tmp/
+wandb/
 
 # Local scratch/tmp
 .scratch
