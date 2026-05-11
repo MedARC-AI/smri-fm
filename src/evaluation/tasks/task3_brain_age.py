@@ -12,6 +12,7 @@ from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error
 from torch import Tensor, nn
 
+from evaluation.config_schema import ProbeConfig, TaskConfig
 from evaluation.tasks.base import EvalTask
 
 
@@ -22,10 +23,57 @@ class BrainAgeDataset:
     case_ids: list[str]
 
 
-class BrainAgeTask(EvalTask):
+@dataclass(frozen=True)
+class BrainAgeTaskConfig(TaskConfig):
+    source: str = "synthetic"
+    n_train: int = 32
+    n_validation: int = 16
+    noise_std: float = 0.1
+
+    @classmethod
+    def from_mapping(
+        cls,
+        raw_config: dict[str, Any] | TaskConfig | "BrainAgeTaskConfig" | None,
+    ) -> "BrainAgeTaskConfig":
+        if raw_config is None:
+            return cls()
+        if isinstance(raw_config, cls):
+            return raw_config
+
+        config = raw_config.to_dict() if isinstance(raw_config, TaskConfig) else dict(raw_config)
+        kwargs = dict(config.pop("kwargs", {}))
+        source = str(config.pop("source", cls.source))
+        n_train = int(config.pop("n_train", kwargs.pop("n_train", cls.n_train)))
+        n_validation = int(
+            config.pop("n_validation", kwargs.pop("n_validation", cls.n_validation))
+        )
+        noise_std = float(config.pop("noise_std", kwargs.pop("noise_std", cls.noise_std)))
+        kwargs.update(config)
+        return cls(
+            source=source,
+            n_train=n_train,
+            n_validation=n_validation,
+            noise_std=noise_std,
+            kwargs=kwargs,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = super().to_dict()
+        payload.update(
+            {
+                "n_train": self.n_train,
+                "n_validation": self.n_validation,
+                "noise_std": self.noise_std,
+            }
+        )
+        return payload
+
+
+class BrainAgeTask(EvalTask[BrainAgeTaskConfig]):
     id = "3"
     name = "brain_age"
     output_name = "task_3_brain_age"
+    config_type = BrainAgeTaskConfig
 
     def run_probe(
         self,
@@ -34,17 +82,15 @@ class BrainAgeTask(EvalTask):
         data_dir: Path,
         seed: int,
         device: str,
-        task_kwargs: dict[str, Any],
-        probe_kwargs: dict[str, Any],
+        task_config: BrainAgeTaskConfig,
+        probe_config: ProbeConfig,
     ) -> dict[str, Any]:
         output_dir.mkdir(parents=True, exist_ok=True)
-        task_kwargs = {"source": "synthetic", **task_kwargs}
-        probe_kwargs = {"alpha": 1.0, **probe_kwargs}
 
         train, validation = self._load_data(
             data_dir=data_dir,
             seed=seed,
-            task_kwargs=task_kwargs,
+            task_config=task_config,
             input_shape=_infer_input_shape(backbone),
         )
 
@@ -54,7 +100,10 @@ class BrainAgeTask(EvalTask):
             train_embeddings = _encode(backbone, train.images, device=device)
             validation_embeddings = _encode(backbone, validation.images, device=device)
 
-        probe = Ridge(alpha=float(probe_kwargs["alpha"]))
+        if probe_config.head != "ridge":
+            raise NotImplementedError("Task 3 probe currently supports head='ridge'.")
+
+        probe = Ridge(alpha=probe_config.alpha, **dict(probe_config.kwargs))
         probe.fit(train_embeddings, train.ages)
         predictions = probe.predict(validation_embeddings)
 
@@ -82,8 +131,8 @@ class BrainAgeTask(EvalTask):
                 "task_name": self.name,
                 "profile": "probe",
                 "backbone_trainable_parameters": _count_trainable_parameters(backbone),
-                "probe": {"type": "Ridge", **probe_kwargs},
-                "task_kwargs": task_kwargs,
+                "probe_config": probe_config.to_dict(),
+                "task_config": task_config.to_dict(),
             },
         )
 
@@ -98,20 +147,20 @@ class BrainAgeTask(EvalTask):
         self,
         data_dir: Path,
         seed: int,
-        task_kwargs: dict[str, Any],
+        task_config: BrainAgeTaskConfig,
         input_shape: tuple[int, ...],
     ) -> tuple[BrainAgeDataset, BrainAgeDataset]:
-        source = task_kwargs["source"]
-        if source != "synthetic":
+        if task_config.source != "synthetic":
             raise NotImplementedError(
                 "Task 3 currently supports source='synthetic'. "
-                f"Got source={source!r}; add a loader here when local FOMO26 files are available."
+                f"Got source={task_config.source!r}; "
+                "add a loader here when local FOMO26 files are available."
             )
         return _make_synthetic_brain_age_data(
             input_shape=input_shape,
-            n_train=int(task_kwargs.get("n_train", 32)),
-            n_validation=int(task_kwargs.get("n_validation", 16)),
-            noise_std=float(task_kwargs.get("noise_std", 0.1)),
+            n_train=task_config.n_train,
+            n_validation=task_config.n_validation,
+            noise_std=task_config.noise_std,
             seed=seed,
         )
 

@@ -9,6 +9,7 @@ from typing import Any
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
 
+from evaluation.config_schema import ProbeConfig, RunConfig, TaskConfig
 from evaluation.models.registry import create_model
 from evaluation.tasks.registry import create_task
 
@@ -25,9 +26,11 @@ def run_evals(
     name: str | None = None,
     seed: int = 4466,
     model_kwargs: Mapping[str, Any] | None = None,
+    task_configs: Mapping[str, Mapping[str, Any] | TaskConfig] | None = None,
+    probe_config: Mapping[str, Any] | ProbeConfig | None = None,
+    device: str = "cpu",
     task_kwargs: Mapping[str, Any] | None = None,
     probe_kwargs: Mapping[str, Any] | None = None,
-    device: str = "cpu",
 ) -> dict[str, Any]:
     """Run one or more FOMO26-style local evaluations.
 
@@ -36,44 +39,59 @@ def run_evals(
     heads are fit on top.
     """
 
-    if profile != "probe":
+    if task_configs is not None and task_kwargs is not None:
+        raise ValueError("Use task_configs instead of task_kwargs; do not pass both.")
+    if probe_config is not None and probe_kwargs is not None:
+        raise ValueError("Use probe_config instead of probe_kwargs; do not pass both.")
+
+    run_config = RunConfig.from_mapping(
+        {
+            "model": model,
+            "profile": profile,
+            "tasks": tasks or DEFAULT_TASKS,
+            "output_dir": output_dir,
+            "data_dir": data_dir,
+            "name": name,
+            "seed": seed,
+            "model_kwargs": model_kwargs or {},
+            "task_configs": task_configs if task_configs is not None else task_kwargs,
+            "probe_config": probe_config if probe_config is not None else probe_kwargs,
+            "device": device,
+        }
+    )
+
+    if run_config.profile != "probe":
         raise NotImplementedError("Only profile='probe' is implemented.")
 
-    task_ids = [str(task) for task in (tasks or DEFAULT_TASKS)]
-    backbone = create_model(model, **dict(model_kwargs or {}))
+    task_ids = list(run_config.tasks)
+    backbone = create_model(run_config.model, **dict(run_config.model_kwargs))
     _freeze_backbone(backbone)
 
-    run_name = name or _default_run_name(profile=profile, model=model, tasks=task_ids)
-    run_dir = Path(output_dir) / run_name
+    run_name = run_config.name or _default_run_name(
+        profile=run_config.profile,
+        model=run_config.model,
+        tasks=task_ids,
+    )
+    run_dir = run_config.output_dir / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    config = {
-        "model": model if isinstance(model, str) else model.__class__.__name__,
-        "profile": profile,
-        "tasks": task_ids,
-        "output_dir": str(output_dir),
-        "data_dir": str(data_dir),
-        "name": run_name,
-        "seed": seed,
-        "model_kwargs": dict(model_kwargs or {}),
-        "task_kwargs": dict(task_kwargs or {}),
-        "probe_kwargs": dict(probe_kwargs or {}),
-        "device": device,
-    }
+    config = run_config.to_dict()
+    config["name"] = run_name
     _write_json(run_dir / "config.json", config)
 
     results: dict[str, Any] = {"run_dir": str(run_dir), "tasks": {}}
     for task_id in task_ids:
         task = create_task(task_id)
+        task_config = task.parse_config(run_config.task_configs.get(task_id))
         task_run_dir = run_dir / task.output_name
         task_result = task.run_probe(
             backbone=backbone,
             output_dir=task_run_dir,
-            data_dir=Path(data_dir),
-            seed=seed,
-            device=device,
-            task_kwargs=dict(task_kwargs or {}).get(task_id, dict(task_kwargs or {})),
-            probe_kwargs=dict(probe_kwargs or {}),
+            data_dir=run_config.data_dir,
+            seed=run_config.seed,
+            device=run_config.device,
+            task_config=task_config,
+            probe_config=run_config.probe_config,
         )
         results["tasks"][task_id] = task_result
 
