@@ -14,14 +14,6 @@ experiments/synthseg_ridge_baseline/
 
 `DLBS/` is a local input/output directory and is ignored by git.
 
-## Setup
-
-`scikit-learn` is required but not in the project's default dependencies:
-
-```bash
-uv pip install scikit-learn
-```
-
 ## Run
 
 From the repo root:
