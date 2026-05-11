@@ -10,6 +10,7 @@ _version.py
 
 # IDE
 .vscode/
+.DS_Store
 
 # Virtual environment
 .venv/
