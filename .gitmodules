@@ -1,3 +1,6 @@
 [submodule "third_party/asparagus"]
 	path = third_party/asparagus
 	url = https://github.com/Sllambias/asparagus.git
+[submodule "third_party/asparagus_preprocessing"]
+	path = third_party/asparagus_preprocessing
+	url = https://github.com/Sllambias/asparagus_preprocessing.git

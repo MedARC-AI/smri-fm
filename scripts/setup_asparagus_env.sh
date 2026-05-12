@@ -21,10 +21,11 @@ export ASPARAGUS_FINETUNE_CONFIGS ASPARAGUS_TRAIN_CONFIGS ASPARAGUS_PRETRAIN_CON
 : "${ASPARAGUS_CONFIGS:=${_smri_fm_repo}/third_party/asparagus/configs}"
 
 # Data / model / results / raw-labels paths. Override these to point at real shared storage.
+: "${ASPARAGUS_SOURCE:=${_smri_fm_repo}/data/asparagus/source}"
 : "${ASPARAGUS_DATA:=${_smri_fm_repo}/data/asparagus/data}"
 : "${ASPARAGUS_MODELS:=${_smri_fm_repo}/data/asparagus/models}"
 : "${ASPARAGUS_RESULTS:=${_smri_fm_repo}/data/asparagus/results}"
 : "${ASPARAGUS_RAW_LABELS:=${_smri_fm_repo}/data/asparagus/raw_labels}"
-export ASPARAGUS_DATA ASPARAGUS_MODELS ASPARAGUS_RESULTS ASPARAGUS_RAW_LABELS ASPARAGUS_CONFIGS
+export ASPARAGUS_SOURCE ASPARAGUS_DATA ASPARAGUS_MODELS ASPARAGUS_RESULTS ASPARAGUS_RAW_LABELS ASPARAGUS_CONFIGS
 
 unset _smri_fm_repo

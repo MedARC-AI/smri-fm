@@ -59,16 +59,37 @@ export ASPARAGUS_RAW_LABELS=/path/to/asparagus/raw_labels
 source scripts/setup_asparagus_env.sh
 ```
 
-If Task 3 has not already been converted to Asparagus format, install
-`asparagus_preprocessing` separately. This repo currently vendors Asparagus but
-not the preprocessing repository that provides `asp_process` and `asp_split`.
+### Vendoring `asparagus_preprocessing`
+
+If Task 3 has not already been converted to Asparagus format, this repo needs
+`asparagus_preprocessing` in addition to Asparagus. Add it the same way
+Asparagus is already added: as a vendored editable submodule.
 
 ```bash
-cd /path/to/shared/project/root
-git clone https://github.com/Sllambias/asparagus_preprocessing.git
-cd /Users/lukasecerovic/Documents/repos/sMRI/smri-fm
-uv pip install -e /path/to/shared/project/root/asparagus_preprocessing
+git submodule add https://github.com/Sllambias/asparagus_preprocessing.git third_party/asparagus_preprocessing
 ```
+
+Then add it to `pyproject.toml`:
+
+```toml
+dependencies = [
+    ...
+    "asparagus_preprocessing",
+]
+
+[tool.uv.sources]
+asparagus = { path = "third_party/asparagus", editable = true }
+asparagus_preprocessing = { path = "third_party/asparagus_preprocessing", editable = true }
+```
+
+Finally sync the environment:
+
+```bash
+uv sync
+```
+
+`asparagus_preprocessing` provides the CLI commands used below:
+`asp_process`, `asp_split`, `asp_update_paths`, and `asp_register_dataset`.
 
 ## 2. Prepare Task 3 Data
 
@@ -155,7 +176,8 @@ This creates an Asparagus-format checkpoint with random weights from
 `SmriMaeClsRegBackbone`. It is not pretrained. It exists only to validate the
 Asparagus checkpoint format and the weight-loading path.
 
-For a fast local smoke test, use a small crop size:
+First try the same geometry as the MAE checkpoint was trained with:
+`img_size=(208, 240, 208)` and `patch_size=8`.
 
 ```bash
 mkdir -p .scratch/asparagus_eval
@@ -175,8 +197,8 @@ metadata = dataset_json.get("metadata") or dataset_json.get("dataset_config")
 model = SmriMaeClsRegBackbone(
     input_channels=metadata["n_modalities"],
     output_channels=metadata["n_classes"],
-    img_size=(64, 64, 64),
-    patch_size=16,
+    img_size=(208, 240, 208),
+    patch_size=8,
 )
 
 network_weights = {
@@ -218,12 +240,12 @@ uv run asp_finetune_reg \
   training.epochs=1 \
   training.limit_train_batches=1 \
   training.limit_val_batches=1 \
-  training.target_size=[64,64,64] \
+  training.target_size=[208,240,208] \
   training.warmup_epochs=0 \
   logger.wandb_logging=false \
   logger.log_every_n_steps=1 \
-  ++model._cls_net.img_size=[64,64,64] \
-  ++model._cls_net.patch_size=16
+  ++model._cls_net.img_size=[208,240,208] \
+  ++model._cls_net.patch_size=8
 ```
 
 Notes:
@@ -232,12 +254,13 @@ Notes:
   `_reg_net`. This works for `smri_mae` because both point to
   `SmriMaeClsRegBackbone`, but it is confusing and should eventually be cleaned
   up.
-- The small `[64,64,64]` geometry is for local smoke testing only. For a real
-  converted `smri-fm` checkpoint, set `training.target_size`,
-  `model._cls_net.img_size`, and `model._cls_net.patch_size` to match the
-  checkpoint geometry.
 - The repo's default `smri-fm` MAE pretraining config uses
-  `img_size=[208,240,208]` and `patch_size=8`.
+  `img_size=[208,240,208]` and `patch_size=8`; use this geometry first so the
+  dummy checkpoint path matches the real converted-checkpoint path.
+- If your local machine runs out of memory, regenerate the dummy checkpoint with
+  `img_size=(64,64,64)` and `patch_size=16`, then rerun with matching
+  `training.target_size=[64,64,64]`, `++model._cls_net.img_size=[64,64,64]`,
+  and `++model._cls_net.patch_size=16`.
 
 ## 6. Expected Success Criteria
 

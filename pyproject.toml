@@ -35,10 +35,12 @@ dependencies = [
     "wandb",
     "mosaicml-streaming",
     "asparagus",
+    "asparagus_preprocessing",
 ]
 
 [tool.uv.sources]
 asparagus = { path = "third_party/asparagus", editable = true }
+asparagus_preprocessing = { path = "third_party/asparagus_preprocessing", editable = true }
 
 [tool.uv]
 override-dependencies = [
@@ -58,3 +60,7 @@ line-length = 100
 
 [tool.ruff.lint]
 ignore = ["F722"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
