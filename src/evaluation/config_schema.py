@@ -87,11 +87,8 @@ class RunConfig:
             return raw_config
 
         config = dict(raw_config)
-        legacy_task_kwargs = config.pop("task_kwargs", None)
-        legacy_probe_kwargs = config.pop("probe_kwargs", None)
-
-        task_configs = config.pop("task_configs", legacy_task_kwargs) or {}
-        probe_config = config.pop("probe_config", legacy_probe_kwargs)
+        task_configs = config.pop("task_configs", {}) or {}
+        probe_config = config.pop("probe_config", None)
 
         return cls(
             model=config.pop("model", cls.model),

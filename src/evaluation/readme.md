@@ -115,9 +115,6 @@ Current fields:
   - `alpha`: ridge regularization strength.
   - `kwargs`: optional extra keyword arguments passed to the probe implementation.
 
-`task_kwargs` and `probe_kwargs` are still accepted at the public API edge for backward
-compatibility, but new code should use `task_configs` and `probe_config`.
-
 ## Design decisions
 
 The implementation is deliberately registry-based. Models are created through

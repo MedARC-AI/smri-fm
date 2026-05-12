@@ -30,8 +30,6 @@ def run_evals(
     task_configs: Mapping[str, Mapping[str, Any] | TaskConfig] | None = None,
     probe_config: Mapping[str, Any] | ProbeConfig | None = None,
     device: str = "cpu",
-    task_kwargs: Mapping[str, Any] | None = None,
-    probe_kwargs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run one or more FOMO26-style local evaluations.
 
@@ -39,11 +37,6 @@ def run_evals(
     frozen backbone, embeddings are extracted without gradients, and task-specific
     heads are fit on top.
     """
-
-    if task_configs is not None and task_kwargs is not None:
-        raise ValueError("Use task_configs instead of task_kwargs; do not pass both.")
-    if probe_config is not None and probe_kwargs is not None:
-        raise ValueError("Use probe_config instead of probe_kwargs; do not pass both.")
 
     run_config = RunConfig.from_mapping(
         {
@@ -55,8 +48,8 @@ def run_evals(
             "name": name,
             "seed": seed,
             "model_kwargs": model_kwargs or {},
-            "task_configs": task_configs if task_configs is not None else task_kwargs,
-            "probe_config": probe_config if probe_config is not None else probe_kwargs,
+            "task_configs": task_configs,
+            "probe_config": probe_config,
             "device": device,
         }
     )
