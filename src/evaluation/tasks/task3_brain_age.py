@@ -172,6 +172,7 @@ def _make_synthetic_brain_age_data(
     noise_std: float,
     seed: int,
 ) -> tuple[BrainAgeDataset, BrainAgeDataset]:
+    """Generate synthetic brain age data. For smoke tests and development only."""
     generator = torch.Generator().manual_seed(seed)
     rng = np.random.default_rng(seed)
     n_total = n_train + n_validation

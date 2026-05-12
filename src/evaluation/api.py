@@ -65,7 +65,12 @@ def run_evals(
 
     task_ids = list(run_config.tasks)
     backbone = create_model(run_config.model, **dict(run_config.model_kwargs))
-    _freeze_backbone(backbone)
+
+    # Freeze the backbone in probe mode, train in full mode
+    if run_config.profile == "probe":
+        _freeze_backbone(backbone)
+    else:
+        backbone.train()
 
     run_name = run_config.name or _default_run_name(
         profile=run_config.profile,
