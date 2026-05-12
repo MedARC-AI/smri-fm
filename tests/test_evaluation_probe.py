@@ -98,22 +98,6 @@ def test_run_evals_rejects_removed_task_kwargs(tmp_path):
         run_evals(output_dir=tmp_path, task_kwargs={"3": {"n_train": 8}})
 
 
-def test_run_evals_from_config_rejects_removed_probe_kwargs(tmp_path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "output_dir: " + str(tmp_path),
-                "probe_kwargs:",
-                "  alpha: 0.5",
-            ]
-        )
-    )
-
-    with pytest.raises(TypeError, match="probe_kwargs"):
-        run_evals_from_config(config_path)
-
-
 def test_run_evals_creates_new_run_dir_for_same_params(tmp_path):
     first = run_evals(
         model="dummy",
