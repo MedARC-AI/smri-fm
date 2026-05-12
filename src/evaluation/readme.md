@@ -13,7 +13,7 @@ Implemented now:
 - A deterministic `dummy` backbone for smoke tests and interface development.
 - Synthetic Task 3 data for local development before the real FOMO26 files are wired in.
 - A ridge-regression probe head fit on frozen embeddings.
-- Stable run outputs:
+- Stable per-run outputs:
   - run-level `config.json`
   - run-level `metrics.json`
   - run-level `run_metadata.json`
@@ -39,8 +39,11 @@ uv run python -c "from evaluation import run_evals_from_config; run_evals_from_c
 The default config writes outputs to:
 
 ```text
-fomo26_runs/eval_probe/3__dummy/
+fomo26_runs/20260512-091530Z__probe__tasks-3__dummy/
 ```
+
+Each invocation creates a new timestamped run directory, so rerunning the same config
+does not overwrite earlier results.
 
 You can also call the Python API directly:
 
@@ -89,11 +92,12 @@ Current fields:
 - `profile`: evaluation profile. `probe` is implemented and freezes the backbone before
   extracting embeddings. `full` is reserved for future fine-tuning support.
 - `tasks`: list of task ids to run. Currently only `"3"` is implemented.
-- `output_dir`: root directory for run outputs. Defaults to `fomo26_runs`.
+- `output_dir`: root directory for timestamped run outputs. Defaults to `fomo26_runs`.
 - `data_dir`: root directory for local task data. Present now for the future real-data
   loaders; the synthetic Task 3 loader does not read from it.
-- `name`: optional run name. If `null`, the API creates a stable name like
-  `eval_probe/3__dummy`.
+- `name`: optional human-readable run label. If provided, it is sanitized and inserted
+  into the generated run id, for example
+  `20260512-091530Z__debug-run__probe__tasks-3__dummy`.
 - `seed`: random seed used by task data generation and future split logic.
 - `device`: torch device used for backbone embedding extraction, for example `cpu` or
   `cuda`.
@@ -129,6 +133,26 @@ The config is split into three levels:
 This avoids a single large config object that must know every task-specific field in
 advance. Future segmentation, classification, embedding, and fairness tasks can each
 declare their own config fields while still sharing the same run interface.
+
+The output directory is split into run-level and task-level artifacts:
+
+```text
+fomo26_runs/
+  20260512-091530Z__probe__tasks-3-4__dummy/
+    config.json
+    metrics.json
+    run_metadata.json
+    task_3_brain_age/
+      metrics.json
+      predictions.csv
+      run_metadata.json
+    task_4_<name>/
+      metrics.json
+      run_metadata.json
+```
+
+The timestamp is UTC and comes first so runs sort chronologically. If two runs start in
+the same second, the later directory receives a suffix such as `__01`.
 
 The first implemented task uses synthetic data because the immediate goal is the interface
 and probe mechanics, not an official local score. The synthetic loader is intentionally

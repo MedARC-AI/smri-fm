@@ -69,10 +69,11 @@ More fields should be added once the minimal example is working. The default val
 
 Output format:
 
-- `metrics.json`
-- `predictions.csv` where applicable
-- `config.json` or `run_metadata.json`
-- per-task outputs under a stable output directory
+- timestamped run directory under `fomo26_runs`, for example
+  `fomo26_runs/20260512-091530Z__probe__tasks-3__dummy/`
+- run-level `config.json`, `metrics.json`, and `run_metadata.json`
+- per-task subdirectories such as `task_3_brain_age/`
+- per-task `metrics.json`, `run_metadata.json`, and `predictions.csv` where applicable
 
 
 ## Plan of work

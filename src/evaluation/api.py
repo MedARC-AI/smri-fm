@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -72,19 +73,21 @@ def run_evals(
     else:
         backbone.train()
 
-    run_name = run_config.name or _default_run_name(
+    run_id = _make_unique_run_id(
+        output_dir=run_config.output_dir,
         profile=run_config.profile,
         model=run_config.model,
         tasks=task_ids,
+        label=run_config.name,
     )
-    run_dir = run_config.output_dir / run_name
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = run_config.output_dir / run_id
+    run_dir.mkdir(parents=True, exist_ok=False)
 
     config = run_config.to_dict()
-    config["name"] = run_name
+    config["run_id"] = run_id
     _write_json(run_dir / "config.json", config)
 
-    results: dict[str, Any] = {"run_dir": str(run_dir), "tasks": {}}
+    results: dict[str, Any] = {"run_id": run_id, "run_dir": str(run_dir), "tasks": {}}
     for task_id in task_ids:
         task = create_task(task_id)
         task_config = task.parse_config(run_config.task_configs.get(task_id))
@@ -105,7 +108,10 @@ def run_evals(
         for task_id, task_result in results["tasks"].items()
     }
     _write_json(run_dir / "metrics.json", metrics)
-    _write_json(run_dir / "run_metadata.json", _run_metadata(config=config, results=results))
+    _write_json(
+        run_dir / "run_metadata.json",
+        _run_metadata(run_id=run_id, config=config, results=results),
+    )
     return results
 
 
@@ -130,15 +136,54 @@ def _freeze_backbone(backbone: nn.Module) -> None:
     backbone.eval()
 
 
-def _default_run_name(profile: str, model: str | nn.Module, tasks: Sequence[str]) -> str:
+def _make_unique_run_id(
+    output_dir: Path,
+    profile: str,
+    model: str | nn.Module,
+    tasks: Sequence[str],
+    label: str | None,
+) -> str:
+    base_run_id = _default_run_id(profile=profile, model=model, tasks=tasks, label=label)
+    run_id = base_run_id
+    suffix = 1
+    while (output_dir / run_id).exists():
+        run_id = f"{base_run_id}__{suffix:02d}"
+        suffix += 1
+    return run_id
+
+
+def _default_run_id(
+    profile: str,
+    model: str | nn.Module,
+    tasks: Sequence[str],
+    label: str | None,
+) -> str:
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%SZ")
     model_name = model if isinstance(model, str) else model.__class__.__name__
-    task_name = "-".join(tasks)
-    return f"eval_{profile}/{task_name}__{model_name}"
+    task_name = "-".join(_sanitize_path_part(task) for task in tasks)
+    parts = [
+        timestamp,
+        _sanitize_path_part(label) if label else None,
+        _sanitize_path_part(profile),
+        f"tasks-{task_name}",
+        _sanitize_path_part(model_name),
+    ]
+    return "__".join(part for part in parts if part)
 
 
-def _run_metadata(config: Mapping[str, Any], results: Mapping[str, Any]) -> dict[str, Any]:
+def _sanitize_path_part(value: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value)).strip("-")
+    return sanitized or "unnamed"
+
+
+def _run_metadata(
+    run_id: str,
+    config: Mapping[str, Any],
+    results: Mapping[str, Any],
+) -> dict[str, Any]:
     return {
         "created_at": datetime.now(UTC).isoformat(),
+        "run_id": run_id,
         "config": config,
         "task_outputs": {
             task_id: task_result["output_dir"]
