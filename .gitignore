@@ -23,19 +23,12 @@ uv.lock
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# Local data directories
-/preprocessing/data/
-/DLBS/
-/BrainIAC/
-*.tar
-*.npy
-/datasets/aabc/files/
-*.pth
-*.mds
+# Local data directory
+/data/
 
-#Heavy dir
+# Output directories
 checkpoints/
-checkpoints_tmp/
+output
 wandb/
 
 # Local scratch/tmp
