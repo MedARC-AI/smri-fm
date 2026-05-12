@@ -1,7 +1,7 @@
 # asparagus_bridge
 
-Thin bridge between smri-fm pretraining and asparagus (official FOMO26
-framework) finetuning + evaluation. We pretrain natively; asparagus handles
+Bridge between smri-fm pretraining and asparagus (official FOMO26
+framework) finetuning + evaluation.
 finetuning on downstream tasks and metric collection.
 
 ## Layout
@@ -9,7 +9,7 @@ finetuning on downstream tasks and metric collection.
 | File | Purpose |
 | --- | --- |
 | `models_smri_mae.py` | `SmriMaeClsRegBackbone` (real), `SmriMaeSegBackbone` (placeholder) — asparagus-compatible wrappers around the MAE encoder |
-| `checkpoint.py` | `convert_smri_mae_checkpoint(src, dst)` — rewrite a smri_mae `.pth` as `{"state_dict": ...}` with `model.encoder.*` keys |
+| `checkpoint.py` | `convert_checkpoint(model_name, src, dst)` dispatches to per-model converters (e.g. `convert_smri_mae_checkpoint`) that rewrite a smri-fm `.pth` as `{"state_dict": ...}` with `model.encoder.*` keys |
 | `configs/model/smri_mae.yaml` | Hydra overlay registering the wrappers under `+model=smri_mae` (picked up via `ASPARAGUS_*_CONFIGS` search paths) |
 
 Per-implementation siblings (e.g. `models_smri_dino.py`,
@@ -29,9 +29,12 @@ Per-implementation siblings (e.g. `models_smri_dino.py`,
 ### 2. Convert the pretrain checkpoint
 
 ```python
-from asparagus_bridge.checkpoint import convert_smri_mae_checkpoint
-convert_smri_mae_checkpoint("runs/mae/checkpoint-last.pth", "runs/mae/asparagus.ckpt")
+from asparagus_bridge.checkpoint import convert_checkpoint
+convert_checkpoint("smri_mae", "runs/mae/checkpoint-last.pth", "runs/mae/asparagus.ckpt")
 ```
+
+Register additional model converters in `asparagus_bridge.checkpoint.CONVERTERS`
+alongside their `models_smri_<name>.py` sibling.
 
 Strips decoder/patchify/target_norm, keeps `encoder.*`, prefixes keys with
 `model.` so asparagus' `BaseModule.load_state_dict(strict=False)` lands them
@@ -57,7 +60,7 @@ asp_linear_probe task=<TASK> +model=smri_mae checkpoint_path=runs/mae/asparagus.
 ```sh
 FOMO_CLS_TASKS="<task1> <task2>" \
 FOMO_REG_TASKS="<task1> <task2>" \
-  scripts/eval_fomo26.sh runs/mae/checkpoint-last.pth
+  scripts/eval_fomo26.sh smri_mae runs/mae/checkpoint-last.pth
 ```
 
 Converts the checkpoint and loops `asp_finetune_*` across the configured
