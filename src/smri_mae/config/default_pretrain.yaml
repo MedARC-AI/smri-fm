@@ -1,5 +1,5 @@
 # Name of the run. Used for output directory suffix and wandb.
-name: patch8_pretrain_smri_mae
+name: pretrain_smri_mae
 
 # Description of the run. Goes in wandb notes.
 notes: null
@@ -58,27 +58,27 @@ model_kwargs:
 
 # Datasets.
 datasets:
-  aabc_train:
-    local: datasets/aabc/mds
+  fomo_train:
+    local: datasets/FOMO300/mds
     split: train
     batch_size: 64
     shuffle: true
     shuffle_seed: 7338
-    epoch_size: 10000
+    epoch_size: 40000
     shuffle_block_size: 1000
     drop_last: true
 
-  aabc_val:
-    local: datasets/aabc/mds
+  fomo_val:
+    local: datasets/FOMO300/mds
     split: val
     batch_size: 64
     shuffle: false
     shuffle_seed: 7338
     drop_last: false
 
-train_dataset: aabc_train
+train_dataset: fomo_train
 eval_datasets:
-  - aabc_val
+  - fomo_val
 
 # Data loader.
 num_workers: 16
@@ -89,8 +89,8 @@ presend_cuda: false
 profile_steps: 0
 
 # Optimization.
-epochs: 400
-batch_size: 32
+epochs: 100
+batch_size: 64
 accum_iter: 1
 
 base_lr: 0.001
@@ -116,12 +116,12 @@ max_checkpoints: 5
 # Sync checkpoints to an R2 bucket using the AWS CLI. Set to a URL to enable.
 r2_sync: null
 
-device: cuda:0
+device: cuda
 distributed: false
 seed: 7338
 eval_seed: 7338
 debug: false
 
-wandb: false
+wandb: true
 wandb_entity: null
 wandb_project: smri-fm

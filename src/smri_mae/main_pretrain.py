@@ -25,9 +25,9 @@ from PIL import Image
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 from matplotlib import pyplot as plt
-from streaming import StreamingDataset
+from streaming import StreamingDataLoader, StreamingDataset
+from streaming.base.util import clean_stale_shared_memory
 from torch import Tensor
-from torch.utils.data import DataLoader
 
 import data.mri_data as mri_data
 import smri_mae.masking as masking
@@ -216,6 +216,11 @@ def mri_collate(
 
 
 def create_data_loaders(args: DictConfig):
+    if not args.distributed or args.get("gpu", 0) == 0:
+        clean_stale_shared_memory()
+    if args.distributed:
+        torch.distributed.barrier()
+
     mask_fn = masking.create_masking(
         args.masking,
         mask_ratio=args.mask_ratio,
@@ -233,9 +238,10 @@ def create_data_loaders(args: DictConfig):
         print(f"loading dataset: {dataset_name}\n\n{OmegaConf.to_yaml(dataset_config)}")
         drop_last = dataset_config.pop("drop_last")
         dataset_kwargs = OmegaConf.to_container(dataset_config, resolve=True)
+        dataset = StreamingDataset(**dataset_kwargs)
 
-        loader = DataLoader(
-            StreamingDataset(**dataset_kwargs),
+        loader = StreamingDataLoader(
+            dataset,
             batch_size=args.batch_size,
             collate_fn=partial(
                 mri_collate,

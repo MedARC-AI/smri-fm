@@ -43,3 +43,7 @@ CLAUDE.md
 
 # Misc
 .DS_Store
+
+# Slurm outputs
+*.out
+*.err
