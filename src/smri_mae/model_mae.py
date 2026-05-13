@@ -585,17 +585,17 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         dtype: torch.dtype,
         device: torch.device,
     ):
-        img_mask = _expand_volume_mask(img_mask, shape, dtype, device)
+        img_mask = img_mask.to(device=device, dtype=dtype)
 
         if visible_mask is None:
             visible_mask = img_mask
         else:
-            visible_mask = img_mask * _expand_volume_mask(visible_mask, shape, dtype, device)
+            visible_mask = img_mask * visible_mask.to(device=device, dtype=dtype)
 
         if pred_mask is None:
             pred_mask = img_mask
         else:
-            pred_mask = img_mask * _expand_volume_mask(pred_mask, shape, dtype, device)
+            pred_mask = img_mask * pred_mask.to(device=device, dtype=dtype)
 
         return img_mask, visible_mask, pred_mask
 
@@ -785,7 +785,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
     ):
         _validate_volume_images(x)
         if mask is not None:
-            mask = _expand_volume_mask(mask, x.shape, x.dtype, x.device)
+            mask = mask.to(device=x.device, dtype=x.dtype)
         return self.encoder.forward_embedding(x, mask=mask, mask_ratio=mask_ratio)
 
     @staticmethod
@@ -863,7 +863,7 @@ class MaskedViT(MaskedEncoder, PyTorchModelHubMixin):
     ):
         _validate_volume_images(x)
         if mask is not None:
-            mask = _expand_volume_mask(mask, x.shape, x.dtype, x.device)
+            mask = mask.to(device=x.device, dtype=x.dtype)
         return super().forward(x, mask=mask, mask_ratio=mask_ratio)
 
     def forward_embedding(
@@ -874,7 +874,7 @@ class MaskedViT(MaskedEncoder, PyTorchModelHubMixin):
     ):
         _validate_volume_images(x)
         if mask is not None:
-            mask = _expand_volume_mask(mask, x.shape, x.dtype, x.device)
+            mask = mask.to(device=x.device, dtype=x.dtype)
         return super().forward_embedding(x, mask=mask, mask_ratio=mask_ratio)
 
 
@@ -892,19 +892,6 @@ def _validate_volume_images(images: Tensor) -> None:
             "expected 3D MRI volume tensor shaped [B, C, D, H, W], "
             f"got shape {tuple(images.shape)}"
         )
-
-
-def _expand_volume_mask(
-    mask: Tensor,
-    shape: tuple[int, ...],
-    dtype: torch.dtype,
-    device: torch.device,
-) -> Tensor:
-    if len(shape) != 5:
-        raise ValueError(f"expected volume shape [B, C, D, H, W], got {shape}")
-    if tuple(mask.shape) != shape:
-        raise ValueError(f"expected mask shape {shape}, got {tuple(mask.shape)}")
-    return mask.to(device=device, dtype=dtype)
 
 
 # JAX ViT xavier uniform init
