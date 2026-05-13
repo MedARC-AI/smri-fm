@@ -720,7 +720,6 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         include_mask_stats: bool = False,
         with_state: bool = True,
     ) -> Tensor | tuple[Tensor, dict[str, Tensor]] | tuple[Tensor, dict]:
-        _validate_volume_images(images)
         visible_mask = mask_fn(img_mask, device=images.device) if mask_fn is not None else None
         img_mask, visible_mask, pred_mask = self.prepare_masks(
             img_mask,
@@ -783,7 +782,6 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         mask: Tensor | None = None,
         mask_ratio: float | None = None,
     ):
-        _validate_volume_images(x)
         if mask is not None:
             mask = mask.to(device=x.device, dtype=x.dtype)
         return self.encoder.forward_embedding(x, mask=mask, mask_ratio=mask_ratio)
@@ -861,7 +859,6 @@ class MaskedViT(MaskedEncoder, PyTorchModelHubMixin):
         mask: Tensor | None = None,
         mask_ratio: float | None = None,
     ):
-        _validate_volume_images(x)
         if mask is not None:
             mask = mask.to(device=x.device, dtype=x.dtype)
         return super().forward(x, mask=mask, mask_ratio=mask_ratio)
@@ -872,7 +869,6 @@ class MaskedViT(MaskedEncoder, PyTorchModelHubMixin):
         mask: Tensor | None = None,
         mask_ratio: float | None = None,
     ):
-        _validate_volume_images(x)
         if mask is not None:
             mask = mask.to(device=x.device, dtype=x.dtype)
         return super().forward_embedding(x, mask=mask, mask_ratio=mask_ratio)
@@ -884,14 +880,6 @@ def _to_3d_tuple(value: int | Sequence[int], name: str) -> tuple[int, int, int]:
     if len(value) != 3:
         raise ValueError(f"{name} must have exactly 3 spatial dimensions, got {tuple(value)}")
     return tuple(int(item) for item in value)
-
-
-def _validate_volume_images(images: Tensor) -> None:
-    if images.ndim != 5:
-        raise ValueError(
-            "expected 3D MRI volume tensor shaped [B, C, D, H, W], "
-            f"got shape {tuple(images.shape)}"
-        )
 
 
 # JAX ViT xavier uniform init
