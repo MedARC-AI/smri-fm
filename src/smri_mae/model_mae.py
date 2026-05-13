@@ -183,8 +183,8 @@ class MaskedEncoder(nn.Module):
         """
         # apply mask to the input
         if mask is not None:
-            mask = mask.to(device=x.device, dtype=x.dtype).expand_as(x)
-            x = mask * x
+            mask = mask.to(device=x.device, dtype=torch.bool).expand_as(x)
+            x = x.masked_fill(~mask, 0)
 
         # patchify input
         x = self.patchify(x)
@@ -194,11 +194,12 @@ class MaskedEncoder(nn.Module):
         if mask is not None:
             mask_patches = self.patchify(mask)
             patch_num_obs = mask_patches.sum(dim=-1)
-            patch_mask = (patch_num_obs > 0).to(x.dtype)
+            patch_mask = patch_num_obs > 0
             if self.mask_drop_scale:
+                patch_num_obs = patch_num_obs.to(x.dtype)
                 x = x * (P / patch_num_obs.unsqueeze(-1).clamp(min=1.0))
         elif mask_ratio is not None:
-            patch_mask = torch.ones((B, N), dtype=x.dtype, device=x.device)
+            patch_mask = torch.ones((B, N), dtype=torch.bool, device=x.device)
             mask_patches = patch_mask.unsqueeze(-1).expand(-1, -1, P)
         else:
             patch_mask = mask_patches = None
@@ -213,7 +214,7 @@ class MaskedEncoder(nn.Module):
                 mask_ratio=0.0 if mask_ratio is None else mask_ratio,
                 shuffle=mask_ratio is not None,
             )
-            mask_patches = mask_patches * patch_mask.unsqueeze(-1)
+            mask_patches = mask_patches & patch_mask.unsqueeze(-1)
             mask = self.patchify.unpatchify(mask_patches)
             x = x.gather(1, mask_ids.unsqueeze(-1).expand(-1, -1, x.shape[-1]))
         else:
@@ -249,13 +250,13 @@ class MaskedEncoder(nn.Module):
         Float[Tensor, "B L D"],
     ]:
         if img_mask is not None:
-            img_mask = img_mask.to(device=x.device, dtype=x.dtype).expand_as(x)
-            x = img_mask * x
+            img_mask = img_mask.to(device=x.device, dtype=torch.bool).expand_as(x)
+            x = x.masked_fill(~img_mask, 0)
 
         x = self.patchify(x)
         if self.mask_drop_scale and img_mask is not None:
             mask_patches = self.patchify(img_mask)
-            patch_num_obs = mask_patches.sum(dim=-1)
+            patch_num_obs = mask_patches.sum(dim=-1).to(x.dtype)
             x = x * (self.patchify.patch_dim / patch_num_obs.unsqueeze(-1).clamp(min=1.0))
         x = self.patch_embed(x)
         x = self.pos_embed(x)
@@ -559,7 +560,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         """
         images: [B, C, D, H, W]
         img_mask: mask of valid data. only used for computing correct normalization
-            stats. same shape and type as images.
+            stats. same shape as images.
         """
         targets_patches = self.pred_patchify(images)  # [B, N, P]
 
@@ -581,21 +582,19 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         img_mask: Tensor,
         visible_mask: Tensor | None,
         pred_mask: Tensor | None,
-        shape: tuple[int, ...],
-        dtype: torch.dtype,
         device: torch.device,
     ):
-        img_mask = img_mask.to(device=device, dtype=dtype)
+        img_mask = img_mask.to(device=device, dtype=torch.bool)
 
         if visible_mask is None:
             visible_mask = img_mask
         else:
-            visible_mask = img_mask * visible_mask.to(device=device, dtype=dtype)
+            visible_mask = img_mask & visible_mask.to(device=device, dtype=torch.bool)
 
         if pred_mask is None:
             pred_mask = img_mask
         else:
-            pred_mask = img_mask * pred_mask.to(device=device, dtype=dtype)
+            pred_mask = img_mask & pred_mask.to(device=device, dtype=torch.bool)
 
         return img_mask, visible_mask, pred_mask
 
@@ -635,10 +634,10 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         if pred_mask is None:
             pred_mask = torch.ones_like(visible_mask)
 
-        pred_mask = pred_mask * (1 - visible_mask)
+        pred_mask = pred_mask & ~visible_mask
 
         pred_mask_patches = self.pred_patchify(pred_mask)
-        pred_patch_mask = pred_mask_patches.any(dim=-1).to(pred_mask_patches.dtype)
+        pred_patch_mask = pred_mask_patches.any(dim=-1)
         # Randomize even when keeping all prediction candidates, because samples with
         # more valid brain patches are trimmed to the batch minimum.
         pred_patch_mask, pred_ids = trim_patch_mask(
@@ -646,7 +645,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
             mask_ratio=0.0 if pred_mask_ratio is None else pred_mask_ratio,
             shuffle=True,
         )
-        pred_mask_patches = pred_mask_patches * pred_patch_mask.unsqueeze(-1)
+        pred_mask_patches = pred_mask_patches & pred_patch_mask.unsqueeze(-1)
         return pred_mask_patches, pred_ids
 
     def forward_decoder(
@@ -707,7 +706,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
 
         pred_images = self.pred_patchify.unpatchify(preds)
         if img_mask is not None:
-            pred_images = img_mask * pred_images
+            pred_images = pred_images.masked_fill(~img_mask, 0)
         return pred_images
 
     def forward(
@@ -725,8 +724,6 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
             img_mask,
             visible_mask,
             None,
-            shape=images.shape,
-            dtype=images.dtype,
             device=images.device,
         )
         mask_stats = self.prepare_mask_stats(
