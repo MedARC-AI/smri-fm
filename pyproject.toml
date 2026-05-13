@@ -60,7 +60,3 @@ line-length = 100
 
 [tool.ruff.lint]
 ignore = ["F722"]
-
-[tool.pytest.ini_options]
-pythonpath = ["src"]
-testpaths = ["tests"]
