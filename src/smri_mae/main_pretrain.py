@@ -263,6 +263,39 @@ def create_data_loaders(args: DictConfig):
     return train_loader, data_loaders, mask_fn
 
 
+def create_torch_profiler(args: DictConfig, *, epoch: int, use_cuda: bool):
+    profile_steps = int(args.get("profile_steps", 0) or 0)
+    profile_start_epoch = int(args.get("profile_start_epoch", 0) or 0)
+    if profile_steps <= 0 or epoch != profile_start_epoch or not ut.is_main_process():
+        return None
+    wait_steps = int(args.get("profile_wait_steps", 0) or 0)
+    warmup_steps = int(args.get("profile_warmup_steps", 0) or 0)
+
+    activities = [torch.profiler.ProfilerActivity.CPU]
+    if use_cuda:
+        activities.append(torch.profiler.ProfilerActivity.CUDA)
+
+    trace_dir = Path(args.output_dir) / "profiler"
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    print(
+        f"writing torch profiler trace to {trace_dir} "
+        f"(epoch={epoch}, wait={wait_steps}, warmup={warmup_steps}, active={profile_steps})"
+    )
+    return torch.profiler.profile(
+        activities=activities,
+        schedule=torch.profiler.schedule(
+            wait=wait_steps,
+            warmup=warmup_steps,
+            active=profile_steps,
+            repeat=1,
+        ),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler(str(trace_dir)),
+        record_shapes=True,
+        profile_memory=True,
+        with_stack=False,
+    )
+
+
 def sync_checkpoints_to_r2(args: DictConfig, output_dir: Path) -> None:
     r2_sync_url = args.get("r2_sync")
     if not r2_sync_url or not ut.is_main_process():
@@ -291,13 +324,14 @@ def train_one_epoch(
     metric_logger.add_meter("grad", ut.SmoothedValue())
     header = f"Train: [{epoch}]"
     log_wandb = args.wandb and ut.is_main_process()
+    profile_start_epoch = int(args.get("profile_start_epoch", 0) or 0)
 
     epoch_num_batches = len(data_loader)
     steps_per_epoch = epoch_num_batches // args.accum_iter
 
     print_freq = args.get("print_freq", 100) if not args.debug else 1
     num_batches = epoch_num_batches if not args.debug else 10
-    profile_steps = int(args.get("profile_steps", 0) or 0)
+    profile_steps = int(args.get("profile_steps", 0) or 0) if epoch == profile_start_epoch else 0
 
     amp_dtype = getattr(torch, args.amp_dtype)
     use_cuda = device.type == "cuda"
@@ -305,20 +339,18 @@ def train_one_epoch(
         data_loader = ut.pre_send_to_cuda_wrapper(data_loader, device, dtype_map={torch.float16: amp_dtype})
 
     optimizer.zero_grad()
+    profiler = create_torch_profiler(args, epoch=epoch, use_cuda=use_cuda)
+    if profiler is not None:
+        profiler.start()
 
     for batch_idx, batch in enumerate(
         metric_logger.log_every(data_loader, print_freq, header, total_steps=num_batches)
     ):
         profile_step = batch_idx < profile_steps
+        log_step = batch_idx % print_freq == 0 or batch_idx == num_batches - 1
 
         if use_cuda and not args.presend_cuda:
-            if profile_step:
-                torch.cuda.synchronize()
-                h2d_start = time.perf_counter()
             batch = ut.send_data(batch, device, dtype_map={torch.float16: amp_dtype})
-            if profile_step:
-                torch.cuda.synchronize()
-                metric_logger.update(h2d_time=time.perf_counter() - h2d_start)
 
         batch_step = batch_idx + 1
         global_step = epoch * steps_per_epoch + batch_step // args.accum_iter
@@ -332,9 +364,6 @@ def train_one_epoch(
         masks = mri_data.unpack_img_mask_batch(batch["img_mask"], images.shape[1:])
         batch["img_mask"] = masks
 
-        if profile_step and use_cuda:
-            torch.cuda.synchronize()
-            forward_start = time.perf_counter()
         with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=args.amp):
             loss, mask_stats = model(
                 images,
@@ -342,20 +371,14 @@ def train_one_epoch(
                 mask_ratio=args.mask_ratio,
                 pred_mask_ratio=args.pred_mask_ratio,
                 mask_fn=mask_fn if args.masking != "random" else None,
-                include_mask_stats=profile_step,
+                include_mask_stats=False,
                 with_state=False,
             )
-        if profile_step and use_cuda:
-            torch.cuda.synchronize()
-            metric_logger.update(forward_time=time.perf_counter() - forward_start)
 
-        loss_value = loss.item()
-        if not math.isfinite(loss_value):
-            raise RuntimeError(f"Loss is {loss_value}, stopping training")
-
-        if profile_step and use_cuda:
-            torch.cuda.synchronize()
-            backward_start = time.perf_counter()
+        if log_step:
+            loss_value = loss.item()
+            if not math.isfinite(loss_value):
+                raise RuntimeError(f"Loss is {loss_value}, stopping training")
 
         grad_norm = ut.backward_step(
             loss / args.accum_iter,
@@ -365,11 +388,7 @@ def train_one_epoch(
             max_norm=args.clip_grad,
         )
 
-        if profile_step and use_cuda:
-            torch.cuda.synchronize()
-            metric_logger.update(backward_time=time.perf_counter() - backward_start)
-
-        if need_update:
+        if need_update and log_step:
             grad_norm_value = grad_norm.item()
             metric_logger.update(
                 loss=loss_value,
@@ -385,6 +404,14 @@ def train_one_epoch(
                     **{f"train/{k}": v for k, v in mask_stats.items()},
                 }
                 wandb.log(wandb_stats, step=int(1000 * (epoch + batch_step / epoch_num_batches)))
+
+        if profiler is not None:
+            profiler.step()
+
+    if profiler is not None:
+        profiler.stop()
+        sort_by = "cuda_time_total" if use_cuda else "cpu_time_total"
+        print(profiler.key_averages().table(sort_by=sort_by, row_limit=args.get("profile_row_limit", 25)))
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
