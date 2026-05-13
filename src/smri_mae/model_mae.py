@@ -902,16 +902,9 @@ def _expand_volume_mask(
 ) -> Tensor:
     if len(shape) != 5:
         raise ValueError(f"expected volume shape [B, C, D, H, W], got {shape}")
-    if mask.ndim == 3:
-        mask = mask.reshape(1, 1, *mask.shape)
-    elif mask.ndim == 4:
-        mask = mask.unsqueeze(1)
-    elif mask.ndim != 5:
-        raise ValueError(
-            "expected mask shaped [D, H, W], [B, D, H, W], or [B, C, D, H, W], "
-            f"got shape {tuple(mask.shape)}"
-        )
-    return mask.to(device=device, dtype=dtype).expand(shape)
+    if tuple(mask.shape) != shape:
+        raise ValueError(f"expected mask shape {shape}, got {tuple(mask.shape)}")
+    return mask.to(device=device, dtype=dtype)
 
 
 # JAX ViT xavier uniform init

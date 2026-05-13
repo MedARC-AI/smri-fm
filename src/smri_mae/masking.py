@@ -71,7 +71,7 @@ class RandomMasking(nn.Module):
         patch_mask, _ = trim_patch_mask(patch_mask.float(), self.mask_ratio, shuffle=True)
         mask_patches = mask_patches * patch_mask.to(mask_patches.dtype).unsqueeze(-1)
         mask = self.patchify.unpatchify(mask_patches)
-        return mask[:, 0]  # [B, D, H, W]
+        return mask  # [B, C, D, H, W]
 
 
 class BlockMasking(RandomMasking):
@@ -115,7 +115,7 @@ class BlockMasking(RandomMasking):
         visible_patch_mask = self._visible_patch_mask(valid_patch_mask)
         mask_patches = mask_patches * visible_patch_mask.to(mask_patches.dtype).unsqueeze(-1)
         mask = self.patchify.unpatchify(mask_patches)
-        return mask[:, 0]  # [B, D, H, W]
+        return mask  # [B, C, D, H, W]
 
     def _visible_patch_mask(self, valid_patch_mask: Tensor) -> Tensor:
         num_keep = self._num_keep(valid_patch_mask)
