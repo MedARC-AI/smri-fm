@@ -214,10 +214,11 @@ def mri_collate(
 
 
 def create_data_loaders(args: DictConfig):
-    if args.distributed:
-        if ut.is_main_process():
+    if args.get("clean_stale_shm", False):
+        if not args.distributed or ut.is_main_process():
             clean_stale_shared_memory()
-        torch.distributed.barrier()
+        if args.distributed:
+            torch.distributed.barrier()
 
     mask_fn = masking.create_masking(
         args.masking,

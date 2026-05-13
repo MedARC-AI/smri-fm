@@ -118,6 +118,7 @@ r2_sync: null
 
 device: cuda
 distributed: false
+clean_stale_shm: false
 seed: 7338
 eval_seed: 7338
 debug: false
