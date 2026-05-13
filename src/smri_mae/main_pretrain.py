@@ -214,9 +214,9 @@ def mri_collate(
 
 
 def create_data_loaders(args: DictConfig):
-    if not args.distributed or args.get("gpu", 0) == 0:
-        clean_stale_shared_memory()
     if args.distributed:
+        if ut.is_main_process():
+            clean_stale_shared_memory()
         torch.distributed.barrier()
 
     mask_fn = masking.create_masking(
