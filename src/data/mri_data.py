@@ -1,5 +1,6 @@
 import json
 import math
+import random
 from typing import Any, Sequence
 
 import torch
@@ -7,24 +8,18 @@ import torch.nn.functional as F
 
 
 def unpack_img_mask_batch(mask: torch.Tensor, image_shape: Sequence[int]) -> torch.Tensor:
-    """Return a dense boolean batch mask from dense or bit-packed mask tensors."""
+    """Return a dense boolean batch mask from bit-packed mask tensors."""
     image_shape = tuple(int(dim) for dim in image_shape)
-    if tuple(mask.shape[1:]) == image_shape:
-        return mask.to(dtype=torch.bool)
-
     mask_numel = math.prod(image_shape)
     packed_numel = math.ceil(mask_numel / 8)
-    if mask.ndim == 2 and mask.shape[1] == packed_numel:
-        if mask.dtype != torch.uint8:
-            raise ValueError(f"packed img_mask must have dtype uint8, got {mask.dtype}")
-        shifts = torch.arange(7, -1, -1, device=mask.device, dtype=torch.uint8)
-        bits = (mask.unsqueeze(-1).bitwise_right_shift(shifts) & 1).reshape(mask.shape[0], -1)
-        return bits[:, :mask_numel].reshape((mask.shape[0], *image_shape)).bool()
+    if mask.dtype != torch.uint8:
+        raise ValueError(f"packed img_mask must have dtype uint8, got {mask.dtype}")
+    if mask.ndim != 2 or mask.shape[1] != packed_numel:
+        raise ValueError(f"expected packed img_mask shape (B, {packed_numel}), got {tuple(mask.shape)}")
 
-    raise ValueError(
-        f"expected batched img_mask shape (B, {', '.join(map(str, image_shape))}) "
-        f"or (B, {packed_numel}), got {tuple(mask.shape)}"
-    )
+    shifts = torch.arange(7, -1, -1, device=mask.device, dtype=torch.uint8)
+    bits = (mask.unsqueeze(-1).bitwise_right_shift(shifts) & 1).reshape(mask.shape[0], -1)
+    return bits[:, :mask_numel].reshape((mask.shape[0], *image_shape)).bool()
 
 
 def augment_sample(sample: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
@@ -72,7 +67,7 @@ def _sample_range(value: float | Sequence[float]) -> float:
     low, high = float(value[0]), float(value[1])
     if low == high:
         return low
-    return float(torch.empty(()).uniform_(low, high).item())
+    return random.uniform(low, high)
 
 
 def _spatial_jitter(
