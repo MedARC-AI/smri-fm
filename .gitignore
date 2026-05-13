@@ -40,3 +40,6 @@ tmp
 .claude/
 .codex
 CLAUDE.md
+
+# Misc
+.DS_Store
