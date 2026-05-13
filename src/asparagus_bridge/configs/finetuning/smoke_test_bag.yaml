@@ -1,0 +1,39 @@
+# @package _global_
+defaults:
+  - /default_finetune_reg
+  - /hardware/cpu@hardware
+  - /model/smri_mae@model
+  - _self_
+
+task: REGR002_FOMO26_BrainAge
+
+checkpoint_path: /Users/lukasecerovic/Documents/repos/sMRI/smri-fm/.scratch/pretrained_mae_checkpoint/asparagus_compatible_weights.pth
+
+data:
+  train_split: split_80_10_10
+  test_split: TEST_80_10_10
+  fold: 0
+
+hardware:
+  accelerator: cpu
+  num_devices: 1
+  num_workers: 2
+  precision: 32-true
+  compile_mode: null
+
+training:
+  batch_size: 1
+  epochs: 1
+  limit_train_batches: 2
+  limit_val_batches: 1
+  target_size: [208, 240, 208]
+  warmup_epochs: 0
+
+logger:
+  wandb_logging: false
+  log_every_n_steps: 1
+
+model:
+  _cls_net:
+    img_size: [208, 240, 208]
+    patch_size: 8
