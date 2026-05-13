@@ -23,8 +23,10 @@ uv.lock
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# Local data directory
+# Local data directories
 /data/
+*.pth
+*.mds
 
 # Output directories
 checkpoints/
