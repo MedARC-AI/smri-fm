@@ -9,7 +9,6 @@ import argparse
 import datetime
 import json
 import math
-import os
 import random
 import subprocess
 import time
@@ -23,7 +22,6 @@ import wandb
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 from matplotlib import pyplot as plt
 from streaming import StreamingDataLoader, StreamingDataset
 from streaming.base.util import clean_stale_shared_memory
