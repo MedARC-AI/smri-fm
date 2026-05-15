@@ -1,0 +1,26 @@
+# @package model
+# smri_mae MAE backbone for asparagus finetune/eval
+
+dimensions: 3D
+deep_supervision: False
+
+seg_net: smri_mae
+cls_net: smri_mae
+reg_net: smri_mae
+
+# Segmentation: placeholder.
+_seg_net:
+  _target_: asparagus_bridge.models_smri_mae.SmriMaeSegBackbone
+  dimensions: ${model.dimensions}
+
+_cls_net:
+  _target_: asparagus_bridge.models_smri_mae.SmriMaeClsRegBackbone
+  dimensions: ${model.dimensions}
+
+_reg_net:
+  _target_: asparagus_bridge.models_smri_mae.SmriMaeClsRegBackbone
+  dimensions: ${model.dimensions}
+
+finetune_optim: AdamW
+finetune_lr: 1e-4
+weight_decay: 3e-5
