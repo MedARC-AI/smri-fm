@@ -61,4 +61,3 @@ FOMO_CLS_TASKS="<task1> <task2>" \
 FOMO_REG_TASKS="<task1> <task2>" \
   scripts/eval_fomo26.sh smri_mae runs/mae/checkpoint-last.pth
 ```
-
