@@ -28,9 +28,16 @@ ASPARAGUS_RESULTS="${_smri_fm_repo}/data/asparagus/results"
 ASPARAGUS_RAW_LABELS="${_smri_fm_repo}/data/asparagus/raw_labels"
 
 if [ -f "$_smri_fm_env" ]; then
-    set -a
+    # Export every assignment in .env, including project-specific variables that
+    # are not part of the ASPARAGUS_* defaults below.
+    case "$-" in
+        *a*) _smri_fm_restore_allexport=0 ;;
+        *) _smri_fm_restore_allexport=1; set -a ;;
+    esac
     . "$_smri_fm_env"
-    set +a
+    if [ "$_smri_fm_restore_allexport" = "1" ]; then
+        set +a
+    fi
 fi
 
 export ASPARAGUS_FINETUNE_CONFIGS
@@ -55,4 +62,4 @@ echo "ASPARAGUS_MODELS=${ASPARAGUS_MODELS}"
 echo "ASPARAGUS_RESULTS=${ASPARAGUS_RESULTS}"
 echo "ASPARAGUS_RAW_LABELS=${ASPARAGUS_RAW_LABELS}"
 
-unset _smri_fm_repo _smri_fm_env
+unset _smri_fm_repo _smri_fm_env _smri_fm_restore_allexport
