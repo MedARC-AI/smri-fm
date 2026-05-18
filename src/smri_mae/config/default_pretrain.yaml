@@ -38,15 +38,15 @@ model_kwargs:
 # Datasets.
 datasets:
   fomo_train:
-    url: datasets/FOMO300/wds_spr/train/*.tar
-    samples_per_epoch: 40000
+    url: datasets/FOMO300/wds_spr_all/shard.{00000..00039}.tar
+    samples_per_epoch: 32000
     shuffle: true
     buffer_size: 8000
     drop_last: true
 
   fomo_val:
-    url: datasets/FOMO300/wds_spr/val/*.tar
-    samples_per_epoch: 400
+    url: datasets/FOMO300/wds_spr_all/shard.{00040..00049}.tar
+    samples_per_epoch: 7000
     shuffle: false
     buffer_size: 1000
     drop_last: true
