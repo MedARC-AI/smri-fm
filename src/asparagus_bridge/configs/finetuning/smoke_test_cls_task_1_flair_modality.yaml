@@ -5,7 +5,7 @@ defaults:
   - /model/smri_mae@model
   - _self_
 
-task: CLS002_FOMO26_Infarct
+task: CLS002_FOMO26_Infarct_FLAIR
 
 checkpoint_path: /Users/lukasecerovic/Documents/repos/sMRI/smri-fm/.scratch/pretrained_mae_checkpoint/checkpoint-last-asparagus-NEW.ckpt
 
@@ -26,6 +26,7 @@ training:
   epochs: 1
   limit_train_batches: 2
   limit_val_batches: 1
+  check_val_every_n_epoch: 1
   target_size: [208, 240, 208]
   warmup_epochs: 0
 
