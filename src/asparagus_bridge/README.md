@@ -3,10 +3,6 @@
 Bridge between smri-fm pretraining and asparagus (official FOMO26 framework)
 finetuning + evaluation.
 
-
-### 0. Temp Asparagus fixes - 20260513
-Asparagus repos have a couple of bugs that haven't been closed yet: [1](https://github.com/Sllambias/asparagus_preprocessing/pull/1), [2](https://github.com/Sllambias/asparagus_preprocessing/pull/2), [3](https://github.com/Sllambias/asparagus/pull/3). Until they are merged, please tell your favorite coding agent to `Patch the submodules with small changes from asparagus_quickfixes.md`.
-
 ### 1. Prereqs
 
 - `uv sync`
