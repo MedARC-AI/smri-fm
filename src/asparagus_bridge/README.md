@@ -61,11 +61,20 @@ The `asp_split --vals 80 10 10` command writes both `split_80_10_10.json` and
 Task 5 is `CLS003_FOMO26_Polymicrogyria`. The organizers provide a standalone
 extractor, `Task_5_extract.py`, which expects
 `Zhang_Lingfeng_2022_PPMR_Dataset.zip` in its current working directory and
-writes `Task_5/` there. Use the repo wrapper to run extraction, asparagus
-preprocessing, and split creation:
+writes `Task_5/` there. Use these three commands for extraction, asparagus
+preprocessing, and finetuning:
 
 ```sh
-scripts/eval_preprocess_task5.sh
+repo_root="$(git rev-parse --show-toplevel)" && (cd "$ASPARAGUS_SOURCE" && uv run --project "$repo_root" python Task_5_extract.py --verbose)
+
+uv run asp_process --dataset CLS003 --save_as_tensor --num_workers 4
+
+uv run asp_finetune_cls \
+  task=CLS003_FOMO26_Polymicrogyria \
+  +model=smri_mae \
+  checkpoint_path=runs/mae/asparagus.ckpt \
+  data.train_split=split_80_10_10 \
+  data.test_split=TEST_80_10_10
 ```
 
 This requires both organizer files to already be in `$ASPARAGUS_SOURCE`:
