@@ -75,8 +75,6 @@ $ASPARAGUS_SOURCE/Task_5_extract.py
 $ASPARAGUS_SOURCE/Zhang_Lingfeng_2022_PPMR_Dataset.zip
 ```
 
-Set `TASK5_NUM_WORKERS` to override the default `asp_process --num_workers 4`.
-
 - [TODO] To reduce the number of necessary steps, the processed data from the previous step will be moved to HF so no local script running is needed.
 
 ### 2. Convert the pretrain checkpoint
