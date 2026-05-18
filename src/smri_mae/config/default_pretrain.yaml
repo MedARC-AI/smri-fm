@@ -1,5 +1,5 @@
 # Name of the run. Used for output directory suffix and wandb.
-name: pretrain_smri_mae
+name: pretrain
 
 # Description of the run. Goes in wandb notes.
 notes: null
@@ -101,5 +101,5 @@ eval_seed: 7338
 debug: false
 
 wandb: true
-andb_entity: null
+wandb_entity: null
 wandb_project: smri-fm
