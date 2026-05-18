@@ -15,27 +15,6 @@ patch_size: 8
 # Masking.
 mask_ratio: 0.80
 pred_mask_ratio: null
-masking: random
-masking_kwargs: {}
-
-# Train-time MRI augmentation. Applied once per loaded train volume before
-# masking. Evaluation stays unaugmented.
-augmentation:
-  enabled: false
-  pad_range: [4, 8]
-  scale: [0.9, 1.1]
-  shift: [-0.1, 0.1]
-  noise_std: [0.0, 0.03]
-  blur:
-    p: 0.0
-    sigma: [0.3, 0.6]
-
-# Hybrid 3D masking example.
-# masking: hybrid
-# masking_kwargs:
-#   block_size: [2, 2, 2]
-#   random_fraction: 0.5
-#   block_fraction: 0.5
 
 # Model.
 model: mae_vit_base
@@ -59,17 +38,18 @@ model_kwargs:
 # Datasets.
 datasets:
   fomo_train:
-    local: datasets/FOMO300/mds
+    local: datasets/FOMO300/mds_spr
     split: train
     batch_size: 64
     shuffle: true
     shuffle_seed: 7338
     epoch_size: 40000
-    shuffle_block_size: 1000
+    predownload: 8192
+    shuffle_block_size: 8000
     drop_last: true
 
   fomo_val:
-    local: datasets/FOMO300/mds
+    local: datasets/FOMO300/mds_spr
     split: val
     batch_size: 64
     shuffle: false
@@ -84,13 +64,6 @@ eval_datasets:
 num_workers: 16
 prefetch_factor: 8
 presend_cuda: true
-
-# Torch profiler. Leave profile_steps at 0 for normal training.
-profile_start_epoch: 2
-profile_wait_steps: 2
-profile_warmup_steps: 2
-profile_steps: 0
-profile_row_limit: 25
 
 # Optimization.
 epochs: 100
@@ -114,7 +87,7 @@ ckpt: null
 resume: false
 auto_resume: true
 start_epoch: 0
-checkpoint_period: 1
+checkpoint_period: 5
 max_checkpoints: 5
 
 # Sync checkpoints to an R2 bucket using the AWS CLI. Set to a URL to enable.
@@ -128,5 +101,5 @@ eval_seed: 7338
 debug: false
 
 wandb: true
-wandb_entity: null
+andb_entity: null
 wandb_project: smri-fm

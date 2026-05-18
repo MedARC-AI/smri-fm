@@ -28,7 +28,6 @@ from streaming.base.util import clean_stale_shared_memory
 from torch import Tensor
 
 import data.mri_data as mri_data
-import smri_mae.masking as masking
 import smri_mae.model_mae as models_mae
 import smri_mae.utils as ut
 import smri_mae.visualization as vis
@@ -78,7 +77,7 @@ def main(args: DictConfig):
     print("config:", OmegaConf.to_yaml(args), sep="\n")
 
     # data loaders
-    train_loader, eval_loaders, mask_fn = create_data_loaders(args)
+    train_loader, eval_loaders = create_data_loaders(args)
 
     # model
     model = MODELS_DICT[args.model](
@@ -118,7 +117,7 @@ def main(args: DictConfig):
     ut.update_wd(param_groups, args.weight_decay)
     # cast or else it corrupts the checkpoint
     betas = tuple(args.betas) if args.betas is not None else None
-    optimizer = torch.optim.AdamW(param_groups, betas=betas)
+    optimizer = torch.optim.AdamW(param_groups, betas=betas, fused=True)
 
     epoch_num_batches = len(train_loader)
     steps_per_epoch = epoch_num_batches // args.accum_iter
@@ -154,9 +153,7 @@ def main(args: DictConfig):
             lr_schedule,
             epoch,
             device,
-            mask_fn=mask_fn,
         )
-
         eval_stats = {}
         eval_plots = {}
         for name, loader in eval_loaders.items():
@@ -164,11 +161,10 @@ def main(args: DictConfig):
                 args,
                 model,
                 loader,
-                epoch,
-                device,
-                eval_name=name,
-                mask_fn=mask_fn,
-            )
+                    epoch,
+                    device,
+                    eval_name=name,
+                )
             eval_stats.update(stats)
             eval_plots.update(plots)
 
@@ -194,24 +190,18 @@ def main(args: DictConfig):
 def mri_collate(
     samples: list[dict],
     *,
-    augmentation: dict | None = None,
     include_meta: bool = True,
 ) -> dict[str, Tensor]:
-    if augmentation:
-        samples = [mri_data.augment_sample(sample, augmentation) for sample in samples]
-        masks = [
-            torch.as_tensor(sample["img_mask"].copy(), dtype=torch.bool) for sample in samples
-        ]
-    else:
-        masks = [torch.as_tensor(sample["img_mask"].copy()) for sample in samples]
-    batch = {
-        "image": torch.stack([torch.as_tensor(sample["image"].copy()) for sample in samples]),
-        "img_mask": torch.stack(masks),
-    }
+    masks = [torch.as_tensor(sample["img_mask"].copy()) for sample in samples]
+    batch = {"img_mask": torch.stack(masks)}
+    image_values = [
+        torch.as_tensor(sample["image_values"].copy(), dtype=torch.float16) for sample in samples
+    ]
+    batch["image_values"] = torch.cat(image_values)
+
     if include_meta:
         batch["meta"] = [mri_data.make_collatable(sample["meta"]) for sample in samples]
     return batch
-
 
 def create_data_loaders(args: DictConfig):
     if args.get("clean_stale_shm", False):
@@ -219,15 +209,6 @@ def create_data_loaders(args: DictConfig):
             clean_stale_shared_memory()
         if args.distributed:
             torch.distributed.barrier()
-
-    mask_fn = masking.create_masking(
-        args.masking,
-        mask_ratio=args.mask_ratio,
-        img_size=args.img_size,
-        patch_size=args.patch_size,
-        **(args.get("masking_kwargs") or {}),
-    )
-    print("mask generator:", mask_fn, sep="\n")
 
     data_loaders = {}
     dataset_names = [args.train_dataset] + args.eval_datasets
@@ -238,16 +219,14 @@ def create_data_loaders(args: DictConfig):
         drop_last = dataset_config.pop("drop_last")
         dataset_kwargs = OmegaConf.to_container(dataset_config, resolve=True)
         dataset = StreamingDataset(**dataset_kwargs)
+        is_train = dataset_name == args.train_dataset
 
         loader = StreamingDataLoader(
             dataset,
             batch_size=args.batch_size,
             collate_fn=partial(
                 mri_collate,
-                augmentation=args.augmentation
-                if dataset_name == args.train_dataset and args.augmentation.enabled
-                else None,
-                include_meta=dataset_name != args.train_dataset,
+                include_meta=not is_train,
             ),
             shuffle=False,
             num_workers=args.num_workers,
@@ -260,40 +239,7 @@ def create_data_loaders(args: DictConfig):
         data_loaders[dataset_name] = loader
 
     train_loader = data_loaders.pop(args.train_dataset)
-    return train_loader, data_loaders, mask_fn
-
-
-def create_torch_profiler(args: DictConfig, *, epoch: int, use_cuda: bool):
-    profile_steps = int(args.get("profile_steps", 0) or 0)
-    profile_start_epoch = int(args.get("profile_start_epoch", 0) or 0)
-    if profile_steps <= 0 or epoch != profile_start_epoch or not ut.is_main_process():
-        return None
-    wait_steps = int(args.get("profile_wait_steps", 0) or 0)
-    warmup_steps = int(args.get("profile_warmup_steps", 0) or 0)
-
-    activities = [torch.profiler.ProfilerActivity.CPU]
-    if use_cuda:
-        activities.append(torch.profiler.ProfilerActivity.CUDA)
-
-    trace_dir = Path(args.output_dir) / "profiler"
-    trace_dir.mkdir(parents=True, exist_ok=True)
-    print(
-        f"writing torch profiler trace to {trace_dir} "
-        f"(epoch={epoch}, wait={wait_steps}, warmup={warmup_steps}, active={profile_steps})"
-    )
-    return torch.profiler.profile(
-        activities=activities,
-        schedule=torch.profiler.schedule(
-            wait=wait_steps,
-            warmup=warmup_steps,
-            active=profile_steps,
-            repeat=1,
-        ),
-        on_trace_ready=torch.profiler.tensorboard_trace_handler(str(trace_dir)),
-        record_shapes=True,
-        profile_memory=True,
-        with_stack=False,
-    )
+    return train_loader, data_loaders
 
 
 def sync_checkpoints_to_r2(args: DictConfig, output_dir: Path) -> None:
@@ -315,7 +261,6 @@ def train_one_epoch(
     lr_schedule: Sequence[float],
     epoch: int,
     device: torch.device,
-    mask_fn: masking.RandomMasking,
 ):
     model.train()
 
@@ -324,14 +269,12 @@ def train_one_epoch(
     metric_logger.add_meter("grad", ut.SmoothedValue())
     header = f"Train: [{epoch}]"
     log_wandb = args.wandb and ut.is_main_process()
-    profile_start_epoch = int(args.get("profile_start_epoch", 0) or 0)
 
     epoch_num_batches = len(data_loader)
     steps_per_epoch = epoch_num_batches // args.accum_iter
 
     print_freq = args.get("print_freq", 100) if not args.debug else 1
     num_batches = epoch_num_batches if not args.debug else 10
-    profile_steps = int(args.get("profile_steps", 0) or 0) if epoch == profile_start_epoch else 0
 
     amp_dtype = getattr(torch, args.amp_dtype)
     use_cuda = device.type == "cuda"
@@ -339,14 +282,10 @@ def train_one_epoch(
         data_loader = ut.pre_send_to_cuda_wrapper(data_loader, device, dtype_map={torch.float16: amp_dtype})
 
     optimizer.zero_grad()
-    profiler = create_torch_profiler(args, epoch=epoch, use_cuda=use_cuda)
-    if profiler is not None:
-        profiler.start()
 
     for batch_idx, batch in enumerate(
         metric_logger.log_every(data_loader, print_freq, header, total_steps=num_batches)
     ):
-        profile_step = batch_idx < profile_steps
         log_step = batch_idx % print_freq == 0 or batch_idx == num_batches - 1
 
         if use_cuda and not args.presend_cuda:
@@ -360,18 +299,19 @@ def train_one_epoch(
         if need_update:
             ut.update_lr(optimizer.param_groups, lr)
 
-        images = batch["image"]
-        masks = mri_data.unpack_img_mask_batch(batch["img_mask"], images.shape[1:])
-        batch["img_mask"] = masks
+        images, img_mask = mri_data.densify_sparse_image_batch(
+            batch["image_values"],
+            batch["img_mask"],
+            (int(args.get("in_chans", 1)), *args.img_size),
+            dtype=amp_dtype,
+        )
 
         with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=args.amp):
-            loss, mask_stats = model(
+            loss = model(
                 images,
-                img_mask=masks,
+                img_mask=img_mask,
                 mask_ratio=args.mask_ratio,
                 pred_mask_ratio=args.pred_mask_ratio,
-                mask_fn=mask_fn if args.masking != "random" else None,
-                include_mask_stats=False,
                 with_state=False,
             )
 
@@ -394,24 +334,17 @@ def train_one_epoch(
                 loss=loss_value,
                 lr=lr,
                 grad=grad_norm_value,
-                **mask_stats,
             )
             if log_wandb:
                 wandb_stats = {
                     "train/loss": loss_value,
                     "train/lr": lr,
                     "train/grad": grad_norm_value,
-                    **{f"train/{k}": v for k, v in mask_stats.items()},
                 }
-                wandb.log(wandb_stats, step=int(1000 * (epoch + batch_step / epoch_num_batches)))
-
-        if profiler is not None:
-            profiler.step()
-
-    if profiler is not None:
-        profiler.stop()
-        sort_by = "cuda_time_total" if use_cuda else "cpu_time_total"
-        print(profiler.key_averages().table(sort_by=sort_by, row_limit=args.get("profile_row_limit", 25)))
+                wandb.log(
+                    wandb_stats,
+                    step=int(1000 * (epoch + batch_step / epoch_num_batches)),
+                )
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
@@ -427,7 +360,6 @@ def evaluate(
     epoch: int,
     device: torch.device,
     eval_name: str,
-    mask_fn: masking.RandomMasking,
 ):
     model.eval()
 
@@ -456,9 +388,12 @@ def evaluate(
 
         batch_step = batch_idx + 1
 
-        images = batch["image"]
-        img_mask = mri_data.unpack_img_mask_batch(batch["img_mask"], images.shape[1:])
-        batch["img_mask"] = img_mask
+        images, img_mask = mri_data.densify_sparse_image_batch(
+            batch["image_values"],
+            batch["img_mask"],
+            (int(args.get("in_chans", 1)), *args.img_size),
+            dtype=amp_dtype,
+        )
 
         with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=args.amp):
             loss, state = model(
@@ -466,14 +401,14 @@ def evaluate(
                 img_mask=img_mask,
                 mask_ratio=args.mask_ratio,
                 pred_mask_ratio=args.pred_mask_ratio,
-                mask_fn=mask_fn if args.masking != "random" else None,
             )
 
         metric_logger.update(loss=loss)
 
         if batch_step == example_step:
+            example_batch = {**batch, "image": images, "img_mask": img_mask}
             example_data = {
-                "batch": ut.send_data(batch, "cpu"),
+                "batch": ut.send_data(example_batch, "cpu"),
                 "state": ut.send_data(state, "cpu"),
             }
 
