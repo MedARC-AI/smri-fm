@@ -65,23 +65,11 @@ The `asp_split --vals 80 10 10` command writes both `split_80_10_10.json` and
 Task 5 is `CLS003_FOMO26_Polymicrogyria`. The organizers provide a standalone
 extractor, `Task_5_extract.py`, which expects
 `Zhang_Lingfeng_2022_PPMR_Dataset.zip` in its current working directory and
-writes `Task_5/` there. Run it from `$ASPARAGUS_SOURCE`, but point `uv` at this
-repo so the script uses the repo Python environment:
+writes `Task_5/` there. Use the repo wrapper to run extraction, asparagus
+preprocessing, and split creation:
 
 ```sh
-source scripts/setup_asparagus_env.sh
-repo_root="$(git rev-parse --show-toplevel)"
-
-cd "$ASPARAGUS_SOURCE"
-uv run --project "$repo_root" python Task_5_extract.py --verbose
-
-uv run --project "$repo_root" asp_process \
-  --dataset CLS003 \
-  --save_as_tensor \
-  --num_workers 4
-uv run --project "$repo_root" asp_split \
-  --dataset CLS003_FOMO26_Polymicrogyria \
-  --vals 80 10 10
+scripts/eval_preprocess_task5.sh
 ```
 
 This requires both organizer files to already be in `$ASPARAGUS_SOURCE`:
@@ -90,6 +78,8 @@ This requires both organizer files to already be in `$ASPARAGUS_SOURCE`:
 $ASPARAGUS_SOURCE/Task_5_extract.py
 $ASPARAGUS_SOURCE/Zhang_Lingfeng_2022_PPMR_Dataset.zip
 ```
+
+Set `TASK5_NUM_WORKERS` to override the default `asp_process --num_workers 4`.
 
 - [TODO] To reduce the number of necessary steps, the processed data from the previous step will be moved to HF so no local script running is needed.
 
