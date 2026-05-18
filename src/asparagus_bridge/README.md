@@ -60,6 +60,37 @@ uv run asp_split --dataset REGR002_FOMO26_BrainAge --vals 80 10 10
 The `asp_split --vals 80 10 10` command writes both `split_80_10_10.json` and
 `TEST_80_10_10.json` under the processed task directory.
 
+#### Task 5: polymicrogyria classification
+
+Task 5 is `CLS003_FOMO26_Polymicrogyria`. The organizers provide a standalone
+extractor, `Task_5_extract.py`, which expects
+`Zhang_Lingfeng_2022_PPMR_Dataset.zip` in its current working directory and
+writes `Task_5/` there. Run it from `$ASPARAGUS_SOURCE`, but point `uv` at this
+repo so the script uses the repo Python environment:
+
+```sh
+source scripts/setup_asparagus_env.sh
+repo_root="$(git rev-parse --show-toplevel)"
+
+cd "$ASPARAGUS_SOURCE"
+uv run --project "$repo_root" python Task_5_extract.py --verbose
+
+uv run --project "$repo_root" asp_process \
+  --dataset CLS003 \
+  --save_as_tensor \
+  --num_workers 4
+uv run --project "$repo_root" asp_split \
+  --dataset CLS003_FOMO26_Polymicrogyria \
+  --vals 80 10 10
+```
+
+This requires both organizer files to already be in `$ASPARAGUS_SOURCE`:
+
+```text
+$ASPARAGUS_SOURCE/Task_5_extract.py
+$ASPARAGUS_SOURCE/Zhang_Lingfeng_2022_PPMR_Dataset.zip
+```
+
 - [TODO] To reduce the number of necessary steps, the processed data from the previous step will be moved to HF so no local script running is needed.
 
 ### 2. Convert the pretrain checkpoint
