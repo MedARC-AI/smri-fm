@@ -19,12 +19,11 @@ from typing import Iterable, Sequence
 import torch
 import torch.nn as nn
 import wandb
+import webdataset as wds
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image
 
 from matplotlib import pyplot as plt
-from streaming import StreamingDataLoader, StreamingDataset
-from streaming.base.util import clean_stale_shared_memory
 from torch import Tensor
 
 import data.mri_data as mri_data
@@ -187,54 +186,38 @@ def main(args: DictConfig):
     print(f"done! training time: {datetime.timedelta(seconds=int(total_time))}")
 
 
-def mri_collate(
-    samples: list[dict],
-    *,
-    include_meta: bool = True,
-) -> dict[str, Tensor]:
-    masks = [torch.as_tensor(sample["img_mask"].copy()) for sample in samples]
-    batch = {"img_mask": torch.stack(masks)}
-    image_values = [
-        torch.as_tensor(sample["image_values"].copy(), dtype=torch.float16) for sample in samples
-    ]
-    batch["image_values"] = torch.cat(image_values)
-
-    if include_meta:
-        batch["meta"] = [mri_data.make_collatable(sample["meta"]) for sample in samples]
-    return batch
-
 def create_data_loaders(args: DictConfig):
-    if args.get("clean_stale_shm", False):
-        if not args.distributed or ut.is_main_process():
-            clean_stale_shared_memory()
-        if args.distributed:
-            torch.distributed.barrier()
-
     data_loaders = {}
     dataset_names = [args.train_dataset] + args.eval_datasets
 
     for dataset_name in dataset_names:
         dataset_config = args.datasets[dataset_name].copy()
-        print(f"loading dataset: {dataset_name}\n\n{OmegaConf.to_yaml(dataset_config)}")
         drop_last = dataset_config.pop("drop_last")
-        dataset_kwargs = OmegaConf.to_container(dataset_config, resolve=True)
-        dataset = StreamingDataset(**dataset_kwargs)
         is_train = dataset_name == args.train_dataset
 
-        loader = StreamingDataLoader(
-            dataset,
-            batch_size=args.batch_size,
-            collate_fn=partial(
-                mri_collate,
-                include_meta=not is_train,
-            ),
-            shuffle=False,
-            num_workers=args.num_workers,
-            prefetch_factor=args.prefetch_factor,
-            persistent_workers=args.num_workers > 0,
-            pin_memory=True,
-            drop_last=drop_last,
+        print(f"loading dataset: {dataset_name}\n\n{OmegaConf.to_yaml(dataset_config)}")
+        shuffle = dataset_config["shuffle"]
+        samples_per_epoch = dataset_config.pop("samples_per_epoch")
+        dataset = mri_data.make_sparse_wds_dataset(
+            dataset_config["url"],
+            shuffle=shuffle,
+            buffer_size=dataset_config["buffer_size"],
         )
+        num_workers = int(args.num_workers)
+        loader_kwargs = {
+            "batch_size": args.batch_size,
+            "collate_fn": partial(mri_data.collate, include_meta=not is_train),
+            "shuffle": False,
+            "num_workers": num_workers,
+            "persistent_workers": num_workers > 0,
+            "pin_memory": True,
+            "drop_last": drop_last,
+            "prefetch_factor": args.prefetch_factor,
+        }
+        loader = wds.WebLoader(dataset, **loader_kwargs)
+        num_batches = samples_per_epoch // (ut.get_world_size() * args.batch_size)
+        loader = loader.with_epoch(num_batches)
+        loader = loader.with_length(num_batches, silent=True)
 
         data_loaders[dataset_name] = loader
 

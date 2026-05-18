@@ -1,8 +1,31 @@
 import json
 import math
+from functools import partial
+from glob import glob
 from typing import Any, Sequence
 
+import braceexpand
+import numpy as np
 import torch
+import webdataset as wds
+from torch import Tensor
+
+
+def collate(
+    samples: list[dict],
+    *,
+    include_meta: bool = True,
+) -> dict[str, Tensor]:
+    masks = [torch.as_tensor(sample["img_mask"].copy()) for sample in samples]
+    batch = {"img_mask": torch.stack(masks)}
+    image_values = [
+        torch.as_tensor(sample["image_values"].copy(), dtype=torch.float16) for sample in samples
+    ]
+    batch["image_values"] = torch.cat(image_values)
+
+    if include_meta:
+        batch["meta"] = [make_collatable(sample["meta"]) for sample in samples]
+    return batch
 
 
 def unpack_img_mask_batch(mask: torch.Tensor, image_shape: Sequence[int]) -> torch.Tensor:
@@ -55,3 +78,61 @@ def make_collatable(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return json.dumps(value)
     return value
+
+
+def expand_urls(urls: str | list[str]) -> list[str]:
+    """
+    Expand wds urls:
+
+    - expand glob patterns
+    - expand brace expressions
+    - filter files that don't exist
+
+    Adapted from `webdataset.shardlists.expand_urls`.
+    """
+    if isinstance(urls, str):
+        urls = [urls]
+    results = []
+    for url in urls:
+        chars = set(url)
+        if chars.intersection("[*?"):
+            result = sorted(glob(url))
+        elif "{" in chars:
+            result = braceexpand.braceexpand(url)
+        else:
+            result = [url]
+        results.extend(result)
+    return results
+
+
+
+def warn_and_continue(exn):
+    print(f"WARNING {repr(exn)}")
+    return True
+
+
+def extract_sparse_wds_sample(sample: dict) -> dict:
+    return {
+        "image_values": np.asarray(sample["image_values.npy"], dtype=np.float16),
+        "img_mask": np.asarray(sample["img_mask.npy"], dtype=np.uint8),
+        "meta": sample["meta.json"],
+    }
+
+
+def make_sparse_wds_dataset(
+    url: str | list[str],
+    *,
+    shuffle: bool,
+    buffer_size: int,
+) -> wds.WebDataset:
+    dataset = wds.WebDataset(
+        expand_urls(url),
+        handler=warn_and_continue,
+        resampled=shuffle,
+        shardshuffle=False,
+        nodesplitter=wds.split_by_node,
+    )
+    dataset = dataset.decode().map(extract_sparse_wds_sample, handler=warn_and_continue)
+    if shuffle:
+        dataset = dataset.shuffle(buffer_size)
+    return dataset

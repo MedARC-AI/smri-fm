@@ -17,7 +17,7 @@ mask_ratio: 0.80
 pred_mask_ratio: null
 
 # Model.
-model: mae_vit_base
+model: mae_vit_large
 model_kwargs:
   # decoding mode: attn, cross, or crossreg.
   decoding: attn
@@ -38,23 +38,18 @@ model_kwargs:
 # Datasets.
 datasets:
   fomo_train:
-    local: datasets/FOMO300/mds_spr
-    split: train
-    batch_size: 64
+    url: datasets/FOMO300/wds_spr/train/*.tar
+    samples_per_epoch: 40000
     shuffle: true
-    shuffle_seed: 7338
-    epoch_size: 40000
-    predownload: 8192
-    shuffle_block_size: 8000
+    buffer_size: 8000
     drop_last: true
 
   fomo_val:
-    local: datasets/FOMO300/mds_spr
-    split: val
-    batch_size: 64
+    url: datasets/FOMO300/wds_spr/val/*.tar
+    samples_per_epoch: 400
     shuffle: false
-    shuffle_seed: 7338
-    drop_last: false
+    buffer_size: 1000
+    drop_last: true
 
 train_dataset: fomo_train
 eval_datasets:
@@ -95,7 +90,6 @@ r2_sync: null
 
 device: cuda
 distributed: false
-clean_stale_shm: false
 seed: 7338
 eval_seed: 7338
 debug: false
