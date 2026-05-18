@@ -17,10 +17,10 @@ format before training. The step is explained in the
 
 #### Task 1: infarct classification
 
-Task 1 is `CLS002_FOMO26_Infarct`. For smri MAE, the recommended first variant
-is FLAIR-only because the pretraining checkpoint is single-channel. Use the
-custom Task 1 preprocessing module so the saved tensor channel count and
-`dataset.json` metadata match the selected modalities:
+By default in Asparagus, task 1 requires 4 channel input - `flair, dwi, t1, t2` - `[B, 4, D, H, W]`. So far, our pretrained models are using `[B, 1, D, H, W]`, so `CLS002_FOMO26_Infarct_CUSTOM` dataset is imlemented which allow specified one or multiple modalities to override the default behavior.
+
+Task 1 is `CLS002_FOMO26_Infarct`. For smri MAE, the recommended first variant is FLAIR-only because the pretraining checkpoint is single-channel.
+Use the custom Task 1 preprocessing module so the saved tensor channel count and `dataset.json` metadata match the selected modalities:
 
 ```sh
 cd "$ASPARAGUS_SOURCE"
@@ -32,6 +32,8 @@ uv run asp_process \
   --modalities flair \
   --save_as_tensor \
   --num_workers 4
+
+# optional
 uv run asp_split --dataset CLS002_FOMO26_Infarct_FLAIR --vals 80 10 10
 ```
 
@@ -53,6 +55,7 @@ uv run asp_process --dataset REGR002 --save_as_tensor --num_workers 4
 uv run asp_split --dataset REGR002_FOMO26_BrainAge --vals 80 10 10
 ```
 
+# optional
 The `asp_split --vals 80 10 10` command writes both `split_80_10_10.json` and
 `TEST_80_10_10.json` under the processed task directory.
 
