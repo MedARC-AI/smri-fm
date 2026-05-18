@@ -61,27 +61,21 @@ The `asp_split --vals 80 10 10` command writes both `split_80_10_10.json` and
 Task 5 is `CLS003_FOMO26_Polymicrogyria`. The organizers provide a standalone
 extractor, `Task_5_extract.py`, which expects
 `Zhang_Lingfeng_2022_PPMR_Dataset.zip` in its current working directory and
-writes `Task_5/` there. Use these three commands for extraction, asparagus
-preprocessing, and finetuning:
+writes `Task_5/` there.
+
+The following guide requires both organizer files to already be in `$ASPARAGUS_SOURCE`:
+
+```text
+$ASPARAGUS_SOURCE/Task_5_extract.py
+$ASPARAGUS_SOURCE/Zhang_Lingfeng_2022_PPMR_Dataset.zip
+```
+
+Use these three commands for extraction and preprocessing:
 
 ```sh
 repo_root="$(git rev-parse --show-toplevel)" && (cd "$ASPARAGUS_SOURCE" && uv run --project "$repo_root" python Task_5_extract.py --verbose)
 
 uv run asp_process --dataset CLS003 --save_as_tensor --num_workers 4
-
-uv run asp_finetune_cls \
-  task=CLS003_FOMO26_Polymicrogyria \
-  +model=smri_mae \
-  checkpoint_path=runs/mae/asparagus.ckpt \
-  data.train_split=split_80_10_10 \
-  data.test_split=TEST_80_10_10
-```
-
-This requires both organizer files to already be in `$ASPARAGUS_SOURCE`:
-
-```text
-$ASPARAGUS_SOURCE/Task_5_extract.py
-$ASPARAGUS_SOURCE/Zhang_Lingfeng_2022_PPMR_Dataset.zip
 ```
 
 - [TODO] To reduce the number of necessary steps, the processed data from the previous step will be moved to HF so no local script running is needed.
@@ -108,7 +102,7 @@ predictions/<task>__TEST_80_10_10__best.json
 
 #### Classification
 
-Task 1 FLAIR-only smoke test:
+##### Task 1 FLAIR-only smoke test:
 
 ```sh
 uv run asp_finetune_cls --config-name finetuning/smoke_test_cls_task_1_flair_modality.yaml
@@ -126,6 +120,11 @@ uv run asp_finetune_cls \
   checkpoint_path=runs/mae/asparagus.ckpt \
   data.train_split=split_80_10_10 \
   data.test_split=TEST_80_10_10
+```
+
+#### Task 5 smoke test:
+```
+uv run asp_finetune_cls  --config-name finetuning/smoke_test_cls_task_5.yaml
 ```
 
 #### Regression
