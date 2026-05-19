@@ -25,6 +25,7 @@ hardware:
 training:
   batch_size: 1
   epochs: 1
+  max_epochs: 1
   limit_train_batches: 2
   limit_val_batches: 1
   check_val_every_n_epoch: 1
@@ -37,5 +38,7 @@ logger:
 
 model:
   _cls_net:
+    _target_: asparagus_bridge.models_smri_mae.SmriMaeLinearProbeBackbone
     img_size: [208, 240, 208]
     patch_size: 8
+    pool: cls   # or mean
