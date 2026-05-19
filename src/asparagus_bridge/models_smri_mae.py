@@ -60,6 +60,72 @@ class SmriMaeClsRegBackbone(nn.Module):
         return self.head(feat)
 
 
+class _LinearProbeDecoder(nn.Module):
+    """Asparagus linear-probe compatibility head.
+
+    `LinearProbeModule` reads `model.decoder.fc.in_features` to size its own
+    probe heads. The MAE decoder is not used for downstream probing.
+    """
+
+    def __init__(self, feature_dim: int, output_channels: int):
+        super().__init__()
+        self.fc = nn.Linear(feature_dim, output_channels)
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.fc(x.flatten(1))
+
+
+class SmriMaeLinearProbeBackbone(nn.Module):
+    """MAE ViT encoder adapter for asparagus linear probing.
+
+    Exposes final-layer encoder features through asparagus' expected `_encode`
+    and `decoder.fc.in_features` interface. `pool` selects whether the frozen
+    representation is the CLS token or mean-pooled patch tokens.
+    """
+
+    def __init__(
+        self,
+        input_channels: int,
+        output_channels: int,
+        img_size: int | tuple[int, int, int] = (160, 160, 160),
+        patch_size: int | tuple[int, int, int] = (16, 16, 16),
+        depth: int = 12,
+        embed_dim: int = 768,
+        num_heads: int = 12,
+        pool: str = "cls",
+        dimensions: str = "3D",
+        **_ignored,
+    ):
+        super().__init__()
+        assert dimensions == "3D", f"only 3D supported, got dimensions={dimensions}"
+        assert pool in {"cls", "mean"}, f"pool must be 'cls' or 'mean', got {pool}"
+
+        self.num_classes = output_channels
+        self.pool = pool
+
+        self.encoder = MaskedViT(
+            img_size=img_size,
+            patch_size=patch_size,
+            in_chans=input_channels,
+            depth=depth,
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            class_token=True,
+        )
+        self.decoder = _LinearProbeDecoder(embed_dim, output_channels)
+
+    def _encode(self, x: Tensor) -> Tensor:
+        cls_embeds, _, patch_embeds, _, _ = self.encoder(x)
+        if self.pool == "cls":
+            feat = cls_embeds.squeeze(1)
+        else:
+            feat = patch_embeds.mean(dim=1)
+        return feat[:, :, None, None, None]
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.decoder(self._encode(x))
+
+
 class SmriMaeSegBackbone(nn.Module):
     """Placeholder for ViT-based segmentation backbone."""
 
