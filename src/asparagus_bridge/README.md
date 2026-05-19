@@ -125,7 +125,7 @@ uv run asp_finetune_cls \
   data.test_split=TEST_80_10_10
 ```
 
-#### Task 5 smoke test:
+##### Task 5 smoke test:
 ```
 uv run asp_finetune_cls  --config-name finetuning/smoke_test_cls_task_5.yaml
 ```
@@ -147,7 +147,31 @@ TBD
 
 #### Linear probing
 
-TBD.
+##### Task 6
+
+Linear probing uses Asparagus' `asp_linear_probe` entry point. It freezes the
+backbone, trains one linear classification head per learning rate in
+`training.probing.learning_rates`, selects the best head by validation AUROC,
+and then evaluates that head on the test split.
+
+The current linear probing module is for classification tasks only.
+
+Task 1 FLAIR-only smoke test:
+
+```sh
+uv run asp_linear_probe --config-name finetuning/smoke_test_linear_probe_tasks.yaml
+```
+
+[smoke_test_linear_probe_tasks.yaml](./configs/finetuning/smoke_test_linear_probe_tasks.yaml)
+can be used as a reference for Task 1 probing runs. It uses CPU settings,
+disables wandb, limits the number of batches, and points at a local converted
+checkpoint. Override `checkpoint_path` or edit the config before running it on
+another machine.
+
+##### Task 7
+Task 7 should use the results from Task 6 (F1 and AUROC metrics) and analyze it for fairness, based on the inputs demographics. This data is not available, so we can just rely on task 6 data.
+
+
 
 ### 4. Multi-task finetune eval - not tested yet
 
