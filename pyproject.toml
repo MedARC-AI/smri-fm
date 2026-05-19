@@ -60,3 +60,6 @@ line-length = 100
 
 [tool.ruff.lint]
 ignore = ["F722"]
+
+[tool.pytest.ini_options]
+norecursedirs = ["third_party", ".scratch"]
