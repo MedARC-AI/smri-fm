@@ -143,7 +143,77 @@ can be used as a reference for Task 3 regression runs.
 
 #### Segmentation
 
-TBD
+Task 2 is `SEG009_FOMO26_Meningioma`; Task 4 is
+`SEG010_FOMO26_TrigeminalNeuralgia`.
+
+Prepare the raw FOMO task folders and convert them to asparagus tensors:
+
+```sh
+cd "$ASPARAGUS_SOURCE"
+unzip -n Task_2.zip -d Task_2
+unzip -n Task_4.zip -d Task_4
+
+cd /Users/lukasecerovic/Documents/repos/sMRI/smri-fm
+uv run asp_process --dataset SEG009 --save_as_tensor --num_workers 4
+uv run asp_process --dataset SEG010 --save_as_tensor --num_workers 4
+```
+
+The segmentation processors write `split_80_10_10.json` and
+`TEST_80_10_10.json`. Override the asparagus segmentation defaults to use
+those splits when finetuning.
+
+Convert the sMRI MAE checkpoint:
+
+```sh
+uv run python -c 'from asparagus_bridge.checkpoint import convert_checkpoint; convert_checkpoint("smri_mae", "runs/mae/checkpoint-last.pth", "runs/mae/asparagus.ckpt")'
+```
+
+Task 2 smoke test:
+
+```sh
+uv run asp_finetune_seg \
+  task=SEG009_FOMO26_Meningioma \
+  +model=smri_mae \
+  checkpoint_path=runs/mae/asparagus.ckpt \
+  data.train_split=split_80_10_10 \
+  data.test_split=TEST_80_10_10 \
+  training.epochs=1 \
+  training.batch_size=1 \
+  'training.patch_size=[64,64,64]' \
+  training.train_batches_per_epoch_per_device=2 \
+  training.val_batches_per_epoch_per_device=1 \
+  training.check_val_every_n_epoch=1 \
+  logger.wandb_logging=false \
+  hardware.num_workers=2 \
+  hardware.precision=32-true \
+  hardware.compile_mode=null
+```
+
+Task 4 smoke test:
+
+```sh
+uv run asp_finetune_seg \
+  task=SEG010_FOMO26_TrigeminalNeuralgia \
+  +model=smri_mae \
+  checkpoint_path=runs/mae/asparagus.ckpt \
+  data.train_split=split_80_10_10 \
+  data.test_split=TEST_80_10_10 \
+  training.epochs=1 \
+  training.batch_size=1 \
+  'training.patch_size=[64,64,64]' \
+  training.train_batches_per_epoch_per_device=2 \
+  training.val_batches_per_epoch_per_device=1 \
+  training.check_val_every_n_epoch=1 \
+  logger.wandb_logging=false \
+  hardware.num_workers=2 \
+  hardware.precision=32-true \
+  hardware.compile_mode=null
+```
+
+`SmriMaeSegBackbone` currently inherits asparagus/gardening-tools sliding-window
+inference. That path is compatible with asparagus eval, but it sums overlapping
+logits without overlap-count normalization or Gaussian/Hann weighting. Treat
+that as a known follow-up if segmentation quality near patch borders matters.
 
 #### Linear probing
 
