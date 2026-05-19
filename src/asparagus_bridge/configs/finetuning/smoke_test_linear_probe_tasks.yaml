@@ -38,7 +38,7 @@ logger:
 
 model:
   _cls_net:
-    _target_: asparagus_bridge.models_smri_mae.SmriMaeLinearProbeBackbone
+    _target_: asparagus_bridge.models_smri_mae.SmriMaeClsRegBackbone
     img_size: [208, 240, 208]
     patch_size: 8
     pool: cls   # or mean
