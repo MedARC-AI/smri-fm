@@ -51,13 +51,22 @@ class SmriMaeClsRegBackbone(nn.Module):
         )
         self.head = nn.Linear(embed_dim, output_channels)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def _features(self, x: Tensor) -> Tensor:
+        """Encoder output"""
         cls_embeds, _, patch_embeds, _, _ = self.encoder(x)
         if self.pool == "cls":
-            feat = cls_embeds.squeeze(1)
+            return cls_embeds.squeeze(1)
         else:
-            feat = patch_embeds.mean(dim=1)
-        return self.head(feat)
+            return patch_embeds.mean(dim=1)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Encoder + head """
+        return self.head(self._features(x))
+    
+    def _encode(self, x: Tensor) -> Tensor:
+        """ Encoder output in format used for linear probing"""
+        feat = self._features(x)
+        return feat[:, :, None, None, None]
 
 
 class SmriMaeSegBackbone(nn.Module):
