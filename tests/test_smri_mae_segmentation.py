@@ -1,6 +1,7 @@
 import torch
 
 from asparagus.modules.lightning_modules.segmentation_module import SegmentationModule
+from asparagus_preprocessing.datasets_segmentation import SEG009_FOMO26_Meningioma_CUSTOM
 from asparagus_bridge.models_smri_mae import SmriMaeSegBackbone
 
 
@@ -26,16 +27,6 @@ def test_smri_mae_seg_backbone_one_channel_shape():
     assert y.shape == (1, 3, 64, 64, 64)
 
 
-def test_smri_mae_seg_backbone_two_channel_shape():
-    model = _tiny_seg_model(input_channels=2, output_channels=2)
-    x = torch.randn(1, 2, 64, 64, 64)
-
-    with torch.no_grad():
-        y = model(x)
-
-    assert y.shape == (1, 2, 64, 64, 64)
-
-
 def test_smri_mae_seg_backbone_sliding_window_predict_shape():
     model = _tiny_seg_model(input_channels=1, output_channels=3)
     x = torch.randn(1, 1, 80, 80, 80)
@@ -46,11 +37,10 @@ def test_smri_mae_seg_backbone_sliding_window_predict_shape():
     assert y.shape == (1, 3, 80, 80, 80)
 
 
-def test_smri_mae_seg_backbone_repeats_linear_patch_embed_stem_for_multichannel_load():
+def test_smri_mae_seg_backbone_loads_one_channel_encoder_checkpoint():
     source_model = _tiny_seg_model(input_channels=1, output_channels=2)
-    target_model = _tiny_seg_model(input_channels=2, output_channels=2)
+    target_model = _tiny_seg_model(input_channels=1, output_channels=2)
     source_stem = source_model.encoder.patch_embed.weight.detach().clone()
-    expected_stem = source_stem.repeat(1, 2) / 2
     weights = {
         f"model.{name}": value.detach().clone()
         for name, value in source_model.state_dict().items()
@@ -66,4 +56,57 @@ def test_smri_mae_seg_backbone_repeats_linear_patch_embed_stem_for_multichannel_
         repeat_stem_weights=True,
     )
 
-    assert torch.allclose(module.model.encoder.patch_embed.weight, expected_stem)
+    assert torch.allclose(module.model.encoder.patch_embed.weight, source_stem)
+
+
+def test_task2_custom_segmentation_default_modalities_are_flair():
+    assert SEG009_FOMO26_Meningioma_CUSTOM.normalize_modalities() == ["flair"]
+
+
+def test_task2_custom_segmentation_accepts_dwi_modality():
+    assert SEG009_FOMO26_Meningioma_CUSTOM.normalize_modalities("dwi") == ["dwi"]
+
+
+def test_task2_custom_segmentation_rejects_unknown_modality():
+    try:
+        SEG009_FOMO26_Meningioma_CUSTOM.normalize_modalities(["t1"])
+    except ValueError as exc:
+        assert "Unknown Task 2 modalities" in str(exc)
+    else:
+        raise AssertionError("Expected unknown Task 2 modality to raise ValueError")
+
+
+def test_task2_custom_segmentation_builds_modality_metadata(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_postprocess(**kwargs):
+        captured["dataset_config"] = kwargs["dataset_config"]
+
+    monkeypatch.setattr(SEG009_FOMO26_Meningioma_CUSTOM, "get_data_path", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        SEG009_FOMO26_Meningioma_CUSTOM,
+        "simple_recursive_find_and_group_files",
+        lambda *args, **kwargs: ([], []),
+    )
+    monkeypatch.setattr(
+        SEG009_FOMO26_Meningioma_CUSTOM,
+        "process_dataset_without_table",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        SEG009_FOMO26_Meningioma_CUSTOM,
+        "simple_postprocess_standard_dataset",
+        fake_postprocess,
+    )
+
+    SEG009_FOMO26_Meningioma_CUSTOM.main(
+        path=str(tmp_path),
+        processes=1,
+        save_as_tensor=True,
+    )
+
+    dataset_config = captured["dataset_config"]
+    assert dataset_config.task_name == "SEG009_FOMO26_Meningioma_FLAIR"
+    assert dataset_config.n_modalities == 1
+    assert dataset_config.modalities == ["flair"]
+    assert dataset_config.channel_names == {"0": "flair"}

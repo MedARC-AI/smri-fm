@@ -143,8 +143,9 @@ can be used as a reference for Task 3 regression runs.
 
 #### Segmentation
 
-Task 2 is `SEG009_FOMO26_Meningioma`; Task 4 is
-`SEG010_FOMO26_TrigeminalNeuralgia`.
+Task 2 is `SEG009_FOMO26_Meningioma`; for sMRI MAE use the FLAIR-only custom
+variant `SEG009_FOMO26_Meningioma_FLAIR`. Task 4 is
+`SEG010_FOMO26_TrigeminalNeuralgia` and is already single-channel T2w.
 
 Prepare the raw FOMO task folders and convert them to asparagus tensors:
 
@@ -154,7 +155,13 @@ unzip -n Task_2.zip -d Task_2
 unzip -n Task_4.zip -d Task_4
 
 cd /Users/lukasecerovic/Documents/repos/sMRI/smri-fm
-uv run asp_process --dataset SEG009 --save_as_tensor --num_workers 4
+uv run asp_process \
+  --dataset SEG009_FOMO26_Meningioma_CUSTOM \
+  --task_name SEG009_FOMO26_Meningioma_FLAIR \
+  --modalities flair \
+  --save_as_tensor \
+  --num_workers 4
+
 uv run asp_process --dataset SEG010 --save_as_tensor --num_workers 4
 ```
 
@@ -172,7 +179,7 @@ Task 2 smoke test:
 
 ```sh
 uv run asp_finetune_seg \
-  task=SEG009_FOMO26_Meningioma \
+  task=SEG009_FOMO26_Meningioma_FLAIR \
   +model=smri_mae \
   checkpoint_path=runs/mae/asparagus.ckpt \
   data.train_split=split_80_10_10 \
@@ -214,6 +221,15 @@ uv run asp_finetune_seg \
 inference. That path is compatible with asparagus eval, but it sums overlapping
 logits without overlap-count normalization or Gaussian/Hann weighting. Treat
 that as a known follow-up if segmentation quality near patch borders matters.
+
+Future segmentation variants worth testing:
+
+- Canonical Task 2 two-channel finetuning (`flair`, `dwi`) with explicit
+  multi-channel checkpoint stem adaptation.
+- MAE reconstruction decoder reuse instead of the current Primus-like patch
+  segmentation decoder.
+- Normalized sliding-window blending with overlap-count averaging, Gaussian
+  weighting, or Hann weighting.
 
 #### Linear probing
 
