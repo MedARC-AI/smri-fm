@@ -18,6 +18,8 @@ def _tiny_seg_model(input_channels: int, output_channels: int, img_size=(64, 64,
 
 
 def test_smri_mae_seg_backbone_one_channel_shape():
+    # Verifies that the smri-mae segmentation backbone preserves spatial shape
+    # and emits one logit channel per segmentation class.
     model = _tiny_seg_model(input_channels=1, output_channels=3)
     x = torch.randn(1, 1, 64, 64, 64)
 
@@ -28,6 +30,8 @@ def test_smri_mae_seg_backbone_one_channel_shape():
 
 
 def test_smri_mae_seg_backbone_sliding_window_predict_shape():
+    # Verifies that BaseNet sliding-window inference stitches patch logits back
+    # into the full input geometry for normal, non-shallow volumes.
     model = _tiny_seg_model(input_channels=1, output_channels=3)
     x = torch.randn(1, 1, 80, 80, 80)
 
@@ -38,6 +42,8 @@ def test_smri_mae_seg_backbone_sliding_window_predict_shape():
 
 
 def test_smri_mae_seg_backbone_loads_one_channel_encoder_checkpoint():
+    # Verifies that one-channel smri-mae encoder weights transfer into the
+    # segmentation module without incorrectly repeating patch-embedding weights.
     source_model = _tiny_seg_model(input_channels=1, output_channels=2)
     target_model = _tiny_seg_model(input_channels=1, output_channels=2)
     source_stem = source_model.encoder.patch_embed.weight.detach().clone()
@@ -60,6 +66,8 @@ def test_smri_mae_seg_backbone_loads_one_channel_encoder_checkpoint():
 
 
 def test_segmentation_module_pads_and_crops_shallow_inference_volume():
+    # Verifies the Task-2-style inference path: shallow test volumes are padded
+    # up to the configured window size and logits are cropped back afterward.
     module = SegmentationModule(
         model=_tiny_seg_model(input_channels=1, output_channels=3),
         inference_patch_size=[64, 64, 64],
@@ -81,6 +89,8 @@ def test_segmentation_module_pads_and_crops_shallow_inference_volume():
 
 
 def test_segmentation_module_keeps_non_shallow_inference_volume_geometry():
+    # Verifies that volumes already larger than the configured inference window
+    # are not padded or cropped by the runtime inference-padding helper.
     module = SegmentationModule(
         model=_tiny_seg_model(input_channels=1, output_channels=3),
         inference_patch_size=[64, 64, 64],
@@ -102,6 +112,8 @@ def test_segmentation_module_keeps_non_shallow_inference_volume_geometry():
 
 
 def test_segmentation_module_test_step_handles_shallow_inference_volume():
+    # Verifies the full segmentation test_step no longer creates a zero-sized
+    # sliding-window patch for shallow volumes before reverse preprocessing.
     module = SegmentationModule(
         model=_tiny_seg_model(input_channels=1, output_channels=3),
         inference_patch_size=[64, 64, 64],
@@ -127,14 +139,18 @@ def test_segmentation_module_test_step_handles_shallow_inference_volume():
 
 
 def test_task2_custom_segmentation_default_modalities_are_flair():
+    # Verifies Task 2 preprocessing defaults to the FLAIR-only task variant.
     assert SEG009_FOMO26_Meningioma_CUSTOM.normalize_modalities() == ["flair"]
 
 
 def test_task2_custom_segmentation_accepts_dwi_modality():
+    # Verifies Task 2 preprocessing still accepts the optional DWI modality.
     assert SEG009_FOMO26_Meningioma_CUSTOM.normalize_modalities("dwi") == ["dwi"]
 
 
 def test_task2_custom_segmentation_rejects_unknown_modality():
+    # Verifies Task 2 preprocessing rejects unsupported modality names instead
+    # of silently producing an invalid dataset configuration.
     try:
         SEG009_FOMO26_Meningioma_CUSTOM.normalize_modalities(["t1"])
     except ValueError as exc:
@@ -144,6 +160,8 @@ def test_task2_custom_segmentation_rejects_unknown_modality():
 
 
 def test_task2_custom_segmentation_builds_modality_metadata(monkeypatch, tmp_path):
+    # Verifies Task 2 preprocessing writes consistent dataset metadata for the
+    # default FLAIR-only segmentation task without running real preprocessing.
     captured = {}
 
     def fake_postprocess(**kwargs):
