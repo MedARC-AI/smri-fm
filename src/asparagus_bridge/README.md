@@ -193,22 +193,7 @@ uv run asp_process --dataset SEG010 --save_as_tensor --num_workers 4
 Task 4 smoke test:
 
 ```sh
-uv run asp_finetune_seg \
-  task=SEG010_FOMO26_TrigeminalNeuralgia \
-  +model=smri_mae \
-  checkpoint_path=runs/mae/asparagus.ckpt \
-  data.train_split=split_80_10_10 \
-  data.test_split=TEST_80_10_10 \
-  training.epochs=1 \
-  training.batch_size=1 \
-  'training.patch_size=[64,64,64]' \
-  training.train_batches_per_epoch_per_device=2 \
-  training.val_batches_per_epoch_per_device=1 \
-  training.check_val_every_n_epoch=1 \
-  logger.wandb_logging=false \
-  hardware.num_workers=2 \
-  hardware.precision=32-true \
-  hardware.compile_mode=null
+uv run asp_finetune_seg --config-name finetuning/smoke_test_seg_task_4.yaml
 ```
 
 ##### Notes on segmentation
