@@ -143,7 +143,6 @@ can be used as a reference for Task 3 regression runs.
 
 #### Segmentation
 
-
 ##### Task 2
 Task 2 is `SEG009_FOMO26_Meningioma`; for sMRI MAE use the FLAIR-only custom variant `SEG009_FOMO26_Meningioma_FLAIR`.
 
