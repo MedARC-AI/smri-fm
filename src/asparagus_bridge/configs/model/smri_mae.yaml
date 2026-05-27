@@ -8,10 +8,14 @@ seg_net: smri_mae
 cls_net: smri_mae
 reg_net: smri_mae
 
-# Segmentation: placeholder.
 _seg_net:
   _target_: asparagus_bridge.models_smri_mae.SmriMaeSegBackbone
   dimensions: ${model.dimensions}
+  img_size: ${training.patch_size}
+  patch_size: 16
+  depth: 12
+  embed_dim: 768
+  num_heads: 12
 
 _cls_net:
   _target_: asparagus_bridge.models_smri_mae.SmriMaeClsRegBackbone

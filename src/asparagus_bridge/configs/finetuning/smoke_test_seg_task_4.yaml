@@ -1,0 +1,33 @@
+# @package _global_
+defaults:
+  - /default_finetune_seg
+  - /model/smri_mae@model
+  - _self_
+
+task: SEG010_FOMO26_TrigeminalNeuralgia
+
+checkpoint_path: /Users/lukasecerovic/Documents/repos/sMRI/smri-fm/.scratch/pretrained_mae_checkpoint/checkpoint-last-asparagus-NEW.ckpt
+
+data:
+  train_split: split_80_10_10
+  test_split: TEST_80_10_10
+
+hardware:
+  num_workers: 2
+  precision: 32-true
+  compile_mode: null
+
+training:
+  epochs: 1
+  batch_size: 1
+  patch_size: [64, 64, 64]
+  train_batches_per_epoch_per_device: 2
+  val_batches_per_epoch_per_device: 1
+  check_val_every_n_epoch: 1
+
+model:
+  _seg_net:
+    patch_size: 8
+
+logger:
+  wandb_logging: false
