@@ -8,7 +8,7 @@ the [FOMO26](https://fomo26.github.io/) challenge.
 ## Installation
 
 ```bash
-git clone https://github.com/MedARC-AI/smri-fm
+git clone --recurse-submodules https://github.com/MedARC-AI/smri-fm
 cd smri-fm
 uv sync
 uv run pre-commit install --install-hooks

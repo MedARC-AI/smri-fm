@@ -143,7 +143,72 @@ can be used as a reference for Task 3 regression runs.
 
 #### Segmentation
 
-TBD
+##### Task 2
+Task 2 is `SEG009_FOMO26_Meningioma`; for sMRI MAE use the FLAIR-only custom variant `SEG009_FOMO26_Meningioma_FLAIR`.
+
+Prepare the raw FOMO task folders and convert them to asparagus tensors:
+
+```sh
+cd "$ASPARAGUS_SOURCE"
+unzip -n Task_2.zip -d Task_2
+
+cd /Users/lukasecerovic/Documents/repos/sMRI/smri-fm
+uv run asp_process \
+  --dataset SEG009_FOMO26_Meningioma_CUSTOM \
+  --task_name SEG009_FOMO26_Meningioma_FLAIR \
+  --modalities flair \
+  --save_as_tensor \
+  --num_workers 4
+```
+
+The segmentation processors write `split_80_10_10.json` and
+`TEST_80_10_10.json`. Override the asparagus segmentation defaults to use
+those splits when finetuning.
+
+Convert the sMRI MAE checkpoint:
+
+```sh
+uv run python -c 'from asparagus_bridge.checkpoint import convert_checkpoint; convert_checkpoint("smri_mae", "runs/mae/checkpoint-last.pth", "runs/mae/asparagus.ckpt")'
+```
+
+Task 2 smoke test:
+
+```sh
+uv run asp_finetune_seg --config-name finetuning/smoke_test_seg_task_2.yaml
+```
+
+##### Task 4
+Task 4 is `SEG010_FOMO26_TrigeminalNeuralgia` and is already single-channel T2w.
+
+```sh
+cd "$ASPARAGUS_SOURCE"
+unzip -n Task_4.zip -d Task_4
+
+cd <repo_root>
+
+uv run asp_process --dataset SEG010 --save_as_tensor --num_workers 4
+```
+
+Task 4 smoke test:
+
+```sh
+uv run asp_finetune_seg --config-name finetuning/smoke_test_seg_task_4.yaml
+```
+
+##### Notes on segmentation
+`SmriMaeSegBackbone` currently inherits asparagus/gardening-tools sliding-window
+inference. That path is compatible with asparagus eval, but it sums overlapping
+logits without overlap-count normalization or Gaussian/Hann weighting. Treat
+that as a known follow-up if segmentation quality near patch borders matters.
+
+Future segmentation variants worth testing:
+
+- Canonical Task 2 two-channel finetuning (`flair`, `dwi`) with explicit
+  multi-channel checkpoint stem adaptation.
+- MAE reconstruction decoder reuse instead of the current Primus-like patch
+  segmentation decoder.
+- Normalized sliding-window blending with overlap-count averaging, Gaussian
+  weighting, or Hann weighting.
 
 #### Linear probing
 
