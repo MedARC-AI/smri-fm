@@ -1,10 +1,8 @@
-import os
 from collections.abc import Mapping
 from io import BytesIO
 
 import torch
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 from matplotlib import patches
 from matplotlib import pyplot as plt
 from PIL import Image

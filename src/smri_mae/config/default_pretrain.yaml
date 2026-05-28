@@ -1,5 +1,5 @@
 # Name of the run. Used for output directory suffix and wandb.
-name: patch8_pretrain_smri_mae
+name: pretrain
 
 # Description of the run. Goes in wandb notes.
 notes: null
@@ -15,30 +15,9 @@ patch_size: 8
 # Masking.
 mask_ratio: 0.80
 pred_mask_ratio: null
-masking: random
-masking_kwargs: {}
-
-# Train-time MRI augmentation. Applied once per loaded train volume before
-# masking. Evaluation stays unaugmented.
-augmentation:
-  enabled: false
-  pad_range: [4, 8]
-  scale: [0.9, 1.1]
-  shift: [-0.1, 0.1]
-  noise_std: [0.0, 0.03]
-  blur:
-    p: 0.0
-    sigma: [0.3, 0.6]
-
-# Hybrid 3D masking example.
-# masking: hybrid
-# masking_kwargs:
-#   block_size: [2, 2, 2]
-#   random_fraction: 0.5
-#   block_fraction: 0.5
 
 # Model.
-model: mae_vit_base
+model: mae_vit_large
 model_kwargs:
   # decoding mode: attn, cross, or crossreg.
   decoding: attn
@@ -58,44 +37,37 @@ model_kwargs:
 
 # Datasets.
 datasets:
-  aabc_train:
-    local: datasets/aabc/mds
-    split: train
-    batch_size: 64
+  fomo_train:
+    url: datasets/FOMO300/wds_spr_all/shard.{00000..00039}.tar
+    samples_per_epoch: 32000
     shuffle: true
-    shuffle_seed: 7338
-    epoch_size: 10000
-    shuffle_block_size: 1000
+    buffer_size: 8000
     drop_last: true
 
-  aabc_val:
-    local: datasets/aabc/mds
-    split: val
-    batch_size: 64
+  fomo_val:
+    url: datasets/FOMO300/wds_spr_all/shard.{00040..00049}.tar
+    samples_per_epoch: 7000
     shuffle: false
-    shuffle_seed: 7338
-    drop_last: false
+    buffer_size: 1000
+    drop_last: true
 
-train_dataset: aabc_train
+train_dataset: fomo_train
 eval_datasets:
-  - aabc_val
+  - fomo_val
 
 # Data loader.
 num_workers: 16
 prefetch_factor: 8
-presend_cuda: false
-
-# Synchronizing step profiler. Set to a small value, e.g. 10, for bottleneck checks.
-profile_steps: 0
+presend_cuda: true
 
 # Optimization.
-epochs: 400
-batch_size: 32
+epochs: 100
+batch_size: 64
 accum_iter: 1
 
 base_lr: 0.001
 min_lr: 1e-6
-warmup_epochs: 40
+warmup_epochs: 10
 weight_decay: 0.05
 betas: [0.9, 0.95]
 clip_grad: 1.0
@@ -110,18 +82,18 @@ ckpt: null
 resume: false
 auto_resume: true
 start_epoch: 0
-checkpoint_period: 1
+checkpoint_period: 5
 max_checkpoints: 5
 
 # Sync checkpoints to an R2 bucket using the AWS CLI. Set to a URL to enable.
 r2_sync: null
 
-device: cuda:0
+device: cuda
 distributed: false
 seed: 7338
 eval_seed: 7338
 debug: false
 
-wandb: false
+wandb: true
 wandb_entity: null
 wandb_project: smri-fm
