@@ -13,6 +13,7 @@ dependencies = [
     "braceexpand",
     "datasets",
     "einops",
+    "fsspec",
     "huggingface-hub",
     "ipython",
     "jaxtyping",
@@ -39,6 +40,11 @@ dependencies = [
     "asparagus",
     "asparagus_preprocessing",
 ]
+
+[project.scripts]
+smri-eval-linear = "eval.main_linear:cli"
+smri-eval-probe = "eval.main_probe:cli"
+smri-eval-flops = "eval.main_flops:cli"
 
 [tool.uv.sources]
 asparagus = { path = "third_party/asparagus", editable = true }

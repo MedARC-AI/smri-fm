@@ -1,0 +1,19 @@
+output_root: output
+name_prefix: eval_linear
+model_kwargs:
+  ckpt_path: null
+dataset_kwargs:
+  repo_id: medarc/adni_eval
+  token: null
+  cache_dir: null
+task_name: sex
+train_size: null
+map_workers: 4
+num_workers: 4
+batch_size: 4
+Cs: 10
+cv_metric: bacc
+max_iter: 1000
+metrics: [acc, f1, bacc]
+amp: true
+seed: 4466
