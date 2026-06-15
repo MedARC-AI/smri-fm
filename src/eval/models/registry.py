@@ -4,10 +4,10 @@ import pkgutil
 from collections.abc import Callable
 
 import eval.models
-from eval.models.base import ModelTransformPair
+from eval.models.base import Model
 
 _logger = logging.getLogger(__package__)
-_MODEL_REGISTRY: dict[str, Callable[..., ModelTransformPair]] = {}
+_MODEL_REGISTRY: dict[str, Callable[..., Model]] = {}
 
 
 def register_model(name_or_func=None):
@@ -22,13 +22,10 @@ def register_model(name_or_func=None):
     return decorator
 
 
-def create_model(name: str, **kwargs) -> ModelTransformPair:
+def create_model(name: str, **kwargs) -> Model:
     if name not in _MODEL_REGISTRY:
         raise ValueError(f"Model {name!r} not registered; available: {sorted(_MODEL_REGISTRY)}")
-    result = _MODEL_REGISTRY[name](**kwargs)
-    if isinstance(result, tuple):
-        return result
-    return None, result
+    return _MODEL_REGISTRY[name](**kwargs)
 
 
 def list_models() -> list[str]:

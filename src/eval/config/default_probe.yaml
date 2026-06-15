@@ -6,12 +6,13 @@ dataset_kwargs:
   repo_id: medarc/adni_eval
   token: null
   cache_dir: null
-train_size: 2000
 classifier_kwargs:
   embed_dim: null
   dropout: 0.0
   xavier_init: true
   norm: true
+# sMRI preprocessing input size (must match the checkpoint's img_size).
+img_size: [208, 240, 208]
 map_workers: 4
 num_workers: 4
 prefetch_factor: null

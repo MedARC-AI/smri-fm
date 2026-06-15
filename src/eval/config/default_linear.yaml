@@ -7,7 +7,8 @@ dataset_kwargs:
   token: null
   cache_dir: null
 task_name: sex
-train_size: null
+# sMRI preprocessing input size (must match the checkpoint's img_size).
+img_size: [208, 240, 208]
 map_workers: 4
 num_workers: 4
 batch_size: 4
@@ -16,4 +17,5 @@ cv_metric: bacc
 max_iter: 1000
 metrics: [acc, f1, bacc]
 amp: true
+device: cuda
 seed: 4466

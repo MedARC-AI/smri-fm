@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import random
 import subprocess
+from collections import namedtuple
 from pathlib import Path
 
 import numpy as np
 import torch
-from datasets import Array4D, DatasetDict, Features, Value
+import torch.nn.functional as F
+from datasets import Array4D, Dataset, Features
 from huggingface_hub import hf_hub_download
 from omegaconf import DictConfig, OmegaConf
 from sklearn import metrics as sk_metrics
@@ -76,63 +77,83 @@ def participant_bootstrap(metric_fn, targets, predictions, participant_ids, *, s
 
 
 # ---------------------------------------------------------------------------
-# Data preprocessing
+# Data preprocessing (dataset-agnostic)
 # ---------------------------------------------------------------------------
 
-KEEP_COLUMNS = [
-    "sample_id", "participant_id", "age", "sex", "diagnosis", "synthseg_volumes",
-    "train_rank",
-]
+# Returned by every dataset builder alongside its preprocessed splits, so the eval
+# mains know how to build the head/metrics without knowing the dataset.
+Task = namedtuple("Task", ["type", "output_dim", "target"])
+
+# Raw columns every dataset provides and that _normalize consumes.
+RAW_COLUMNS = ("nifti", "mask")
 
 
-def map_model_transform(dataset: DatasetDict, transform, *, checkpoint_path: str,
-                        num_proc: int = 4) -> DatasetDict:
-    """Apply model preprocessing once and persist it in the HF Arrow cache."""
-    signature = _transform_signature(transform, checkpoint_path)
-    mapped = {}
-    for split, split_dataset in dataset.items():
-        missing = set(KEEP_COLUMNS + ["nifti", "mask"]) - set(split_dataset.column_names)
-        if missing:
-            raise ValueError(f"dataset is missing preprocessing columns: {sorted(missing)}")
-        features = Features({
-            "sample_id": Value("string"), "participant_id": Value("string"),
-            "age": Value("float32"), "sex": Value("int64"),
-            "diagnosis": Value("int64"),
-            "synthseg_volumes": split_dataset.features["synthseg_volumes"],
-            "train_rank": Value("int32"),
-            "image": Array4D(shape=(1, *transform.img_size), dtype="float32"),
-            "mask": Array4D(shape=(1, *transform.img_size), dtype="uint8"),
-        })
-        remove_columns = [c for c in split_dataset.column_names if c not in KEEP_COLUMNS]
-        mapped[split] = split_dataset.map(
-            _apply_transform, fn_kwargs={"transform": transform},
-            remove_columns=remove_columns, features=features,
-            num_proc=num_proc if num_proc > 1 else None,
-            new_fingerprint=f"{split_dataset._fingerprint}-transform-{signature}",
-            desc=f"Preprocessing {split} for model",
-        )
-    return DatasetDict(mapped)
+def pad_to_shape(x: torch.Tensor, target_shape: tuple[int, ...]) -> torch.Tensor:
+    # nb this also crops
+    padding = []
+    for s, s_ in reversed(list(zip(x.shape, target_shape))):
+        pad = s_ - s
+        padding.extend([pad // 2, pad - pad // 2])
+    return F.pad(x, padding)
 
 
-def _transform_signature(transform, checkpoint_path: str) -> str:
-    checkpoint = Path(checkpoint_path)
-    stat = checkpoint.stat()
-    payload = (
-        type(transform).__module__, type(transform).__qualname__, repr(vars(transform)),
-        str(checkpoint.resolve()), stat.st_size, stat.st_mtime_ns,
+def _normalize(example, img_size):
+    """z-score over the brain mask + pad/crop to img_size; emit fp16 image + mask.
+
+    Dataset-agnostic: depends only on the raw `nifti` scan and `mask`. Scans are
+    already RAS-oriented and 1mm isotropic, so no reorient/resample is needed.
+    """
+    data = torch.from_numpy(example["nifti"].get_fdata(dtype=np.float32))
+    mask = torch.from_numpy(example["mask"].get_fdata(dtype=np.float32)) > 0.5
+
+    # z-score over brain-mask voxels (matches pretraining); background -> 0.
+    # Raw intensities reach ~1e6, so this must happen before the fp16 cast.
+    brain = data[mask]
+    # population std (÷N, correction=0) to match the pretraining normalization.
+    mean, std = brain.mean(), brain.std(correction=0).clamp_min(1e-6)
+    data = torch.where(mask, (data - mean) / std, torch.zeros_like(data))
+
+    # (X, Y, Z) F-order -> (Z, Y, X) C-order, pad/crop to img_size, add channel dim.
+    image = pad_to_shape(data.permute(2, 1, 0).contiguous(), img_size).half().unsqueeze(0)
+    mask = pad_to_shape(mask.permute(2, 1, 0).contiguous().float(), img_size).unsqueeze(0) > 0.5
+    return {"image": image.numpy(), "mask": mask.numpy()}
+
+
+def map_normalize(dataset: Dataset, img_size: tuple[int, int, int], num_proc: int,
+                  *, drop: tuple[str, ...] = ()) -> Dataset:
+    """Apply _normalize once and persist it in the HF Arrow cache.
+
+    Dataset-agnostic: the only universal outputs are fp16 `image`/`mask`; every other
+    column (metadata + label) is carried through with its original type, so the schema
+    isn't hardcoded. Target-agnostic too, so the cache is keyed only on img_size and
+    shared across every prediction target of a dataset. Columns in `drop` are removed.
+    """
+    missing = set(RAW_COLUMNS) - set(dataset.column_names)
+    if missing:
+        raise ValueError(f"dataset is missing raw columns: {sorted(missing)}")
+
+    carry = [c for c in dataset.column_names if c not in RAW_COLUMNS and c not in drop]
+    features = Features({
+        **{c: dataset.features[c] for c in carry},
+        "image": Array4D(shape=(1, *img_size), dtype="float16"),
+        "mask": Array4D(shape=(1, *img_size), dtype="uint8"),
+    })
+    remove_columns = [c for c in dataset.column_names if c not in carry]
+
+    # Array4D image cells are large (~25MB at 208x240x208 fp16). Arrow lists use
+    # 32-bit offsets, so a write batch whose image column exceeds 2GB overflows
+    # during .map concatenation. Cap the batch so the image column stays ~1GB.
+    bytes_per_image = int(np.prod(img_size)) * 2
+    writer_batch_size = max(1, min(1000, int(1e9 // bytes_per_image)))
+
+    return dataset.map(
+        _normalize, fn_kwargs={"img_size": img_size},
+        remove_columns=remove_columns, features=features,
+        num_proc=num_proc if num_proc > 1 else None,
+        writer_batch_size=writer_batch_size,
+        new_fingerprint=f"{dataset._fingerprint}-normalize-{'x'.join(map(str, img_size))}",
+        desc="Preprocessing",
     )
-    return hashlib.sha256(repr(payload).encode()).hexdigest()[:16]
-
-
-def _apply_transform(example, transform):
-    sample = transform(example["nifti"], example["mask"])
-    image = sample["image"]
-    mask = sample["mask"]
-    if image.ndim == 3:
-        image = image.unsqueeze(0)
-    if mask.ndim == 3:
-        mask = mask.unsqueeze(0)
-    return {"image": image.numpy(), "mask": mask.to("cpu").numpy()}
 
 
 # ---------------------------------------------------------------------------
@@ -163,31 +184,6 @@ def load_config(default_path: Path, args: argparse.Namespace, positional: dict[s
     for key, value in positional.items():
         cfg[key] = value
     return cfg
-
-
-def prepare_datasets(cfg: DictConfig, datasets, transform, checkpoint_path: str):
-    """Apply the model transform to wrapped task datasets in place.
-
-    `datasets` maps split -> task dataset (e.g. ADNIDataset), each holding a raw
-    HF dataset on `.dataset`. The model transform is precomputed and cached, then
-    swapped back into each wrapped dataset. Returns (datasets, train_dataset);
-    callers read `.kind` / `.output_dim` off the train dataset.
-    """
-    raw = DatasetDict({split: ds.dataset for split, ds in datasets.items()})
-    train_size = cfg.get("train_size")
-    if train_size:
-        raw["train"] = raw["train"].filter(
-            lambda rank: rank < train_size, input_columns="train_rank"
-        )
-    mapped = map_model_transform(
-        raw,
-        transform,
-        checkpoint_path=checkpoint_path,
-        num_proc=cfg.map_workers,
-    )
-    for split, ds in datasets.items():
-        ds.with_images(mapped[split])
-    return datasets, datasets["train"]
 
 
 def select_representation(embeddings, representation: str):

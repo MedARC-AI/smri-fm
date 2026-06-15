@@ -28,7 +28,6 @@ from eval.utils import (
     infinite_loader,
     load_config,
     make_lr_schedule,
-    prepare_datasets,
     random_seed,
     regression_metrics,
     select_representation,
@@ -281,17 +280,17 @@ def main(cfg):
 
     print(f"probe eval — sha={get_sha()} — {datetime.datetime.now():%Y-%m-%d %H:%M:%S}")
 
-    transform, backbone = create_model(cfg.model, **OmegaConf.to_container(cfg.model_kwargs))
+    backbone = create_model(cfg.model, **OmegaConf.to_container(cfg.model_kwargs))
     backbone.requires_grad_(False).eval().to(device)
-    raw = create_dataset(cfg.dataset, **OmegaConf.to_container(cfg.dataset_kwargs))
-    datasets, task = prepare_datasets(cfg, raw, transform, cfg.model_kwargs.ckpt_path)
-    kind, out_dim = task.kind, task.output_dim
+    datasets, task = create_dataset(cfg.dataset, img_size=cfg.img_size, map_workers=cfg.map_workers,
+                                    **OmegaConf.to_container(cfg.dataset_kwargs))
+    kind, out_dim = task.type, task.output_dim
     num_classes = out_dim if kind == "classification" else 1
 
     # balanced class sampling (classification only)
     sampler = None
     if kind == "classification" and cfg.get("balanced_sampling"):
-        labels = np.asarray(datasets["train"].dataset[task.target])
+        labels = np.asarray(datasets["train"][task.target])
         counts = np.bincount(labels, minlength=out_dim)
         class_weight = counts.max() / np.clip(counts, 1, None)
         sampler = WeightedRandomSampler(class_weight[labels], num_samples=len(labels))
@@ -370,7 +369,7 @@ def main(cfg):
 def cli():
     parser = argparse.ArgumentParser()
     parser.add_argument("model", choices=list_models())
-    parser.add_argument("representation", choices=["cls", "reg", "patch"])
+    parser.add_argument("representation", choices=["cls", "patch"])
     parser.add_argument("classifier", choices=list_classifiers())
     parser.add_argument("dataset", choices=list_datasets())
     parser.add_argument("--config")

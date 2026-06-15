@@ -2,65 +2,42 @@ from __future__ import annotations
 
 import os
 
-import torch
-from datasets import Dataset, DatasetDict, load_dataset
+from datasets import Dataset, load_dataset
 
 from eval.datasets.registry import register_dataset
+from eval.utils import Task, map_normalize
 
-DEFAULT_REPO_ID = "medarc/adni_eval"
-
-# Target map: prediction target -> task kind and head output dimension.
+# Prediction target -> task type and head output dimension.
 ADNI_TARGET_MAP = {
-    "age": {"kind": "regression", "output_dim": 1},
-    "sex": {"kind": "classification", "output_dim": 2},
-    "diagnosis": {"kind": "classification", "output_dim": 2},
-    "synthseg_volumes": {"kind": "regression", "output_dim": 101},
+    "age": {"type": "regression", "output_dim": 1},
+    "sex": {"type": "classification", "output_dim": 2},
+    "diagnosis": {"type": "classification", "output_dim": 2},
+    "synthseg_volumes": {"type": "regression", "output_dim": 101},
 }
 
+def _create_adni(target: str, repo_id: str, img_size, map_workers: int,
+                 cache_dir: str | None = None, token: str | None = None,
+                 **_kwargs) -> tuple[dict[str, Dataset], Task]:
+    """Load ADNI, preprocess each split (cached, shared across targets), select target.
 
-class ADNIDataset(torch.utils.data.Dataset):
-    """ADNI scans wrapped for a single prediction target.
-
-    The task kind (classification vs regression) and head output dimension are
-    looked up from ADNI_TARGET_MAP, so one class covers every ADNI target.
+    Returns (splits, task): `splits` maps split -> a torch-formatted HF dataset with
+    image/mask/target columns; `task` carries the type/output_dim the mains need.
     """
+    if target not in ADNI_TARGET_MAP:
+        raise ValueError(f"unknown ADNI target {target!r}; choices: {list(ADNI_TARGET_MAP)}")
+    dataset = load_dataset(repo_id, os.getenv("HF_TOKEN"), cache_dir=cache_dir)
 
-    def __init__(self, dataset: Dataset, target: str):
-        if target not in ADNI_TARGET_MAP:
-            raise ValueError(f"unknown ADNI target {target!r}; choices: {list(ADNI_TARGET_MAP)}")
-        self.target = target
-        self.kind = ADNI_TARGET_MAP[target]["kind"]
-        self.output_dim = ADNI_TARGET_MAP[target]["output_dim"]
-        self.dataset = dataset
-
-    def with_images(self, dataset: Dataset) -> "ADNIDataset":
-        """Swap in a transformed HF dataset (with image/mask columns) in place."""
-        self.dataset = dataset.with_format(
-            "torch", columns=["image", "mask", self.target], output_all_columns=True,
+    splits = {}
+    for split, split_ds in dataset.items():
+        # Normalize once (target-agnostic, cached/shared), then pick the target.
+        mapped = map_normalize(split_ds, tuple(img_size), map_workers)
+        mapped = mapped.rename_column(target, "target")
+        splits[split] = mapped.with_format(
+            "torch", columns=["image", "mask", "target"], output_all_columns=True,
         )
-        return self
 
-    def __len__(self):
-        return len(self.dataset)
-
-    def __getitem__(self, index):
-        sample = self.dataset[index]
-        target = sample[self.target]
-        sample["target"] = target.long() if self.kind == "classification" else target.float()
-        return sample
-
-
-def select_training_size(dataset: DatasetDict, size: int = 2000) -> DatasetDict:
-    if size not in {500, 1000, 2000}:
-        raise ValueError("training size must be one of 500, 1000, or 2000")
-    train = dataset["train"].filter(lambda rank: rank < size, input_columns="train_rank")
-    return DatasetDict(train=train, validation=dataset["validation"], test=dataset["test"])
-
-
-def _create_adni(target: str, repo_id: str = DEFAULT_REPO_ID,
-                 cache_dir: str | None = None, **_kwargs) -> dict[str, ADNIDataset]:
-    dataset = load_dataset(repo_id, token=os.getenv("HF_TOKEN"), cache_dir=cache_dir)
-    return {split: ADNIDataset(split_ds, target) for split, split_ds in dataset.items()}
+    spec = ADNI_TARGET_MAP[target]
+    return splits, Task(type=spec["type"], output_dim=spec["output_dim"], target="target")
 
 
 @register_dataset
