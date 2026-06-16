@@ -12,7 +12,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import sklearn.metrics
 import sklearn.utils
 import torch
 import torch.nn as nn
@@ -24,12 +23,13 @@ from eval.classifiers import ClassifierGrid, create_classifier, list_classifiers
 from eval.datasets.registry import create_dataset, list_datasets
 from eval.models.registry import create_model, list_models
 from eval.utils import (
+    CLF_METRICS,
+    REG_METRICS,
     get_sha,
     infinite_loader,
     load_config,
     make_lr_schedule,
     random_seed,
-    regression_metrics,
     select_representation,
     send_batch,
     update_lr,
@@ -38,22 +38,14 @@ from eval.utils import (
 
 DEFAULT_CONFIG = Path(__file__).parent / "config/default_probe.yaml"
 
-CLF_METRICS = {
-    "acc": sklearn.metrics.accuracy_score,
-    "f1": partial(sklearn.metrics.f1_score, average="macro"),
-    "bacc": sklearn.metrics.balanced_accuracy_score,
-}
-
 
 # ---------------------------------------------------------------------------
 # Metrics (classification or regression)
 # ---------------------------------------------------------------------------
 
 def metric_values(kind, metric_names, targets, preds) -> dict[str, float]:
-    if kind == "classification":
-        return {m: float(CLF_METRICS[m](targets, preds)) for m in metric_names}
-    reg = regression_metrics(targets, preds)
-    return {m: float(reg[m]) for m in metric_names}
+    table = CLF_METRICS if kind == "classification" else REG_METRICS
+    return {m: float(table[m](targets, preds)) for m in metric_names}
 
 
 def grid_metrics(kind, metric_names, preds, targets, num_clf) -> list[dict[str, float]]:

@@ -28,7 +28,7 @@ accum_iter: 1
 steps_per_epoch: null
 clip_grad: 1.0
 no_decay: false
-# metrics: use [acc, f1, bacc] for classification, [r2, mae, rmse] for regression
+# metrics: use [acc, f1, bacc] for classification, [r2, rel_mae, rel_rmse, pearson_r] for regression
 metrics: [acc, f1, bacc]
 cv_metric: bacc
 balanced_sampling: false

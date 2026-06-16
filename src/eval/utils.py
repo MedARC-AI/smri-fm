@@ -1,57 +1,60 @@
 from __future__ import annotations
 
 import argparse
-import json
-import os
+import hashlib
 import random
 import subprocess
 from collections import namedtuple
+from functools import partial
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from datasets import Array4D, Dataset, Features
-from huggingface_hub import hf_hub_download
 from omegaconf import DictConfig, OmegaConf
 from sklearn import metrics as sk_metrics
-from torch.utils.data import DataLoader
 
 
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
 
-def classification_metrics(targets, predictions, probabilities) -> dict[str, float]:
-    return {
-        "accuracy": float(sk_metrics.accuracy_score(targets, predictions)),
-        "f1_macro": float(sk_metrics.f1_score(targets, predictions, average="macro")),
-        "balanced_accuracy": float(sk_metrics.balanced_accuracy_score(targets, predictions)),
-        "auroc": float(sk_metrics.roc_auc_score(targets, probabilities)),
-    }
+def relative_mae(targets, predictions) -> float:
+    targets = np.asarray(targets)
+    predictions = np.asarray(predictions)
+    scale = _relative_scale(targets)
+    if targets.ndim == 2 and targets.shape[1] > 1:
+        return float(np.mean(np.mean(np.abs(predictions - targets), axis=0) / scale))
+    return float(np.mean(np.abs(predictions - targets)) / scale)
 
 
-def regression_metrics(targets, predictions) -> dict[str, float]:
-    targets = np.asarray(targets); predictions = np.asarray(predictions)
-    multi = targets.ndim == 2 and targets.shape[1] > 1
-    result = {
-        "mae": float(sk_metrics.mean_absolute_error(targets, predictions)),
-        "rmse": float(np.sqrt(sk_metrics.mean_squared_error(targets, predictions))),
-        "r2": float(sk_metrics.r2_score(targets, predictions, multioutput="uniform_average")),
-    }
-    if multi:
-        correlations = [_pearson(targets[:, i], predictions[:, i]) for i in range(targets.shape[1])]
-        result["pearson_r"] = float(np.nanmean(correlations))
-    else:
-        result["pearson_r"] = _pearson(targets.reshape(-1), predictions.reshape(-1))
-        result["bias"] = float(np.mean(predictions - targets))
-    return result
+def relative_rmse(targets, predictions) -> float:
+    targets = np.asarray(targets)
+    predictions = np.asarray(predictions)
+    scale = _relative_scale(targets)
+    if targets.ndim == 2 and targets.shape[1] > 1:
+        output_rmse = np.sqrt(np.mean((predictions - targets) ** 2, axis=0))
+        return float(np.mean(output_rmse / scale))
+    return float(np.sqrt(np.mean((predictions - targets) ** 2)) / scale)
 
 
-def per_output_regression_metrics(targets, predictions, names) -> list[dict]:
-    targets = np.asarray(targets); predictions = np.asarray(predictions)
-    return [{"target": name, **regression_metrics(targets[:, i], predictions[:, i])}
-            for i, name in enumerate(names)]
+def pearson_r(targets, predictions) -> float:
+    targets = np.asarray(targets)
+    predictions = np.asarray(predictions)
+    if targets.ndim == 2 and targets.shape[1] > 1:
+        return float(np.nanmean([
+            _pearson(targets[:, i], predictions[:, i])
+            for i in range(targets.shape[1])
+        ]))
+    return _pearson(targets.reshape(-1), predictions.reshape(-1))
+
+
+def _relative_scale(targets):
+    targets = np.asarray(targets)
+    if targets.ndim == 2 and targets.shape[1] > 1:
+        return np.maximum(np.mean(np.abs(targets), axis=0), 1e-8)
+    return max(float(np.mean(np.abs(targets))), 1e-8)
 
 
 def _pearson(x, y) -> float:
@@ -60,20 +63,19 @@ def _pearson(x, y) -> float:
     return float(np.corrcoef(x, y)[0, 1])
 
 
-def participant_bootstrap(metric_fn, targets, predictions, participant_ids, *, seed=4466,
-                          repetitions=500) -> dict[str, float]:
-    participant_ids = np.asarray(participant_ids)
-    unique = np.unique(participant_ids)
-    rng = np.random.default_rng(seed)
-    values = []
-    for _ in range(repetitions):
-        sampled = rng.choice(unique, size=len(unique), replace=True)
-        indices = np.concatenate([np.flatnonzero(participant_ids == p) for p in sampled])
-        try:
-            values.append(float(metric_fn(np.asarray(targets)[indices], np.asarray(predictions)[indices])))
-        except ValueError:
-            continue
-    return {"bootstrap_mean": float(np.mean(values)), "bootstrap_std": float(np.std(values))}
+# Metric registries shared by every eval main, keyed by task type. Each entry is a
+# callable (targets, predictions) -> float, so selecting metrics is uniform across mains.
+CLF_METRICS = {
+    "acc": sk_metrics.accuracy_score,
+    "f1": partial(sk_metrics.f1_score, average="macro"),
+    "bacc": sk_metrics.balanced_accuracy_score,
+}
+REG_METRICS = {
+    "r2": sk_metrics.r2_score,
+    "rel_mae": relative_mae,
+    "rel_rmse": relative_rmse,
+    "pearson_r": pearson_r,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -146,28 +148,15 @@ def map_normalize(dataset: Dataset, img_size: tuple[int, int, int], num_proc: in
     bytes_per_image = int(np.prod(img_size)) * 2
     writer_batch_size = max(1, min(1000, int(1e9 // bytes_per_image)))
 
+    schema_key = hashlib.sha1(",".join(carry).encode("utf-8")).hexdigest()[:12]
+
     return dataset.map(
         _normalize, fn_kwargs={"img_size": img_size},
         remove_columns=remove_columns, features=features,
         num_proc=num_proc if num_proc > 1 else None,
         writer_batch_size=writer_batch_size,
-        new_fingerprint=f"{dataset._fingerprint}-normalize-{'x'.join(map(str, img_size))}",
+        new_fingerprint=f"{dataset._fingerprint}-norm-{'x'.join(map(str, img_size))}-{schema_key}",
         desc="Preprocessing",
-    )
-
-
-# ---------------------------------------------------------------------------
-# Shared loader
-# ---------------------------------------------------------------------------
-
-def make_loader(dataset, cfg, *, shuffle=False):
-    return DataLoader(
-        dataset,
-        batch_size=cfg.batch_size,
-        shuffle=shuffle,
-        num_workers=cfg.num_workers,
-        prefetch_factor=cfg.get("prefetch_factor") if cfg.num_workers else None,
-        drop_last=shuffle,
     )
 
 
@@ -195,10 +184,6 @@ def select_representation(embeddings, representation: str):
 
 def send_batch(batch, device: torch.device):
     return {key: value.to(device) if torch.is_tensor(value) else value for key, value in batch.items()}
-
-
-def token_from_config(cfg: DictConfig):
-    return cfg.dataset_kwargs.get("token") or os.getenv("HF_TOKEN")
 
 
 # ---------------------------------------------------------------------------
@@ -247,18 +232,3 @@ def make_lr_schedule(base_lr: float, total_steps: int, warmup_steps: int,
 def infinite_loader(loader):
     while True:
         yield from loader
-
-
-def load_volume_names(
-    repo_id: str,
-    *,
-    cache_dir: str | Path | None = None,
-) -> list[str]:
-    path = hf_hub_download(
-        repo_id, "synthseg_volume_names.json", repo_type="dataset",
-        token=os.getenv("HF_TOKEN"), cache_dir=str(cache_dir) if cache_dir else None,
-    )
-    names = json.loads(Path(path).read_text())
-    if len(names) != 101:
-        raise ValueError(f"expected 101 SynthSeg volume names, got {len(names)}")
-    return names

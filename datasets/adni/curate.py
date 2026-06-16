@@ -20,7 +20,6 @@ def adni_features() -> Features:
         "age": Value("float32"), "sex": ClassLabel(names=["Female", "Male"]),
         "diagnosis": ClassLabel(names=["CN", "AD"]),
         "synthseg_volumes": Sequence(Value("float32"), length=101),
-        "train_rank": Value("int32"),
         "nifti": Nifti(), "mask": Nifti(),
     })
 
@@ -164,13 +163,10 @@ def build_cohort(manifest: pd.DataFrame, config: CohortConfig = CohortConfig()) 
     for split, rows in best[1].items():
         rows = rows.copy()
         rows["split"] = split
-        rows["train_rank"] = -1
-        if split == "train":
-            rows = _assign_train_rank(rows, config.seed)
         frames.append(rows)
     cohort = pd.concat(frames, ignore_index=True)
     _validate_cohort(cohort, config)
-    return cohort.sort_values(["split", "train_rank", "sample_id"]).reset_index(drop=True)
+    return cohort.sort_values(["split", "sample_id"]).reset_index(drop=True)
 
 
 def cohort_report(cohort: pd.DataFrame, soft_limit: int = 3) -> dict:
@@ -221,10 +217,6 @@ def _validate_cohort(cohort: pd.DataFrame, config: CohortConfig) -> None:
             raise ValueError(f"{split} is not diagnosis-balanced")
     if (cohort.groupby("participant_id")["split"].nunique() != 1).any():
         raise ValueError("participants overlap between splits")
-    ranks = cohort.loc[cohort["split"] == "train", "train_rank"].sort_values().to_numpy()
-    if not np.array_equal(ranks, np.arange(config.train_size)):
-        raise ValueError("train_rank must be contiguous from zero")
-
 
 def _make_subject_table(pool: pd.DataFrame) -> pd.DataFrame:
     def mode(s):
@@ -271,7 +263,7 @@ def _weighted_sample(frame: pd.DataFrame, size: int, rng: np.random.Generator) -
         return frame.iloc[:0]
     if len(frame) < size:
         raise ValueError("insufficient rows for weighted sample")
-    weights = frame["balance_weight"].to_numpy(dtype=float)
+    weights = frame["balance_weight"].to_numpy(dtype=float, copy=True)
     weights /= weights.sum()
     return frame.iloc[rng.choice(len(frame), size=size, replace=False, p=weights)]
 
@@ -280,23 +272,6 @@ def _balance_score(frame: pd.DataFrame) -> float:
     sex_error = abs((frame["sex"] == "Female").mean() - 0.5)
     fractions = frame["age_bin"].value_counts(normalize=True)
     return float(sex_error + (fractions - fractions.mean()).abs().mean())
-
-
-def _assign_train_rank(frame: pd.DataFrame, seed: int) -> pd.DataFrame:
-    ordered = []
-    for dx_index, diagnosis in enumerate(["AD", "CN"]):
-        group = frame[frame["diagnosis"] == diagnosis].copy()
-        group["tie_breaker"] = np.random.default_rng(seed + dx_index).random(len(group))
-        group = group.sort_values(["subject_rank", "tie_breaker"])
-        group["stratum_rank"] = group.groupby(
-            ["subject_rank", "age_bin", "sex"], observed=True
-        ).cumcount()
-        group = group.sort_values(["subject_rank", "stratum_rank", "age_bin", "sex", "tie_breaker"])
-        group["diagnosis_rank"] = np.arange(len(group))
-        ordered.append(group)
-    ranked = pd.concat(ordered).sort_values(["diagnosis_rank", "diagnosis"])
-    ranked["train_rank"] = np.arange(len(ranked))
-    return ranked.drop(columns=["tie_breaker", "stratum_rank", "diagnosis_rank"])
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +340,6 @@ def _generate_samples(records):
             "sex": record["sex"],
             "diagnosis": record["diagnosis"],
             "synthseg_volumes": list(record["synthseg_volumes"]),
-            "train_rank": int(record["train_rank"]),
             "nifti": {"path": record["path"], "bytes": local_path.read_bytes()},
             "mask": {"path": record["mask_path"], "bytes": local_mask_path.read_bytes()},
         }

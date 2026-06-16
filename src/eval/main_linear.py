@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import json
+import logging
+import sys
+import time
 from collections import defaultdict
-from functools import partial
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import sklearn.metrics
 import sklearn.utils
 import torch
 from omegaconf import OmegaConf
@@ -17,24 +19,18 @@ from torch.utils.data import DataLoader
 
 from eval.datasets.registry import create_dataset, list_datasets
 from eval.models.registry import create_model, list_models
-from eval.utils import load_config, select_representation, send_batch
+from eval.utils import (
+    CLF_METRICS,
+    REG_METRICS,
+    get_sha,
+    load_config,
+    select_representation,
+    send_batch,
+)
 
 DEFAULT_CONFIG = Path(__file__).parent / "config/default_linear.yaml"
 
-def _rmse(targets, preds):
-    return float(np.sqrt(sklearn.metrics.mean_squared_error(targets, preds)))
-
-
-CLF_METRICS = {
-    "acc": sklearn.metrics.accuracy_score,
-    "f1": partial(sklearn.metrics.f1_score, average="macro"),
-    "bacc": sklearn.metrics.balanced_accuracy_score,
-}
-REG_METRICS = {
-    "r2": sklearn.metrics.r2_score,
-    "mae": sklearn.metrics.mean_absolute_error,
-    "rmse": _rmse,
-}
+logger = logging.getLogger(__name__)
 
 
 @torch.inference_mode()
@@ -45,6 +41,7 @@ def extract_features(backbone, datasets, representation, cfg, device):
         loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=False,
                             num_workers=cfg.num_workers, drop_last=False)
         features, targets = [], []
+        start = time.perf_counter()
         for batch in loader:
             batch = send_batch(batch, device)
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16,
@@ -56,6 +53,8 @@ def extract_features(backbone, datasets, representation, cfg, device):
             "features": np.concatenate(features),
             "target": np.concatenate(targets),
         }
+        tput = len(result[split]["target"]) / (time.perf_counter() - start)
+        logger.info(f"{split}: features {result[split]['features'].shape} ({tput:.2f} samples/s)")
     return result
 
 
@@ -66,15 +65,20 @@ def _candidate_Cs(Cs):
     return np.asarray(list(Cs), dtype=float)
 
 
+def _classification_sweep(cfg):
+    return [(c, LogisticRegression(C=c, max_iter=cfg.max_iter)) for c in _candidate_Cs(cfg.Cs)]
+
+
+def _regression_sweep(cfg):
+    return [(a, Ridge(alpha=a)) for a in np.logspace(-1, 5, cfg.get("alphas", 10))]
+
+
 def evaluate(cfg, task, features_dict, targets_dict):
-    clf = task.type == "classification"
-    metric_fns = CLF_METRICS if clf else REG_METRICS
-    metric_names = list(cfg.metrics) if clf else ["r2", "mae", "rmse"]
-    cv_metric = cfg.cv_metric if clf else "r2"
-    if clf:
-        sweep = [(c, LogisticRegression(C=c, max_iter=cfg.max_iter)) for c in _candidate_Cs(cfg.Cs)]
-    else:
-        sweep = [(a, Ridge(alpha=a)) for a in np.logspace(-1, 5, cfg.get("alphas", 10))]
+    metric_fns = {"classification": CLF_METRICS, "regression": REG_METRICS}[task.type]
+    metric_names = {"classification": list(cfg.metrics), "regression": list(REG_METRICS)}[task.type]
+    cv_metric = {"classification": cfg.cv_metric, "regression": "r2"}[task.type]
+    sweep = {"classification": _classification_sweep, "regression": _regression_sweep}[task.type](cfg)
+    stratify = task.type == "classification"
 
     scaler = StandardScaler().fit(features_dict["train"])
     scaled = {split: scaler.transform(features_dict[split]) for split in features_dict}
@@ -93,7 +97,7 @@ def evaluate(cfg, task, features_dict, targets_dict):
     for split in features_dict:
         preds = best_est.predict(scaled[split])
         record = {**header, "split": split}
-        ci = bootstrap_ci(cfg, metric_fns, metric_names, preds, targets_dict[split], stratify=clf)
+        ci = bootstrap_ci(cfg, metric_fns, metric_names, preds, targets_dict[split], stratify=stratify)
         for metric in metric_names:
             record[metric] = float(metric_fns[metric](targets_dict[split], preds))
             record[f"{metric}_std"] = ci[metric]["std"]
@@ -112,6 +116,18 @@ def bootstrap_ci(cfg, metric_fns, metric_names, preds, targets, stratify):
     return {m: {"mean": float(np.mean(v)), "std": float(np.std(v))} for m, v in scores.items()}
 
 
+def setup_logging(run_dir: Path) -> None:
+    handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(run_dir / "log.txt")]
+    formatter = logging.Formatter("%(message)s")
+    root = logging.getLogger("eval")
+    root.setLevel(logging.INFO)
+    root.handlers.clear()
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
+    root.propagate = False
+
+
 def main(cfg):
     device = torch.device(cfg.device)
     backbone = create_model(cfg.model, **OmegaConf.to_container(cfg.model_kwargs))
@@ -122,16 +138,31 @@ def main(cfg):
     output = Path(cfg.output_root) / cfg.name_prefix / f"{cfg.dataset}__{cfg.model}__{cfg.representation}__{head}"
     output.mkdir(parents=True, exist_ok=True)
 
+    setup_logging(output)
+    sha = get_sha()
+    logger.info(f"run: {output.name}")
+    logger.info(f"git sha: {sha}")
+    logger.info(f"config:\n{OmegaConf.to_yaml(cfg).rstrip()}")
+    OmegaConf.save(cfg, output / "config.yaml")
+
     data = extract_features(backbone, datasets, cfg.representation, cfg, device)
 
     features = {split: data[split]["features"] for split in data}
     targets = {split: data[split]["target"] for split in data}
 
     table = evaluate(cfg, task, features, targets)
-    print(table.to_markdown(index=False, floatfmt=".5g"))
+    logger.info(f"results:\n{table.to_markdown(index=False, floatfmt='.5g')}")
 
     table.to_csv(output / "eval_table.csv", index=False)
-    OmegaConf.save(cfg, output / "config.yaml")
+    metrics = {
+        "model": cfg.model,
+        "representation": cfg.representation,
+        "dataset": cfg.dataset,
+        "task_type": task.type,
+        "git_sha": sha,
+        "results": table.to_dict(orient="records"),
+    }
+    (output / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
     return table
 
 
