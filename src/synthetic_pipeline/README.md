@@ -30,7 +30,8 @@ that checkout by default. If your generator environment is different, set
 
 ## Config
 
-Create a YAML file:
+Start from [`configs/synthetic_pipeline.example.yaml`](../../configs/synthetic_pipeline.example.yaml),
+or create a YAML file:
 
 ```yaml
 generator_repo: /path/to/NV-Generate-CTMR
