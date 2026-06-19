@@ -1,105 +1,116 @@
-import numpy as np
 import datasets as hfds
-from datasets import Dataset, DatasetDict, load_dataset
+from datasets import Dataset, load_dataset
+from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
 
 from evaluation.tasks.brain_age_gap import BrainAgeGapTask
 from evaluation.tasks.column import ColumnTask
 from evaluation.tasks.registry import register_task
 
 REPO_ID = "medarc/adni_eval"
+GROUP_COLUMN = "participant_id"
+IMAGE_COLUMN = "nifti"
 
 
-def load_adni_eval_merged():
+def load_adni_eval_pooled() -> Dataset:
+    """Pool all HF splits into one dataset, keeping every scan session.
+
+    Subject leakage is prevented downstream by grouped CV on ``participant_id``
+    rather than by dropping repeated sessions.
+    """
     dataset_dict = load_dataset(REPO_ID)
-
-    # drop repeated scans per subject
-    dataset_dict = {
-        split: drop_duplicates(ds, key="participant_id") for split, ds in dataset_dict.items()
-    }
-
-    # merge splits into one dataset
-    dataset, split_indices = concatenate_splits(dataset_dict)
-
-    # fixed train/test splits
-    train_idx = np.concatenate([split_indices["train"], split_indices["validation"]])
-    splits = [(train_idx, split_indices["test"])]
-    return dataset, splits
+    return hfds.concatenate_datasets(list(dataset_dict.values()))
 
 
-def concatenate_splits(dataset_dict: DatasetDict):
-    offset = 0
-    split_indices = {}
-    for split, ds in dataset_dict.items():
-        split_indices[split] = np.arange(offset, offset + len(ds))
-        offset += len(ds)
-    dataset = hfds.concatenate_datasets(list(dataset_dict.values()))
-    return dataset, split_indices
+def load_adni_ad_cn_pooled() -> Dataset:
+    """Pooled ADNI restricted to the binary AD-vs-CN contrast.
 
-
-def drop_duplicates(dataset: Dataset, key: str):
-    values = np.asarray(dataset[key])
-    uniq, indices = np.unique(values, return_index=True)
-    if len(uniq) < len(values):
-        dataset = dataset.select(indices)
-    return dataset
+    ``diagnosis`` is a 3-class label (CN/MCI/AD); the binary task drops MCI so it is
+    a genuine AD-vs-CN classification. Labels are kept as their native class ids
+    (CN, AD); the accuracy / balanced-accuracy metrics are label-agnostic, so no
+    remap to {0, 1} is needed. Filtering is index-based and does not rewrite images.
+    """
+    data = load_adni_eval_pooled()
+    names = data.features["diagnosis"].names
+    keep = {names.index("CN"), names.index("AD")}
+    return data.filter(lambda dx: dx in keep, input_columns="diagnosis")
 
 
 @register_task
-def adni_age() -> ColumnTask:
-    dataset, splits = load_adni_eval_merged()
+def adni_age(n_splits: int = 5, seed: int = 0) -> ColumnTask:
     return ColumnTask(
         name="adni_age",
         kind="regression",
-        data=dataset,
-        splitter=splits,
+        data=load_adni_eval_pooled(),
+        splitter=GroupKFold(n_splits=n_splits, shuffle=True, random_state=seed),
         target_column="age",
+        image_column=IMAGE_COLUMN,
+        group_column=GROUP_COLUMN,
     )
 
 
 @register_task
-def adni_sex() -> ColumnTask:
-    dataset, splits = load_adni_eval_merged()
+def adni_sex(n_splits: int = 5, seed: int = 0) -> ColumnTask:
     return ColumnTask(
         name="adni_sex",
         kind="classification",
-        data=dataset,
-        splitter=splits,
+        data=load_adni_eval_pooled(),
+        splitter=StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed),
         target_column="sex",
+        image_column=IMAGE_COLUMN,
+        group_column=GROUP_COLUMN,
     )
 
 
 @register_task
-def adni_ad_cn() -> ColumnTask:
-    dataset, splits = load_adni_eval_merged()
+def adni_ad_cn(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """Binary AD-vs-CN diagnosis classification (MCI dropped)."""
     return ColumnTask(
         name="adni_ad_cn",
         kind="classification",
-        data=dataset,
-        splitter=splits,
+        data=load_adni_ad_cn_pooled(),
+        splitter=StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed),
         target_column="diagnosis",
+        image_column=IMAGE_COLUMN,
+        group_column=GROUP_COLUMN,
     )
 
 
 @register_task
-def adni_synthseg_volumes() -> ColumnTask:
-    dataset, splits = load_adni_eval_merged()
+def adni_cn_mci_ad(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """3-way diagnosis classification over all CN / MCI / AD scans."""
+    return ColumnTask(
+        name="adni_cn_mci_ad",
+        kind="classification",
+        data=load_adni_eval_pooled(),
+        splitter=StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed),
+        target_column="diagnosis",
+        image_column=IMAGE_COLUMN,
+        group_column=GROUP_COLUMN,
+    )
+
+
+@register_task
+def adni_synthseg_volumes(n_splits: int = 5, seed: int = 0) -> ColumnTask:
     return ColumnTask(
         name="adni_synthseg_volumes",
         kind="regression",
-        data=dataset,
-        splitter=splits,
+        data=load_adni_eval_pooled(),
+        splitter=GroupKFold(n_splits=n_splits, shuffle=True, random_state=seed),
         target_column="synthseg_volumes",
+        image_column=IMAGE_COLUMN,
+        group_column=GROUP_COLUMN,
     )
 
 
 @register_task
-def adni_ad_cn_bag() -> ColumnTask:
-    dataset, _ = load_adni_eval_merged()
+def adni_ad_cn_bag() -> BrainAgeGapTask:
     return BrainAgeGapTask(
         name="adni_ad_cn_bag",
-        data=dataset,
+        data=load_adni_eval_pooled(),
         age_column="age",
         dx_column="diagnosis",
         control_label=0,
-        case_label=1,
+        case_label=2,
+        image_column=IMAGE_COLUMN,
+        group_column=GROUP_COLUMN,
     )
