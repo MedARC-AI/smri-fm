@@ -19,6 +19,7 @@ class ColumnTask:
     data: HFDataset
     splitter: BaseCrossValidator | list[tuple[np.ndarray, np.ndarray]]
     image_column: str = "image"
+    mask_column: str = "mask"
     target_column: str = "target"
     group_column: str | None = None
 
@@ -29,13 +30,18 @@ class ColumnTask:
             self.data = self.data.select(valid)
 
     def dataset(self) -> HFDataset:
-        column_mapping = {self.image_column: "image", self.target_column: "target"}
+        column_mapping = {
+            self.image_column: "image",
+            self.mask_column: "mask",
+            self.target_column: "target",
+        }
         dataset = self.data.select_columns(list(column_mapping)).rename_columns(column_mapping)
         return dataset
 
     def split(self) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         if isinstance(self.splitter, list):
             yield from self.splitter
+            return
 
         indices = np.arange(len(self.data))
         targets = np.asarray(self.data[self.target_column])
