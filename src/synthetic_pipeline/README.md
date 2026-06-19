@@ -3,9 +3,10 @@
 This package orchestrates synthetic MR brain data generation, SynthSeg QC, and a
 placeholder Hugging Face publishing step.
 
-The generator is not vendored into this repository. Provide a checkout of
-`https://github.com/lukasugar/NV-Generate-CTMR` on the `test_generation` branch
-through `generator_repo`.
+Generators are not vendored into this repository. The default backend expects a
+checkout of `https://github.com/lukasugar/NV-Generate-CTMR` on the
+`test_generation` branch through `generator_repo`. The optional `wavedit`
+backend expects a checkout of `https://github.com/sisinflab/WaveDiT`.
 
 ## Setup
 
@@ -28,16 +29,26 @@ The pipeline runs generator commands with `uv run --frozen python` from inside
 that checkout by default. If your generator environment is different, set
 `generator_python` in the YAML config, for example `generator_python: "python"`.
 
+For WaveDiT, prepare a separate checkout and environment:
+
+```bash
+git clone https://github.com/sisinflab/WaveDiT.git
+cd WaveDiT
+pip install -r requirements.txt
+```
+
 ## Config
 
 Start from [`configs/synthetic_pipeline.example.yaml`](../../configs/synthetic_pipeline.example.yaml),
 or create a YAML file:
 
 ```yaml
+generator_backend: nv_generate_ctmr
 generator_repo: /path/to/NV-Generate-CTMR
 output_dir: /path/to/synthetic_run
 num_images: 10
 random_seed: 1234
+output_size: null
 
 targets:
   conditions: [whole_brain]
@@ -55,6 +66,46 @@ qc:
 push_to_hf:
   enabled: true
 ```
+
+Supported generator backends are `nv_generate_ctmr` and `wavedit`.
+
+`output_size` is optional. If it is `null`, each backend uses its default size.
+For NV, a configured `output_size` overrides the runtime `dim` and the pipeline
+recomputes voxel spacing from the selected target FOV. For WaveDiT,
+`output_size` is passed to `scripts/generate.py --save-size`; if omitted, the
+pipeline uses WaveDiT's standard `[182, 218, 182]` crop.
+
+WaveDiT is age-conditioned T1 whole-brain generation. Use compatible targets:
+
+```yaml
+generator_backend: wavedit
+generator_repo: /path/to/WaveDiT
+generator_python: "python"
+num_images: 20
+output_size: null
+
+targets:
+  conditions: [whole_brain]
+  modalities: [mri_t1]
+  planes: [axial]
+
+wavedit:
+  ages: [6, 18, 30, 45, 60, 75, 90]
+  checkpoint_path: null
+  checkpoint_repo: danesed/WaveDiT
+  checkpoint_filename: WaveDiT-Base.pth
+  checkpoint_revision: main
+  num_flow_steps: 10
+  sampler: heun
+  cfg_scale: 1.0
+  cfg_rescale: 0.7
+  morpheus_scale: null
+  device: cuda
+```
+
+For NV, `num_images` is per selected target. For WaveDiT, `num_images` is the
+total number of images across all configured ages; the pipeline distributes
+images across ages as evenly as possible.
 
 Supported QC modes are `direct_synthseg` and `preprocess_then_synthseg`.
 Supported QC metrics are `min` and `mean`. If `qc.threshold` is `null`, all
