@@ -1,0 +1,25 @@
+# Replace these paths before running the pipeline.
+generator_repo: /admin/home/luka.secerovic/code/NV-Generate-CTMR
+output_dir: /data/luka.secerovic/synthetic_mri_pipeline_with_QC_07
+
+# num_images is per selected target. The single target below produces 20 images.
+num_images: 20
+random_seed: 1234
+num_gpus: 1
+
+targets:
+  conditions: [whole_brain]
+  modalities: [mri_t1]
+  planes: [axial]
+
+qc:
+  mode: direct_synthseg
+  # SynthSeg QC runs for every image. null records scores without filtering.
+  threshold: 0.7
+  metric: min
+  synthseg_cmd: "uvx --python 3.11 --from 'git+https://github.com/MedARC-AI/SynthSeg.git' SynthSeg"
+  threads: 8
+  cpu: false
+
+push_to_hf:
+  enabled: false

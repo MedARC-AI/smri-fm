@@ -22,7 +22,8 @@ CONFIG="${1:?Usage: sbatch scripts/synthetic_pipeline.sbatch path/to/config.yaml
 shift
 
 mkdir -p slurms
-export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${SLURM_TMPDIR:-/tmp/$USER}/uv-cache}"
+mkdir -p "$UV_CACHE_DIR"
 
 echo "Config:     $CONFIG"
 echo "GPUs:       ${SLURM_GPUS_PER_TASK:-1}"

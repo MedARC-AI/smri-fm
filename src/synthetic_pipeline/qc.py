@@ -184,9 +184,20 @@ def read_qc_scores(path: Path) -> list[float]:
             raise ValueError(f"QC file is empty: {path}")
         delimiter = "\t" if "\t" in lines[0] else ","
         reader = csv.DictReader(f, delimiter=delimiter)
-        if reader.fieldnames is None or "qc_score" not in reader.fieldnames:
-            raise ValueError(f"QC file is missing required 'qc_score' column: {path}")
-        scores = [float(row["qc_score"]) for row in reader if row.get("qc_score") not in {None, ""}]
+        if reader.fieldnames is None:
+            raise ValueError(f"QC file is missing a header row: {path}")
+
+        # SynthSeg's --qc CSV writes one image identifier column plus per-structure QC
+        # scores, not one aggregate score column. Use every numeric cell as a QC score.
+        scores = []
+        for row in reader:
+            for value in row.values():
+                if value in {None, ""}:
+                    continue
+                try:
+                    scores.append(float(value))
+                except ValueError:
+                    continue
     if not scores:
-        raise ValueError(f"QC file has no qc_score values: {path}")
+        raise ValueError(f"QC file has no readable QC score values: {path}")
     return scores

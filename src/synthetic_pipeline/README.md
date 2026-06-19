@@ -60,6 +60,43 @@ Supported QC modes are `direct_synthseg` and `preprocess_then_synthseg`.
 Supported QC metrics are `min` and `mean`. If `qc.threshold` is `null`, all
 images with readable SynthSeg QC scores are accepted.
 
+### QC Thresholds
+
+SynthSeg QC scores are numeric values where higher is better. The pipeline
+accepts an image when the selected metric is greater than or equal to
+`qc.threshold`.
+
+SynthSeg writes per-structure QC scores, not a single aggregate score. The
+pipeline reduces those per-structure scores in one of two ways:
+
+| `qc.metric` | Meaning | Behavior |
+| --- | --- | --- |
+| `min` | Lowest per-structure QC score for the image | Strict: rejects an image if any tracked structure has a low score |
+| `mean` | Average per-structure QC score for the image | Looser: accepts images whose overall QC is good even if one structure is weaker |
+
+Recommended workflow:
+
+1. Run once with `threshold: null` to record QC scores without filtering.
+2. Inspect `manifest.csv` columns `qc_min` and `qc_mean`.
+3. Pick a threshold based on the acceptance rate you want.
+
+Practical starting points:
+
+| Goal | Suggested config |
+| --- | --- |
+| Keep most images, remove clear failures | `metric: min`, `threshold: 0.60` |
+| Balanced filtering | `metric: min`, `threshold: 0.65` |
+| Strict per-structure filtering | `metric: min`, `threshold: 0.70` |
+| Balanced overall-quality filtering | `metric: mean`, `threshold: 0.80` |
+| Strict overall-quality filtering | `metric: mean`, `threshold: 0.83` |
+
+For the current 20-image axial T1 test run, the observed `qc_min` range was
+about `0.63-0.75`, and the observed `qc_mean` range was about `0.79-0.85`.
+That means `metric: min` with `threshold: 0.65` would be a reasonable first
+filter, while `metric: min` with `threshold: 0.70` would be noticeably stricter.
+For `metric: mean`, `threshold: 0.80` is a reasonable first filter and
+`threshold: 0.83` is stricter.
+
 ## Run
 
 Validate the config:
@@ -67,6 +104,7 @@ Validate the config:
 ```bash
 uv run python -m synthetic_pipeline.cli --config path/to/config.yaml --validate-only
 ```
+uv run python -m synthetic_pipeline.cli --config src/synthetic_pipeline/configs/synthetic_pipeline.yaml --validate-only
 
 Run the full pipeline:
 
@@ -108,6 +146,7 @@ Submit with:
 ```bash
 sbatch scripts/synthetic_pipeline.sbatch path/to/config.yaml [extra CLI flags]
 ```
+sbatch scripts/synthetic_pipeline.sbatch src/synthetic_pipeline/configs/synthetic_pipeline.yaml
 
 The script does not submit nested Slurm jobs; it runs this Python orchestrator
 inside a single GPU job.
