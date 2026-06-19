@@ -38,44 +38,21 @@ class SmriMaeBackbone(nn.Module):
 
 
 class SmriMaeTransform:
-    def __init__(
-        self,
-        img_size: tuple[int, int, int],
-        spacing: tuple[float, float, float] = (1.0, 1.0, 1.0),
-    ):
+    def __init__(self, img_size: tuple[int, int, int]):
         self.img_size = img_size
-        self.spacing = spacing
 
-    def __call__(self, img: nib.Nifti1Image) -> dict[str, Tensor]:
-        """
-        TODO(mihir): check
-        """
-        # reorient to RAS
-        img = nib.as_closest_canonical(img)
+    def __call__(self, img: nib.Nifti1Image, mask: nib.Nifti1Image) -> dict[str, Tensor]:
+        # the dataset ships preprocessed volumes (RAS, isotropic) and a brain mask,
+        # so the transform only normalizes, pads, and casts to fp16.
+        data = torch.from_numpy(img.get_fdata(dtype=np.float32))
+        mask = torch.from_numpy(mask.get_fdata(dtype=np.float32))
 
-        # note, shape is (X, Y, Z) in contiguous F-order
-        data = img.get_fdata(dtype=np.float32)
-        data = torch.from_numpy(data)
-        spacing = img.header.get_zooms()
-
-        # resize
-        if max(abs(s - s_) for s, s_ in zip(spacing, self.spacing)) > 0.05:
-            data = rescale(data, spacing, target_spacing=self.spacing)
-
-        # tranpose (X, Y, Z) F-order -> (Z, Y, X) C-order
-        # TODO: this shape issue is a footgun. need to be consistent and obvious about
-        # whether we are doing (X, Y, Z) or (Z, Y, X) for image as well as img_size,
-        # spacing.
-        data = data.permute(2, 1, 0).contiguous()
+        # pad/crop to model input size
         data = pad_to_shape(data, self.img_size)
-
-        # cheap mask
-        # if we want a better mask, we have to compute it here.
-        # model contract is nifti image -> embedding
-        mask = data > data.mean()
+        mask = pad_to_shape(mask, self.img_size) > 0.5
 
         # z-score over brain-mask voxels (matches pretraining); background -> 0.
-        # Raw intensities reach ~1e6, so this must happen before the fp16 cast.
+        # Raw intensities reach ~1e6, so this must happen before the low-precision cast.
         brain = data[mask]
         # population std (÷N, correction=0) to match the pretraining normalization.
         mean, std = brain.mean(), brain.std(correction=0).clamp_min(1e-6)
@@ -87,19 +64,6 @@ class SmriMaeTransform:
 
         sample = {"image": data, "mask": mask}
         return sample
-
-
-# can copy these utils to shared module if they prove generally useful
-
-
-def rescale(
-    x: torch.Tensor,
-    spacing: tuple[float, ...],
-    target_spacing: tuple[float, ...] = (1.0, 1.0, 1.0),
-):
-    scales = tuple([current / target for current, target in zip(spacing, target_spacing)])
-    x = F.interpolate(x[None, None], scale_factor=scales, mode="trilinear").squeeze(0, 1)
-    return x
 
 
 def pad_to_shape(x: torch.Tensor, target_shape: tuple[int, ...]):
