@@ -25,12 +25,18 @@ class BrainAgeGapTask:
     control_label: str
     case_label: str
     image_column: str = "image"
+    mask_column: str = "mask"
+    group_column: str | None = None
     test_control_frac: float = 0.2
     seed: int = 0
     kind: Kind = "regression"
 
     def dataset(self) -> HFDataset:
-        column_mapping = {self.image_column: "image", self.age_column: "target"}
+        column_mapping = {
+            self.image_column: "image",
+            self.mask_column: "mask",
+            self.age_column: "target",
+        }
         dataset = self.data.select_columns(list(column_mapping)).rename_columns(column_mapping)
         return dataset
 
@@ -41,9 +47,18 @@ class BrainAgeGapTask:
 
         # hold out some controls so the test set is leakage-free
         rng = np.random.default_rng(self.seed)
-        controls = rng.permutation(controls)
-        n_test = round(self.test_control_frac * len(controls))
-        test_controls, train_controls = controls[:n_test], controls[n_test:]
+        if self.group_column is not None:
+            # split by subject so a subject's sessions never straddle train/test
+            groups = np.asarray(self.data[self.group_column])
+            subjects = rng.permutation(np.unique(groups[controls]))
+            n_test = round(self.test_control_frac * len(subjects))
+            test_subjects = set(subjects[:n_test])
+            in_test = np.isin(groups[controls], list(test_subjects))
+            test_controls, train_controls = controls[in_test], controls[~in_test]
+        else:
+            controls = rng.permutation(controls)
+            n_test = round(self.test_control_frac * len(controls))
+            test_controls, train_controls = controls[:n_test], controls[n_test:]
 
         yield train_controls, np.concatenate([test_controls, cases])
 
