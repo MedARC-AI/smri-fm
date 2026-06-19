@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from evaluation.models.registry import register_model
+from evaluation.utils import load_mni_brain_mask, resample_binary_mask
 
 import smri_mae.model_mae as models_mae
 
@@ -38,18 +39,41 @@ class SmriMaeBackbone(nn.Module):
 
 
 class SmriMaeTransform:
-    def __init__(self, img_size: tuple[int, int, int]):
+    def __init__(
+        self,
+        img_size: tuple[int, int, int],
+        spacing: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    ):
         self.img_size = img_size
+        self.spacing = spacing
 
-    def __call__(self, img: nib.Nifti1Image, mask: nib.Nifti1Image) -> dict[str, Tensor]:
-        # the dataset ships preprocessed volumes (RAS, isotropic) and a brain mask,
-        # so the transform only normalizes, pads, and casts to fp16.
-        data = torch.from_numpy(img.get_fdata(dtype=np.float32))
-        mask = torch.from_numpy(mask.get_fdata(dtype=np.float32))
+    def __call__(self, img: nib.Nifti1Image) -> dict[str, Tensor]:
+        # reorient to RAS
+        img = nib.as_closest_canonical(img)
 
-        # pad/crop to model input size
-        data = pad_to_shape(data, self.img_size)
-        mask = pad_to_shape(mask, self.img_size) > 0.5
+        # note, shape is (X, Y, Z) in contiguous F-order
+        data_np = img.get_fdata(dtype=np.float32)
+        spacing = tuple(float(z) for z in img.header.get_zooms()[:3])
+
+        # brain mask = the MNI brain template resampled onto this subject's grid
+        # (nearest-neighbor, alignment via affines). The scans are MNI-registered, so the
+        # template prior alone agrees well with SynthSeg (dice ~0.85 on ADNI).
+        mask_np = resample_binary_mask(load_mni_brain_mask(), img)
+
+        data = torch.from_numpy(data_np)
+        mask = torch.from_numpy(mask_np)
+
+        # resize to target spacing (image: trilinear, mask: nearest to stay binary)
+        if max(abs(s - s_) for s, s_ in zip(spacing, self.spacing)) > 0.05:
+            data = rescale(data, spacing, target_spacing=self.spacing)
+            mask = rescale_mask(mask, spacing, target_spacing=self.spacing)
+
+        # tranpose (X, Y, Z) F-order -> (Z, Y, X) C-order
+        # TODO: this shape issue is a footgun. need to be consistent and obvious about
+        # whether we are doing (X, Y, Z) or (Z, Y, X) for image as well as img_size,
+        # spacing.
+        data = data.permute(2, 1, 0).contiguous()
+        mask = mask.permute(2, 1, 0).contiguous()
 
         # z-score over brain-mask voxels (matches pretraining); background -> 0.
         # Raw intensities reach ~1e6, so this must happen before the low-precision cast.
@@ -58,12 +82,40 @@ class SmriMaeTransform:
         mean, std = brain.mean(), brain.std(correction=0).clamp_min(1e-6)
         data = torch.where(mask, (data - mean) / std, 0.0)
 
-        # fp16 and add channel dim
+        # pad/crop both image and mask to the model input size
+        data = pad_to_shape(data, self.img_size)
+        mask = pad_to_shape(mask.to(torch.int8), self.img_size)
+
+        # fp16 image, int8 mask (1=brain, 0=background); add channel dim
         data = data.half().unsqueeze(0)
         mask = mask.unsqueeze(0)
 
         sample = {"image": data, "mask": mask}
         return sample
+
+
+# can copy these utils to shared module if they prove generally useful
+
+
+def rescale(
+    x: torch.Tensor,
+    spacing: tuple[float, ...],
+    target_spacing: tuple[float, ...] = (1.0, 1.0, 1.0),
+):
+    scales = tuple([current / target for current, target in zip(spacing, target_spacing)])
+    x = F.interpolate(x[None, None], scale_factor=scales, mode="trilinear").squeeze(0, 1)
+    return x
+
+
+def rescale_mask(
+    mask: torch.Tensor,
+    spacing: tuple[float, ...],
+    target_spacing: tuple[float, ...] = (1.0, 1.0, 1.0),
+):
+    # nearest-neighbor so the mask stays binary; matches `rescale`'s grid exactly.
+    scales = tuple([current / target for current, target in zip(spacing, target_spacing)])
+    out = F.interpolate(mask[None, None].float(), scale_factor=scales, mode="nearest")
+    return out.squeeze(0, 1) > 0.5
 
 
 def pad_to_shape(x: torch.Tensor, target_shape: tuple[int, ...]):

@@ -59,7 +59,7 @@ class TransformDataset(Dataset):
         # list, which the default collate transposes into a list of per-element
         # tensors, scrambling the targets relative to the features.
         target = torch.as_tensor(sample["target"])
-        out = self.transform(sample["image"], sample["mask"])
+        out = self.transform(sample["image"])
         out["target"] = target
         return out
 
