@@ -54,11 +54,14 @@ class TransformDataset(Dataset):
 
     def __getitem__(self, index: int):
         sample = self.dataset[index]
-        img = sample["image"]
-        target = sample["target"]
-        sample = self.transform(img)
-        sample["target"] = target
-        return sample
+        # Tensorize the target so default collation stacks it into a (B, ...) batch.
+        # Without this, a vector target (e.g. the 101 SynthSeg volumes) is a Python
+        # list, which the default collate transposes into a list of per-element
+        # tensors, scrambling the targets relative to the features.
+        target = torch.as_tensor(sample["target"])
+        out = self.transform(sample["image"], sample["mask"])
+        out["target"] = target
+        return out
 
 
 def to_device(batch: dict, device: torch.device) -> dict:
@@ -87,7 +90,8 @@ def extract_features(
     for batch in loader:
         targets.extend(batch.pop("target"))
         batch = to_device(batch, device)
-        embeddings = model(batch)
+        with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
+            embeddings = model(batch)
         features.append(embeddings.cpu().float())
 
     X = torch.cat(features).numpy()
