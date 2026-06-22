@@ -3,6 +3,7 @@ output_root: output/eval_linear
 name: null
 
 model_kwargs: {}
+task_kwargs: {}
 
 batch_size: 4
 num_workers: 8

@@ -200,7 +200,7 @@ def main(
 
     device = torch.device(cfg.device)
 
-    task = create_task(cfg.task)
+    task = create_task(cfg.task, **(cfg.task_kwargs or {}))
     model, transform = create_model(cfg.model, **(cfg.model_kwargs or {}))
     model.to(device)
 

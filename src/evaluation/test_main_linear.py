@@ -114,6 +114,25 @@ def _linear_test_task(n_splits: int = 3, seed: int = 0):
     )
 
 
+def test_main_passes_task_kwargs(tmp_path):
+    metrics = main(
+        "_linear_test_model",
+        "_linear_test_task",
+        overrides=[
+            f"output_root={tmp_path}",
+            "name=task_kwargs",
+            "device=cpu",
+            "num_workers=0",
+            "task_kwargs.n_splits=4",
+            "task_kwargs.seed=17",
+        ],
+    )
+    assert len(metrics["folds"]) == 4
+    config = (tmp_path / "task_kwargs" / "config.yaml").read_text()
+    assert "n_splits: 4" in config
+    assert "seed: 17" in config
+
+
 def test_main_writes_run_artifacts(tmp_path):
     metrics = main(
         "_linear_test_model",
