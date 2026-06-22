@@ -5,7 +5,6 @@ from pathlib import Path
 
 import fsspec
 from datasets import Dataset, Features, Nifti, Value
-from sklearn.model_selection import KFold
 
 from evaluation.tasks.column import ColumnTask
 from evaluation.tasks.registry import register_task
@@ -56,6 +55,8 @@ def fomo_task3_age(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="fomo_task3_age",
         kind="regression",
         data=load_fomo_task3(),
-        splitter=KFold(n_splits=n_splits, shuffle=True, random_state=seed),
+        n_splits=n_splits,
+        seed=seed,
         target_column="age",
+        group_column="participant_id",
     )

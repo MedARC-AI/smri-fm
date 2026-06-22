@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from datasets import Dataset as HFDataset
-from sklearn.model_selection import BaseCrossValidator
+from sklearn.model_selection import BaseCrossValidator, GroupKFold, StratifiedGroupKFold
 
 from evaluation.tasks.base import Kind
 from evaluation.tasks.metrics import classification_metrics, regression_metrics
@@ -17,36 +17,39 @@ class ColumnTask:
     name: str
     kind: Kind
     data: HFDataset
-    splitter: BaseCrossValidator | list[tuple[np.ndarray, np.ndarray]]
+    group_column: str
     image_column: str = "image"
-    mask_column: str = "mask"
     target_column: str = "target"
-    group_column: str | None = None
+    n_splits: int = 5
+    seed: int = 0
 
     def __post_init__(self):
         targets = np.asarray(self.data[self.target_column])
-        valid = np.where(pd.notna(targets))[0]
-        if len(valid) < len(self.data):
-            self.data = self.data.select(valid)
+        present = pd.notna(targets)
+        valid = present if present.ndim == 1 else present.all(axis=tuple(range(1, present.ndim)))
+        if not valid.all():
+            self.data = self.data.select(np.flatnonzero(valid))
 
     def dataset(self) -> HFDataset:
         column_mapping = {
             self.image_column: "image",
-            self.mask_column: "mask",
             self.target_column: "target",
         }
         dataset = self.data.select_columns(list(column_mapping)).rename_columns(column_mapping)
         return dataset
 
     def split(self) -> Iterator[tuple[np.ndarray, np.ndarray]]:
-        if isinstance(self.splitter, list):
-            yield from self.splitter
-            return
-
+        splitter = self._default_splitter()
         indices = np.arange(len(self.data))
         targets = np.asarray(self.data[self.target_column])
-        groups = np.asarray(self.data[self.group_column]) if self.group_column else None
-        yield from self.splitter.split(indices, y=targets, groups=groups)
+        groups = np.asarray(self.data[self.group_column])
+        yield from splitter.split(indices, y=targets, groups=groups)
+
+    def _default_splitter(self) -> BaseCrossValidator:
+        kwargs = {"n_splits": self.n_splits, "shuffle": True, "random_state": self.seed}
+        if self.kind == "regression":
+            return GroupKFold(**kwargs)
+        return StratifiedGroupKFold(**kwargs)
 
     def metrics(self, y_true: np.ndarray, y_pred: np.ndarray, test_idx: np.ndarray) -> dict:
         if self.kind == "regression":

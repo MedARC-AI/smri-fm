@@ -3,7 +3,6 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from datasets import Dataset
-from sklearn.model_selection import KFold, StratifiedKFold
 
 from evaluation.main_linear import aggregate_folds, main, run_linear
 from evaluation.models.registry import register_model
@@ -44,9 +43,20 @@ def test_run_linear_regression_recovers_linear_target():
     rng = np.random.default_rng(0)
     X = rng.normal(size=(30, 5))
     y = X @ rng.normal(size=5)  # exactly linear => ridge recovers it
-    data = Dataset.from_dict({"image": X.tolist(), "target": y.tolist()})
+    data = Dataset.from_dict(
+        {
+            "image": X.tolist(),
+            "target": y.tolist(),
+            "participant_id": [f"p{i}" for i in range(len(y))],
+        }
+    )
     task = ColumnTask(
-        name="reg", kind="regression", data=data, splitter=KFold(3, shuffle=True, random_state=0)
+        name="reg",
+        kind="regression",
+        data=data,
+        group_column="participant_id",
+        n_splits=3,
+        seed=0,
     )
 
     metrics = _run(task)
@@ -60,12 +70,16 @@ def test_run_linear_classification_handles_string_labels():
     X = rng.normal(size=(40, 5))
     y = np.where(X[:, 0] > 0, "pos", "neg")
     X[:, 0] += np.where(y == "pos", 3.0, -3.0)  # make classes clearly separable
-    data = Dataset.from_dict({"image": X.tolist(), "target": list(y)})
+    data = Dataset.from_dict(
+        {"image": X.tolist(), "target": list(y), "participant_id": [f"p{i}" for i in range(len(y))]}
+    )
     task = ColumnTask(
         name="cls",
         kind="classification",
         data=data,
-        splitter=StratifiedKFold(3, shuffle=True, random_state=0),
+        group_column="participant_id",
+        n_splits=3,
+        seed=0,
     )
 
     metrics = _run(task)
@@ -79,16 +93,24 @@ def _linear_test_model():
 
 
 @register_task
-def _linear_test_task(n_splits: int = 3):
+def _linear_test_task(n_splits: int = 3, seed: int = 0):
     rng = np.random.default_rng(0)
     X = rng.normal(size=(30, 5))
     y = X @ rng.normal(size=5)
-    data = Dataset.from_dict({"image": X.tolist(), "target": y.tolist()})
+    data = Dataset.from_dict(
+        {
+            "image": X.tolist(),
+            "target": y.tolist(),
+            "participant_id": [f"p{i}" for i in range(len(y))],
+        }
+    )
     return ColumnTask(
         name="_linear_test_task",
         kind="regression",
         data=data,
-        splitter=KFold(n_splits, shuffle=True, random_state=0),
+        group_column="participant_id",
+        n_splits=n_splits,
+        seed=seed,
     )
 
 

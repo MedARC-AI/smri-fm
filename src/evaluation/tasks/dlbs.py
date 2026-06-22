@@ -4,7 +4,6 @@ import io
 import fsspec
 import pandas as pd
 from datasets import Dataset, Features, Nifti, Value
-from sklearn.model_selection import KFold, StratifiedKFold
 
 from evaluation.tasks.column import ColumnTask
 from evaluation.tasks.registry import register_task
@@ -71,8 +70,10 @@ def dlbs_age(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="dlbs_age",
         kind="regression",
         data=load_dlbs_t1w(),
-        splitter=KFold(n_splits=n_splits, shuffle=True, random_state=seed),
+        n_splits=n_splits,
+        seed=seed,
         target_column="AgeMRI_W1",
+        group_column="participant_id",
     )
 
 
@@ -82,6 +83,8 @@ def dlbs_sex(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="dlbs_sex",
         kind="classification",
         data=load_dlbs_t1w(),
-        splitter=StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed),
+        n_splits=n_splits,
+        seed=seed,
         target_column="Sex",
+        group_column="participant_id",
     )

@@ -25,7 +25,6 @@ class BrainAgeGapTask:
     control_label: str
     case_label: str
     image_column: str = "image"
-    mask_column: str = "mask"
     group_column: str | None = None
     test_control_frac: float = 0.2
     seed: int = 0
@@ -34,7 +33,6 @@ class BrainAgeGapTask:
     def dataset(self) -> HFDataset:
         column_mapping = {
             self.image_column: "image",
-            self.mask_column: "mask",
             self.age_column: "target",
         }
         dataset = self.data.select_columns(list(column_mapping)).rename_columns(column_mapping)
