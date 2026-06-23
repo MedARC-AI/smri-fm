@@ -1,11 +1,18 @@
 import importlib.resources
 import io
-
 import fsspec
 import pandas as pd
 from datasets import Dataset, Features, Nifti, Value
 
 from evaluation.tasks.column import ColumnTask
+from evaluation.tasks.metrics import (
+    age_bias_correct_predictions,
+    auroc,
+    balanced_accuracy,
+    mae,
+    pearson_r,
+    r2,
+)
 from evaluation.tasks.registry import register_task
 
 ROOT = "openneuro.org/ds004856"
@@ -70,10 +77,12 @@ def dlbs_age(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="dlbs_age",
         kind="regression",
         data=load_dlbs_t1w(),
+        metrics=(pearson_r, r2, mae),
         n_splits=n_splits,
         seed=seed,
         target_column="AgeMRI_W1",
         group_column="participant_id",
+        prediction_postprocessor=age_bias_correct_predictions,
     )
 
 
@@ -83,8 +92,10 @@ def dlbs_sex(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="dlbs_sex",
         kind="classification",
         data=load_dlbs_t1w(),
+        metrics=(balanced_accuracy, auroc),
         n_splits=n_splits,
         seed=seed,
         target_column="Sex",
         group_column="participant_id",
+        positive_label="M",
     )

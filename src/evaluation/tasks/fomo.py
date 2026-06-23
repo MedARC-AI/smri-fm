@@ -7,6 +7,7 @@ import fsspec
 from datasets import Dataset, Features, Nifti, Value
 
 from evaluation.tasks.column import ColumnTask
+from evaluation.tasks.metrics import age_bias_correct_predictions, mae, pearson_r, r2
 from evaluation.tasks.registry import register_task
 
 # FOMO26 Task 3: brain age prediction from a single T1w volume per subject.
@@ -55,8 +56,10 @@ def fomo_task3_age(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="fomo_task3_age",
         kind="regression",
         data=load_fomo_task3(),
+        metrics=(pearson_r, r2, mae),
         n_splits=n_splits,
         seed=seed,
         target_column="age",
         group_column="participant_id",
+        prediction_postprocessor=age_bias_correct_predictions,
     )

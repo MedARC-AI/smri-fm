@@ -3,9 +3,9 @@ from dataclasses import dataclass
 
 import numpy as np
 from datasets import Dataset as HFDataset
-from scipy import stats
 
 from evaluation.tasks.base import Kind
+from evaluation.tasks.metrics import independent_t_statistic, mae, pearson_r, r2
 
 
 @dataclass
@@ -29,6 +29,23 @@ class BrainAgeGapTask:
     test_control_frac: float = 0.2
     seed: int = 0
     kind: Kind = "regression"
+    model_selection_eligible: bool = True
+
+    def postprocess_predictions(
+        self,
+        y_train: np.ndarray,
+        train_pred: np.ndarray,
+        y_test: np.ndarray,
+        test_pred: np.ndarray,
+    ) -> np.ndarray:
+        slope, intercept = np.polyfit(
+            np.asarray(y_train).reshape(-1),
+            np.asarray(train_pred).reshape(-1),
+            deg=1,
+        )
+        if np.isclose(slope, 0):
+            return test_pred
+        return (np.asarray(test_pred) - intercept) / slope
 
     def dataset(self) -> HFDataset:
         column_mapping = {
@@ -60,10 +77,21 @@ class BrainAgeGapTask:
 
         yield train_controls, np.concatenate([test_controls, cases])
 
-    def metrics(self, y_true: np.ndarray, y_pred: np.ndarray, test_idx: np.ndarray) -> dict:
-        gap = (y_pred - y_true).reshape(-1)
-        dx = np.asarray(self.data[self.dx_column])[test_idx]
-        case_gap = gap[dx == self.case_label]
-        control_gap = gap[dx == self.control_label]
-        test = stats.ttest_ind(case_gap, control_gap)
-        return {"bag_tstat": float(test.statistic)}
+    def compute_metrics(
+        self,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        test_idx: np.ndarray,
+        y_score: np.ndarray | None = None,
+    ) -> dict:
+        gap = (np.asarray(y_pred) - np.asarray(y_true)).reshape(-1)
+        diagnoses = np.asarray(self.data[self.dx_column])[test_idx]
+        return {
+            "pearson_r": pearson_r(y_true, y_pred),
+            "r2": r2(y_true, y_pred),
+            "mae_years_bias_corrected": mae(y_true, y_pred),
+            "bag_tstat": independent_t_statistic(
+                gap[diagnoses == self.case_label],
+                gap[diagnoses == self.control_label],
+            ),
+        }

@@ -5,11 +5,24 @@ from huggingface_hub import snapshot_download
 
 from evaluation.tasks.brain_age_gap import BrainAgeGapTask
 from evaluation.tasks.column import ColumnTask
+from evaluation.tasks.metrics import (
+    age_bias_correct_predictions,
+    auprc,
+    auroc,
+    balanced_accuracy,
+    cohen_kappa,
+    mae,
+    multiclass_auroc,
+    pearson_r,
+    r2,
+    spearman_r,
+)
 from evaluation.tasks.registry import register_task
 
 REPO_ID = "medarc/adni_eval"
 GROUP_COLUMN = "participant_id"
 IMAGE_COLUMN = "nifti"
+COVARIATES = ("age", "sex")
 
 
 @lru_cache(maxsize=1)
@@ -29,6 +42,7 @@ def _filter_diagnoses(data: Dataset, labels: set[str]) -> Dataset:
     keep = {names.index(label) for label in labels}
     return data.filter(lambda dx: dx in keep, input_columns="diagnosis")
 
+# --- v1 biomarker tasks (single-scan input; sparse labels auto-filtered) -----
 
 @register_task
 def adni_age(n_splits: int = 5, seed: int = 0) -> ColumnTask:
@@ -36,25 +50,30 @@ def adni_age(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="adni_age",
         kind="regression",
         data=load_adni_eval(),
+        metrics=(pearson_r, r2, mae),
         target_column="age",
         image_column=IMAGE_COLUMN,
         group_column=GROUP_COLUMN,
         n_splits=n_splits,
         seed=seed,
+        prediction_postprocessor=age_bias_correct_predictions,
     )
 
 
 @register_task
 def adni_sex(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    data = load_adni_eval()
     return ColumnTask(
         name="adni_sex",
         kind="classification",
-        data=load_adni_eval(),
+        data=data,
+        metrics=(balanced_accuracy, auroc),
         target_column="sex",
         image_column=IMAGE_COLUMN,
         group_column=GROUP_COLUMN,
         n_splits=n_splits,
         seed=seed,
+        positive_label=data.features["sex"].names.index("Male"),
     )
 
 
@@ -66,11 +85,15 @@ def adni_ad_cn(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="adni_ad_cn",
         kind="classification",
         data=data,
+        metrics=(auroc, auprc, balanced_accuracy),
         target_column="diagnosis",
         image_column=IMAGE_COLUMN,
         group_column=GROUP_COLUMN,
         n_splits=n_splits,
         seed=seed,
+        positive_label=data.features["diagnosis"].names.index("AD"),
+        selection_metric="roc_auc",
+        covariate_columns=COVARIATES,
     )
 
 
@@ -81,15 +104,15 @@ def adni_cn_mci_ad(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="adni_cn_mci_ad",
         kind="classification",
         data=load_adni_eval(),
+        metrics=(multiclass_auroc, balanced_accuracy, cohen_kappa),
         target_column="diagnosis",
         image_column=IMAGE_COLUMN,
         group_column=GROUP_COLUMN,
         n_splits=n_splits,
         seed=seed,
+        covariate_columns=COVARIATES,
     )
 
-
-# --- v1 biomarker tasks (single-scan input; sparse labels auto-filtered) -----
 
 @register_task
 def adni_amyloid_status(n_splits: int = 5, seed: int = 0) -> ColumnTask:
@@ -98,11 +121,15 @@ def adni_amyloid_status(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="adni_amyloid_status",
         kind="classification",
         data=load_adni_eval(),
+        metrics=(auroc, auprc, balanced_accuracy),
         target_column="amyloid_status",
         image_column=IMAGE_COLUMN,
         group_column=GROUP_COLUMN,
         n_splits=n_splits,
         seed=seed,
+        positive_label=1.0,
+        selection_metric="roc_auc",
+        covariate_columns=COVARIATES,
     )
 
 
@@ -113,11 +140,13 @@ def adni_amyloid_centiloid(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="adni_amyloid_centiloid",
         kind="regression",
         data=load_adni_eval(),
+        metrics=(pearson_r, r2, mae),
         target_column="amyloid_centiloid",
         image_column=IMAGE_COLUMN,
         group_column=GROUP_COLUMN,
         n_splits=n_splits,
         seed=seed,
+        covariate_columns=COVARIATES,
     )
 
 
@@ -128,11 +157,15 @@ def adni_tau_status(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="adni_tau_status",
         kind="classification",
         data=load_adni_eval(),
+        metrics=(auroc, auprc, balanced_accuracy),
         target_column="tau_status",
         image_column=IMAGE_COLUMN,
         group_column=GROUP_COLUMN,
         n_splits=n_splits,
         seed=seed,
+        positive_label=1.0,
+        selection_metric="roc_auc",
+        covariate_columns=COVARIATES,
     )
 
 
@@ -143,11 +176,13 @@ def adni_tau_suvr(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="adni_tau_suvr",
         kind="regression",
         data=load_adni_eval(),
+        metrics=(pearson_r, r2, mae),
         target_column="tau_suvr",
         image_column=IMAGE_COLUMN,
         group_column=GROUP_COLUMN,
         n_splits=n_splits,
         seed=seed,
+        covariate_columns=COVARIATES,
     )
 
 
@@ -158,11 +193,13 @@ def adni_csf_abeta(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="adni_csf_abeta",
         kind="regression",
         data=load_adni_eval(),
+        metrics=(spearman_r, r2),
         target_column="csf_abeta",
         image_column=IMAGE_COLUMN,
         group_column=GROUP_COLUMN,
         n_splits=n_splits,
         seed=seed,
+        covariate_columns=COVARIATES,
     )
 
 
@@ -173,11 +210,13 @@ def adni_csf_ptau(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="adni_csf_ptau",
         kind="regression",
         data=load_adni_eval(),
+        metrics=(spearman_r, r2),
         target_column="csf_ptau",
         image_column=IMAGE_COLUMN,
         group_column=GROUP_COLUMN,
         n_splits=n_splits,
         seed=seed,
+        covariate_columns=COVARIATES,
     )
 
 
@@ -188,11 +227,13 @@ def adni_csf_ttau(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="adni_csf_ttau",
         kind="regression",
         data=load_adni_eval(),
+        metrics=(spearman_r, r2),
         target_column="csf_ttau",
         image_column=IMAGE_COLUMN,
         group_column=GROUP_COLUMN,
         n_splits=n_splits,
         seed=seed,
+        covariate_columns=COVARIATES,
     )
 
 
@@ -203,11 +244,15 @@ def adni_mci_conversion(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="adni_mci_conversion",
         kind="classification",
         data=load_adni_eval(),
+        metrics=(auroc, auprc, balanced_accuracy),
         target_column="conversion_3y",
         image_column=IMAGE_COLUMN,
         group_column=GROUP_COLUMN,
         n_splits=n_splits,
         seed=seed,
+        positive_label=1.0,
+        selection_metric="roc_auc",
+        covariate_columns=COVARIATES,
     )
 
 
@@ -217,6 +262,7 @@ def adni_synthseg_volumes(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         name="adni_synthseg_volumes",
         kind="regression",
         data=load_adni_eval(),
+        metrics=(r2, pearson_r),
         target_column="synthseg_volumes",
         image_column=IMAGE_COLUMN,
         group_column=GROUP_COLUMN,

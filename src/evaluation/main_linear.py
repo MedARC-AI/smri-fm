@@ -1,45 +1,28 @@
 import argparse
 import json
 import logging
-import random
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import torch
 from omegaconf import OmegaConf
-from sklearn.linear_model import LogisticRegressionCV, RidgeCV
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, Dataset
 
 from evaluation.models.base import Model, Transform
 from evaluation.models.registry import create_model, list_models
 from evaluation.tasks.base import Task
 from evaluation.tasks.registry import create_task, list_tasks
+from evaluation.utils import aggregate_folds, fit_score, set_seed, to_device
 
 DEFAULT_CONFIG = Path(__file__).parent / "config/default_linear.yaml"
 
 logger = logging.getLogger(__name__)
-
-
-# Estimators, keyed by task kind. Hyperparameters are selected by inner CV.
-def fit_ridge(X: np.ndarray, y: np.ndarray, seed: int) -> Pipeline:
-    ridge = RidgeCV(alphas=np.logspace(-3, 3, 13))
-    model = Pipeline([("scaler", StandardScaler()), ("ridge", ridge)])
-    return model.fit(X, y)
-
-
-def fit_logistic(X: np.ndarray, y: np.ndarray, seed: int) -> Pipeline:
-    clf = LogisticRegressionCV(Cs=10, scoring="balanced_accuracy", max_iter=1000, random_state=seed)
-    model = Pipeline([("scaler", StandardScaler()), ("clf", clf)])
-    return model.fit(X, y)
-
-
-ESTIMATORS = {"regression": fit_ridge, "classification": fit_logistic}
 
 
 class TransformDataset(Dataset):
@@ -54,18 +37,17 @@ class TransformDataset(Dataset):
 
     def __getitem__(self, index: int):
         sample = self.dataset[index]
-        # Tensorize the target so default collation stacks it into a (B, ...) batch.
-        # Without this, a vector target (e.g. the 101 SynthSeg volumes) is a Python
-        # list, which the default collate transposes into a list of per-element
-        # tensors, scrambling the targets relative to the features.
-        target = torch.as_tensor(sample["target"])
+        target = sample["target"]
+        # Tensorize numeric targets so default collation stacks them into a (B, ...)
+        # batch. Without this, a vector target (e.g. the 101 SynthSeg volumes) is a
+        # Python list, which default collate transposes into per-element tensors and
+        # scrambles targets relative to features. String class labels must remain
+        # strings for sklearn classifiers.
+        if not isinstance(target, str):
+            target = torch.as_tensor(target)
         out = self.transform(sample["image"])
         out["target"] = target
         return out
-
-
-def to_device(batch: dict, device: torch.device) -> dict:
-    return {key: value.to(device) for key, value in batch.items()}
 
 
 @torch.inference_mode()
@@ -108,6 +90,7 @@ def run_linear(
     batch_size: int,
     num_workers: int,
     seed: int,
+    estimator_kwargs: Mapping[str, Mapping[str, Any]] | None = None,
 ):
     logger.info("extracting features...")
     dataset = task.dataset()
@@ -116,33 +99,49 @@ def run_linear(
     tput = len(y) / (time.perf_counter() - start)
     logger.info(f"features: {tuple(X.shape)} ({tput:.2f} samples/s)")
 
-    fit = ESTIMATORS[task.kind]
+    fit_kwargs = dict((estimator_kwargs or {}).get(task.kind, {}))
+    covariates = task.covariates() if hasattr(task, "covariates") else None
+    combined_features = None if covariates is None else np.hstack([X, covariates])
 
     fold_metrics = []
     for fold, (train_idx, test_idx) in enumerate(task.split()):
-        estimator = fit(X[train_idx], y[train_idx], seed)
-        pred = estimator.predict(X[test_idx])
-        scores = task.metrics(y[test_idx], pred, test_idx)
+        estimator, pred, y_score = fit_score(task, X, y, train_idx, test_idx, seed, fit_kwargs)
+        postprocess = getattr(task, "postprocess_predictions", None)
+        if postprocess is not None:
+            pred = postprocess(
+                y[train_idx],
+                estimator.predict(X[train_idx]),
+                y[test_idx],
+                pred,
+            )
+        scores = task.compute_metrics(y[test_idx], pred, test_idx, y_score=y_score)
+
+        # Age+sex floor: fit a covariate-only model (A) and a covariate+latent model
+        # (B) on the same fold; report A, B, and the latent's contribution gap = B - A.
+        if covariates is not None:
+            _, floor_pred, floor_score = fit_score(
+                task, covariates, y, train_idx, test_idx, seed, fit_kwargs
+            )
+            floor = task.compute_metrics(y[test_idx], floor_pred, test_idx, y_score=floor_score)
+            _, comb_pred, comb_score = fit_score(
+                task, combined_features, y, train_idx, test_idx, seed, fit_kwargs
+            )
+            combined = task.compute_metrics(y[test_idx], comb_pred, test_idx, y_score=comb_score)
+            for key in floor:
+                scores[f"floor_{key}"] = floor[key]
+                scores[f"combined_{key}"] = combined[key]
+                scores[f"gap_{key}"] = combined[key] - floor[key]
+
         fold_metrics.append(scores)
         logger.info(f"fold {fold}: " + " ".join(f"{k}={v:.4f}" for k, v in scores.items()))
 
-    metrics = {"tput": tput, "summary": aggregate_folds(fold_metrics), "folds": fold_metrics}
+    metrics = {
+        "tput": tput,
+        "model_selection_eligible": bool(getattr(task, "model_selection_eligible", True)),
+        "summary": aggregate_folds(fold_metrics),
+        "folds": fold_metrics,
+    }
     return metrics
-
-
-def aggregate_folds(fold_metrics: list[dict[str, float]]) -> dict[str, float]:
-    summary = {}
-    for key in fold_metrics[0]:
-        values = np.array([fold[key] for fold in fold_metrics])
-        summary[key] = float(values.mean())
-        summary[f"{key}_std"] = float(values.std())
-    return summary
-
-
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
 
 
 def setup_logging(run_dir: Path) -> None:
@@ -216,6 +215,7 @@ def main(
         batch_size=cfg.batch_size,
         num_workers=cfg.num_workers,
         seed=cfg.seed,
+        estimator_kwargs=OmegaConf.to_container(cfg.estimator_kwargs or {}, resolve=True),
     )
 
     metrics = {"model": cfg.model, "task": cfg.task, **metrics}

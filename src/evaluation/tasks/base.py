@@ -20,7 +20,11 @@ class Task(Protocol):
         ...
 
     def metrics(
-        self, y_true: np.ndarray, y_pred: np.ndarray, test_idx: np.ndarray
+        self,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        test_idx: np.ndarray,
+        y_score: np.ndarray | None = None,
     ) -> dict[str, float]:
         """Score one fold; ``test_idx`` lets a task pull auxiliary metadata for scoring."""
         ...

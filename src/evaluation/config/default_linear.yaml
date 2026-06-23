@@ -4,6 +4,11 @@ name: null
 
 model_kwargs: {}
 task_kwargs: {}
+estimator_kwargs:
+  classification:
+    Cs: 10
+    max_iter: 1000
+  regression: {}
 
 batch_size: 4
 num_workers: 8
