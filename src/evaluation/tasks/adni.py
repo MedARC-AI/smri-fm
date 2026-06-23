@@ -25,11 +25,9 @@ logger = logging.getLogger(__name__)
 
 ADNI_EVAL_REPO_ID = "medarc/adni_eval"
 ADNI_EVAL_REVISION = "e81062568b00363ced2a552e156ddb7db471e204"
-ADNI_EVAL_SPLIT = "eval"
 ADNI_EVAL_SOURCE = {
     "dataset_repo": ADNI_EVAL_REPO_ID,
     "dataset_revision": ADNI_EVAL_REVISION,
-    "split": ADNI_EVAL_SPLIT,
 }
 GROUP_COLUMN = "participant_id"
 IMAGE_COLUMN = "nifti"
@@ -37,7 +35,7 @@ COVARIATES = ("age", "sex")
 
 
 def load_adni_eval() -> Dataset:
-    """Download and load the serialized v1 `eval` split from the Hub."""
+    """Download and load the pinned ADNI evaluation dataset from the Hub."""
     logger.info(f"dataset_source: {json.dumps(ADNI_EVAL_SOURCE, sort_keys=True)}")
     return _load_adni_eval()
 
@@ -48,10 +46,9 @@ def _load_adni_eval() -> Dataset:
         ADNI_EVAL_REPO_ID,
         repo_type="dataset",
         revision=ADNI_EVAL_REVISION,
-        allow_patterns=["dataset_dict.json", f"{ADNI_EVAL_SPLIT}/*"],
+        allow_patterns=["dataset_dict.json", "eval/*"],
     )
-    dataset = load_from_disk(path)[ADNI_EVAL_SPLIT]
-    return dataset
+    return load_from_disk(path)
 
 
 def _filter_diagnoses(data: Dataset, labels: set[str]) -> Dataset:
