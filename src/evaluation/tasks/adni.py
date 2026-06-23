@@ -1,4 +1,6 @@
 from functools import lru_cache
+import json
+import logging
 
 from datasets import Dataset, load_from_disk
 from huggingface_hub import snapshot_download
@@ -19,21 +21,36 @@ from evaluation.tasks.metrics import (
 )
 from evaluation.tasks.registry import register_task
 
-REPO_ID = "medarc/adni_eval"
+logger = logging.getLogger(__name__)
+
+ADNI_EVAL_REPO_ID = "medarc/adni_eval"
+ADNI_EVAL_REVISION = "e81062568b00363ced2a552e156ddb7db471e204"
+ADNI_EVAL_SPLIT = "eval"
+ADNI_EVAL_SOURCE = {
+    "dataset_repo": ADNI_EVAL_REPO_ID,
+    "dataset_revision": ADNI_EVAL_REVISION,
+    "split": ADNI_EVAL_SPLIT,
+}
 GROUP_COLUMN = "participant_id"
 IMAGE_COLUMN = "nifti"
 COVARIATES = ("age", "sex")
 
 
-@lru_cache(maxsize=1)
 def load_adni_eval() -> Dataset:
     """Download and load the serialized v1 `eval` split from the Hub."""
+    logger.info(f"dataset_source: {json.dumps(ADNI_EVAL_SOURCE, sort_keys=True)}")
+    return _load_adni_eval()
+
+
+@lru_cache(maxsize=1)
+def _load_adni_eval() -> Dataset:
     path = snapshot_download(
-        REPO_ID,
+        ADNI_EVAL_REPO_ID,
         repo_type="dataset",
-        allow_patterns=["dataset_dict.json", "eval/*"],
+        revision=ADNI_EVAL_REVISION,
+        allow_patterns=["dataset_dict.json", f"{ADNI_EVAL_SPLIT}/*"],
     )
-    dataset = load_from_disk(path)["eval"]
+    dataset = load_from_disk(path)[ADNI_EVAL_SPLIT]
     return dataset
 
 

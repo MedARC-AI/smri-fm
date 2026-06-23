@@ -13,6 +13,9 @@ uv run python -m evaluation.main_linear smri_mae dlbs_age --overrides model_kwar
 `model` and `task` are registered names (the CLI `--help` lists them). Run-level
 settings come from [config/default_linear.yaml](config/default_linear.yaml),
 overridden by an optional `--config` and then dot-list `--overrides`.
+Linear-probe estimator settings live under `estimator_kwargs`; classification
+uses `LogisticRegressionCV` with task-specific `selection_metric` and configurable
+`Cs` / `max_iter`.
 
 Outputs save in `<output_root>/<name>/` (default name `<model>__<task>`):
 

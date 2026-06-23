@@ -42,7 +42,16 @@ visit/scan within **±365 days**; the gap is recorded (`clinical_match_days`,
 | 8 | `adni_csf_ttau` | `csf_ttau` | regression | CSF t-tau pg/mL (Elecsys) |
 | 9 | `adni_mci_conversion` | `conversion_3y` | classification | MCI-at-scan converts to AD within 36 mo |
 
-Metrics: classification → accuracy + balanced accuracy; regression → MAE / RMSE / R².
+Metrics:
+
+- Sex canary: balanced accuracy + AUROC; fixed regularization, never used for
+  model selection.
+- AD vs CN: AUROC primary; AUPRC and balanced accuracy secondary.
+- Brain age: Pearson r and R² primary; MAE in years after train-fold-fitted
+  age-bias correction secondary.
+- SynthSeg volumes: per-region R² and Pearson correlation.
+- BAG: uses the same bias-corrected age-head metrics, plus the case-control BAG
+  t-statistic.
 
 ## Label notes
 
