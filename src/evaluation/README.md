@@ -25,6 +25,26 @@ Outputs save in `<output_root>/<name>/` (default name `<model>__<task>`):
 - `config.yaml`: the fully resolved config
 - `log.txt`: run log
 
+## Slurm
+
+Use [../../scripts/eval_adni_probe.sbatch](../../scripts/eval_adni_probe.sbatch)
+for ADNI frozen-feature linear probes on the cluster:
+
+```bash
+sbatch scripts/eval_adni_probe.sbatch <task> <repr> [run_tag]
+# e.g.
+sbatch scripts/eval_adni_probe.sbatch adni_ad_cn cls participant_metrics_20260623
+sbatch scripts/eval_adni_probe.sbatch adni_ad_cn patch participant_metrics_20260623
+```
+
+`repr` is `cls` or `patch` and maps to `model_kwargs.global_pool`. The optional
+`run_tag` is appended to the run name:
+`smri_mae__<task>__<repr>__<run_tag>`. Always pass a fresh tag when rerunning so
+existing `metrics.json`, `summary.csv`, and logs are not overwritten. The script
+uses the shared ADNI/cache paths under `/data/mihir-stuff` and defaults Hugging
+Face datasets/hub to offline mode, so it should read the cached pinned ADNI
+dataset instead of redownloading it.
+
 Task-specific metric policy:
 
 - Sex is a canary only: balanced accuracy and AUROC, with probe regularization

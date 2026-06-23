@@ -33,6 +33,7 @@ class ColumnTask:
     positive_label: object | None = None
     selection_metric: str = "balanced_accuracy"
     covariate_columns: tuple[str, ...] = ()
+    participant_level: bool = False
 
     @property
     def model_selection_eligible(self) -> bool:

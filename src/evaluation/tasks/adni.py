@@ -48,7 +48,8 @@ def _load_adni_eval() -> Dataset:
         revision=ADNI_EVAL_REVISION,
         allow_patterns=["dataset_dict.json", "eval/*"],
     )
-    return load_from_disk(path)
+    data = load_from_disk(path)["eval"]
+    return data
 
 
 def _filter_diagnoses(data: Dataset, labels: set[str]) -> Dataset:
@@ -71,6 +72,7 @@ def adni_age(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         n_splits=n_splits,
         seed=seed,
         prediction_postprocessor=age_bias_correct_predictions,
+        participant_level=True,
     )
 
 
@@ -88,6 +90,7 @@ def adni_sex(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         n_splits=n_splits,
         seed=seed,
         positive_label=data.features["sex"].names.index("Male"),
+        participant_level=True,
     )
 
 
@@ -108,6 +111,7 @@ def adni_ad_cn(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         positive_label=data.features["diagnosis"].names.index("AD"),
         selection_metric="roc_auc",
         covariate_columns=COVARIATES,
+        participant_level=True,
     )
 
 
@@ -125,6 +129,7 @@ def adni_cn_mci_ad(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         n_splits=n_splits,
         seed=seed,
         covariate_columns=COVARIATES,
+        participant_level=True,
     )
 
 
@@ -282,6 +287,7 @@ def adni_synthseg_volumes(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         group_column=GROUP_COLUMN,
         n_splits=n_splits,
         seed=seed,
+        participant_level=True,
     )
 
 

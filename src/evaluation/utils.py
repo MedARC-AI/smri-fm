@@ -1,10 +1,16 @@
 from functools import lru_cache
+import logging
 import random
+import subprocess
+import sys
+from collections import Counter
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 import nibabel as nib
 import numpy as np
+import pandas as pd
 import torch
 from datasets import Dataset as HFDataset
 from nibabel.processing import resample_from_to
@@ -118,6 +124,142 @@ def fit_score(
     return estimator, pred, y_score
 
 
+def _json_key(value: Any) -> str:
+    if isinstance(value, np.generic):
+        value = value.item()
+    return str(value)
+
+
+def _value_counts(values: np.ndarray) -> dict[str, int]:
+    return {_json_key(key): int(value) for key, value in Counter(values).items()}
+
+
+def task_group_values(task: Any) -> np.ndarray | None:
+    group_column = getattr(task, "group_column", None)
+    data = getattr(task, "data", None)
+    if not group_column or data is None:
+        return None
+    return np.asarray(data[group_column])
+
+
+def task_data_summary(task: Any, y: np.ndarray, groups: np.ndarray | None) -> dict:
+    participant_level = bool(getattr(task, "participant_level", False))
+    summary = {
+        "participant_level": participant_level,
+        "metric_level": "participant" if participant_level else "session",
+        "n_scans": int(len(y)),
+    }
+    if groups is not None:
+        summary["n_participants"] = int(len(set(groups)))
+    if task.kind == "classification":
+        counts = _value_counts(y)
+        total = sum(counts.values())
+        summary["class_counts"] = counts
+        summary["class_prevalence"] = {key: value / total for key, value in counts.items()}
+    return summary
+
+
+def fold_data_summary(
+    task: Any,
+    y: np.ndarray,
+    train_idx: np.ndarray,
+    test_idx: np.ndarray,
+    groups: np.ndarray | None,
+) -> dict:
+    summary = {
+        "train_scans": int(len(train_idx)),
+        "test_scans": int(len(test_idx)),
+    }
+    if groups is not None:
+        summary["train_participants"] = int(len(set(groups[train_idx])))
+        summary["test_participants"] = int(len(set(groups[test_idx])))
+    if task.kind == "classification":
+        summary["train_class_counts"] = _value_counts(y[train_idx])
+        summary["test_class_counts"] = _value_counts(y[test_idx])
+    return summary
+
+
+def _mode(values: list[Any]) -> Any:
+    return Counter(values).most_common(1)[0][0]
+
+
+def _participant_aggregate(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    groups: np.ndarray,
+    y_score: np.ndarray | None,
+    *,
+    kind: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, dict[str, int]]:
+    df = pd.DataFrame(
+        {
+            "group": groups,
+            "y_true": list(y_true),
+            "y_pred": list(y_pred),
+        }
+    )
+    if y_score is not None:
+        df["y_score"] = list(y_score)
+
+    agg_true = []
+    agg_pred = []
+    agg_score = []
+    dropped_conflicting = 0
+    for _, participant in df.groupby("group", sort=False):
+        true = participant["y_true"].tolist()
+        pred = participant["y_pred"].tolist()
+        if kind == "classification":
+            if len(set(true)) != 1:
+                dropped_conflicting += 1
+                continue
+            agg_true.append(true[0])
+            agg_pred.append(_mode(pred))
+        else:
+            agg_true.append(np.mean(np.asarray(true, dtype=np.float64), axis=0))
+            agg_pred.append(np.mean(np.asarray(pred, dtype=np.float64), axis=0))
+        if y_score is not None:
+            agg_score.append(np.mean(np.asarray(participant["y_score"].tolist()), axis=0))
+
+    score_array = np.asarray(agg_score) if y_score is not None else None
+    metadata = {
+        "participant_metric_count": int(len(agg_true)),
+        "participant_metric_dropped_conflicting_labels": int(dropped_conflicting),
+    }
+    return np.asarray(agg_true), np.asarray(agg_pred), score_array, metadata
+
+
+def compute_task_scores(
+    task: Any,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    test_idx: np.ndarray,
+    y_score: np.ndarray | None,
+    *,
+    level: str,
+    groups: np.ndarray | None,
+) -> tuple[dict[str, float], dict[str, int]]:
+    if level == "session":
+        return task.compute_metrics(y_true, y_pred, test_idx, y_score=y_score), {}
+    if level != "participant":
+        raise ValueError(f"unsupported metric level {level!r}")
+    if groups is None:
+        raise ValueError(f"{task.name} requested participant metrics without group_column")
+    agg_true, agg_pred, agg_score, metadata = _participant_aggregate(
+        y_true,
+        y_pred,
+        groups[test_idx],
+        y_score,
+        kind=task.kind,
+    )
+    scores = task.compute_metrics(
+        agg_true,
+        agg_pred,
+        np.arange(len(agg_true)),
+        y_score=agg_score,
+    )
+    return scores, metadata
+
+
 def classification_score(estimator: Pipeline, X: np.ndarray, positive_label) -> np.ndarray | None:
     if not hasattr(estimator, "predict_proba"):
         return None
@@ -144,6 +286,32 @@ def aggregate_folds(fold_metrics: list[dict[str, float]]) -> dict[str, float]:
         summary[key] = float(values.mean())
         summary[f"{key}_std"] = float(values.std())
     return summary
+
+
+def setup_logging(run_dir: Path) -> None:
+    handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(run_dir / "log.txt")]
+    formatter = logging.Formatter("%(message)s")
+
+    root = logging.getLogger("evaluation")
+    root.setLevel(logging.INFO)
+    root.handlers.clear()
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
+    root.propagate = False
+
+
+def git_sha() -> str:
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).parent,
+            capture_output=True,
+            text=True,
+        )
+        return out.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
 
 
 def set_seed(seed: int) -> None:

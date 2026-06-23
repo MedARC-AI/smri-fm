@@ -1,8 +1,6 @@
 import argparse
 import json
 import logging
-import subprocess
-import sys
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -18,7 +16,18 @@ from evaluation.models.base import Model, Transform
 from evaluation.models.registry import create_model, list_models
 from evaluation.tasks.base import Task
 from evaluation.tasks.registry import create_task, list_tasks
-from evaluation.utils import aggregate_folds, fit_score, set_seed, to_device
+from evaluation.utils import (
+    aggregate_folds,
+    compute_task_scores,
+    fit_score,
+    fold_data_summary,
+    git_sha,
+    set_seed,
+    setup_logging,
+    task_data_summary,
+    task_group_values,
+    to_device,
+)
 
 DEFAULT_CONFIG = Path(__file__).parent / "config/default_linear.yaml"
 
@@ -102,8 +111,11 @@ def run_linear(
     fit_kwargs = dict((estimator_kwargs or {}).get(task.kind, {}))
     covariates = task.covariates() if hasattr(task, "covariates") else None
     combined_features = None if covariates is None else np.hstack([X, covariates])
+    groups = task_group_values(task)
+    metric_level = "participant" if getattr(task, "participant_level", False) else "session"
 
     fold_metrics = []
+    fold_data = []
     for fold, (train_idx, test_idx) in enumerate(task.split()):
         estimator, pred, y_score = fit_score(task, X, y, train_idx, test_idx, seed, fit_kwargs)
         postprocess = getattr(task, "postprocess_predictions", None)
@@ -114,7 +126,18 @@ def run_linear(
                 y[test_idx],
                 pred,
             )
-        scores = task.compute_metrics(y[test_idx], pred, test_idx, y_score=y_score)
+        scores, participant_info = compute_task_scores(
+            task,
+            y[test_idx],
+            pred,
+            test_idx,
+            y_score,
+            level=metric_level,
+            groups=groups,
+        )
+
+        data_summary = fold_data_summary(task, y, train_idx, test_idx, groups)
+        data_summary.update(participant_info)
 
         # Age+sex floor: fit a covariate-only model (A) and a covariate+latent model
         # (B) on the same fold; report A, B, and the latent's contribution gap = B - A.
@@ -122,52 +145,44 @@ def run_linear(
             _, floor_pred, floor_score = fit_score(
                 task, covariates, y, train_idx, test_idx, seed, fit_kwargs
             )
-            floor = task.compute_metrics(y[test_idx], floor_pred, test_idx, y_score=floor_score)
+            floor, _ = compute_task_scores(
+                task,
+                y[test_idx],
+                floor_pred,
+                test_idx,
+                floor_score,
+                level=metric_level,
+                groups=groups,
+            )
             _, comb_pred, comb_score = fit_score(
                 task, combined_features, y, train_idx, test_idx, seed, fit_kwargs
             )
-            combined = task.compute_metrics(y[test_idx], comb_pred, test_idx, y_score=comb_score)
+            combined, _ = compute_task_scores(
+                task,
+                y[test_idx],
+                comb_pred,
+                test_idx,
+                comb_score,
+                level=metric_level,
+                groups=groups,
+            )
             for key in floor:
                 scores[f"floor_{key}"] = floor[key]
                 scores[f"combined_{key}"] = combined[key]
                 scores[f"gap_{key}"] = combined[key] - floor[key]
 
         fold_metrics.append(scores)
+        fold_data.append({"fold": fold, **data_summary})
         logger.info(f"fold {fold}: " + " ".join(f"{k}={v:.4f}" for k, v in scores.items()))
 
     metrics = {
         "tput": tput,
         "model_selection_eligible": bool(getattr(task, "model_selection_eligible", True)),
+        "data": {**task_data_summary(task, y, groups), "folds": fold_data},
         "summary": aggregate_folds(fold_metrics),
         "folds": fold_metrics,
     }
     return metrics
-
-
-def setup_logging(run_dir: Path) -> None:
-    handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(run_dir / "log.txt")]
-    formatter = logging.Formatter("%(message)s")
-
-    root = logging.getLogger("evaluation")
-    root.setLevel(logging.INFO)
-    root.handlers.clear()
-    for handler in handlers:
-        handler.setFormatter(formatter)
-        root.addHandler(handler)
-    root.propagate = False
-
-
-def git_sha() -> str:
-    try:
-        out = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=Path(__file__).parent,
-            capture_output=True,
-            text=True,
-        )
-        return out.stdout.strip() or "unknown"
-    except Exception:
-        return "unknown"
 
 
 def main(
