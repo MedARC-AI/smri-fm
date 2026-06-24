@@ -44,7 +44,11 @@ class QCConfig:
 
 @dataclass(frozen=True)
 class PushConfig:
-    enabled: bool = True
+    enabled: bool = False
+    repo_id: str | None = None
+    private: bool = True
+    remote_dir: str = "data"
+    allow_overwrite: bool = False
 
 
 @dataclass(frozen=True)
@@ -152,6 +156,21 @@ def _as_nonempty_string(value: Any, name: str) -> str:
     return value
 
 
+def _as_optional_nonempty_string(value: Any, name: str) -> str | None:
+    if value is None:
+        return None
+    return _as_nonempty_string(value, name)
+
+
+def _as_remote_dir(value: Any, name: str) -> str:
+    remote_dir = _as_nonempty_string(value, name).strip("/")
+    if not remote_dir or remote_dir == ".":
+        raise ValueError(f"{name} must be a non-empty relative Hub path.")
+    if any(part in {"", ".", ".."} for part in remote_dir.split("/")):
+        raise ValueError(f"{name} must be a relative Hub path without '.' or '..' segments.")
+    return remote_dir
+
+
 def load_config(
     path: Path,
     *,
@@ -209,6 +228,11 @@ def load_config(
     if selected_wavedit_sampler not in ALLOWED_WAVEDIT_SAMPLERS:
         raise ValueError(f"wavedit.sampler must be one of {sorted(ALLOWED_WAVEDIT_SAMPLERS)}.")
 
+    push_enabled = _as_bool(raw_push.get("enabled", False), "push_to_hf.enabled")
+    push_repo_id = _as_optional_nonempty_string(raw_push.get("repo_id"), "push_to_hf.repo_id")
+    if push_enabled and push_repo_id is None:
+        raise ValueError("push_to_hf.repo_id is required when push_to_hf.enabled is true.")
+
     cfg = PipelineConfig(
         generator_backend=generator_backend_selected,
         generator_repo=(
@@ -236,7 +260,14 @@ def load_config(
             cpu=_as_bool(raw_qc.get("cpu", False), "qc.cpu"),
         ),
         push_to_hf=PushConfig(
-            enabled=_as_bool(raw_push.get("enabled", True), "push_to_hf.enabled"),
+            enabled=push_enabled,
+            repo_id=push_repo_id,
+            private=_as_bool(raw_push.get("private", True), "push_to_hf.private"),
+            remote_dir=_as_remote_dir(raw_push.get("remote_dir", "data"), "push_to_hf.remote_dir"),
+            allow_overwrite=_as_bool(
+                raw_push.get("allow_overwrite", False),
+                "push_to_hf.allow_overwrite",
+            ),
         ),
         generator_python=tuple(shlex.split(generator_python_text)),
         wavedit=WaveDiTConfig(

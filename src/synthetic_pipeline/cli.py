@@ -79,7 +79,7 @@ def main() -> None:
         write_accepted_manifest(accepted_manifest_path, records)
 
         if cfg.push_to_hf.enabled:
-            push_to_hf(accepted_manifest_path)
+            push_to_hf(cfg.push_to_hf, accepted_manifest_path, cfg.output_dir)
 
         accepted = sum(1 for record in records if record.get("qc_pass") is True)
         log.info("Pipeline complete: %d/%d image(s) accepted.", accepted, len(records))

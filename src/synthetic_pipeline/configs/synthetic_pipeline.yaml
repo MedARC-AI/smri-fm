@@ -25,7 +25,16 @@ qc:
   cpu: false
 
 push_to_hf:
+  # enabled: upload QC-accepted outputs to Hugging Face after the pipeline finishes.
   enabled: false
+  # repo_id: target dataset repo, for example "username/synthetic-mri". Required when enabled.
+  repo_id: null
+  # private: visibility used when creating a new dataset repo. Existing repos keep current visibility.
+  private: true
+  # remote_dir: remote prefix for accepted generated images.
+  remote_dir: data
+  # allow_overwrite: if false, publishing fails when a remote file path already exists.
+  allow_overwrite: false
 
 # For generator_backend: wavedit, set generator_repo to a WaveDiT checkout.
 # wavedit:

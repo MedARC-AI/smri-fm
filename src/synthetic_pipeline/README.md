@@ -72,7 +72,11 @@ qc:
   cpu: false
 
 push_to_hf:
-  enabled: true
+  enabled: false
+  repo_id: null
+  private: true
+  remote_dir: data
+  allow_overwrite: false
 ```
 
 Supported generator backends are `nv_generate_ctmr` and `wavedit`.
@@ -155,6 +159,31 @@ That means `metric: min` with `threshold: 0.65` would be a reasonable first
 filter, while `metric: min` with `threshold: 0.70` would be noticeably stricter.
 For `metric: mean`, `threshold: 0.80` is a reasonable first filter and
 `threshold: 0.83` is stricter.
+
+### Hugging Face Publishing
+
+Publishing runs after generation and QC, and only when `push_to_hf.enabled` is
+`true`. Authentication uses the standard Hugging Face mechanisms supported by
+`huggingface_hub`, such as `HF_TOKEN` or a cached `hf auth login`.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `false` | Run or skip the final publishing step. |
+| `repo_id` | `null` | Target dataset repo, for example `username/synthetic-mri`. Required when publishing is enabled. |
+| `private` | `true` | Visibility used when creating a new dataset repo. Existing repo visibility is not changed. |
+| `remote_dir` | `data` | Remote prefix for QC-accepted generated images. |
+| `allow_overwrite` | `false` | If `false`, publishing fails before upload when any destination file already exists. If `true`, same-path files may be replaced. |
+
+The publisher creates the dataset repo if needed, then uploads:
+
+```text
+<remote_dir>/generated/<condition>/<modality>/<plane>/*.nii.gz
+manifests/<output_dir-name>_accepted_manifest.csv
+```
+
+Existing datasets are additive as long as the new run writes to paths that do
+not already exist. Use a different `remote_dir` for a separate dataset split or
+run namespace, or set `allow_overwrite: true` when replacing files is intended.
 
 ## Run
 
