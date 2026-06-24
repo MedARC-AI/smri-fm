@@ -18,6 +18,28 @@
 
 set -euo pipefail
 
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+
+  ENV_KEYS=()
+  while IFS='=' read -r key _; do
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    [[ -n "${!key:-}" ]] || continue
+    ENV_KEYS+=("$key")
+  done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env || true)
+
+  if ((${#ENV_KEYS[@]} > 0)); then
+    echo "Loaded .env keys: ${ENV_KEYS[*]}"
+  else
+    echo "Loaded .env, but no non-empty keys were set."
+  fi
+else
+  echo "No .env file found; using existing environment only."
+fi
+
 CONFIG="${1:?Usage: sbatch scripts/synthetic_pipeline.sbatch path/to/config.yaml [extra CLI flags]}"
 shift
 

@@ -164,7 +164,17 @@ For `metric: mean`, `threshold: 0.80` is a reasonable first filter and
 
 Publishing runs after generation and QC, and only when `push_to_hf.enabled` is
 `true`. Authentication uses the standard Hugging Face mechanisms supported by
-`huggingface_hub`, such as `HF_TOKEN` or a cached `hf auth login`.
+`huggingface_hub`.
+
+For Slurm runs, put a write-capable Hugging Face token in the repo-local `.env`
+file so `scripts/synthetic_pipeline.sbatch` can export it before launching the
+pipeline:
+
+```bash
+HF_TOKEN=hf_...
+```
+
+The sbatch wrapper prints which `.env` keys are set, but not their values.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
