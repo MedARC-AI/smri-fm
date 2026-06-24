@@ -32,9 +32,17 @@ that checkout by default. If your generator environment is different, set
 For WaveDiT, prepare a separate checkout and environment:
 
 ```bash
-git clone https://github.com/sisinflab/WaveDiT.git
-cd WaveDiT
-pip install -r requirements.txt
+git clone https://github.com/sisinflab/WaveDiT.git <desired_path>
+cd <desired_path>
+uv venv
+uv pip install -r requirements.txt
+```
+
+Then set these paths in the pipeline YAML:
+
+```yaml
+generator_repo: <desired_path>
+generator_python: "<desired_path>/.venv/bin/python"
 ```
 
 ## Config
