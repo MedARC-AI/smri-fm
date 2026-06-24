@@ -27,58 +27,115 @@ ALLOWED_WAVEDIT_SAMPLERS = {"heun", "euler"}
 
 @dataclass(frozen=True)
 class TargetSelection:
+    """Generation target filters implemented by this pipeline.
+
+    The NV backend matches these values against its generator target config.
+    The WaveDiT backend only supports whole-brain T1 axial generation.
+    """
+
+    # Anatomical/conditioning target, such as whole_brain.
     conditions: tuple[str, ...]
+    # Image modality names, such as mri_t1, mri_t2, or mri_flair.
     modalities: tuple[str, ...]
+    # Acquisition/view plane names supported by the selected generator backend.
     planes: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class QCConfig:
+    """SynthSeg QC settings implemented by this pipeline."""
+
+    # direct_synthseg runs QC on generated images; preprocess_then_synthseg
+    # expects precomputed QC paths.
     mode: str = "direct_synthseg"
+    # Minimum accepted score for the selected metric. None records QC scores
+    # without filtering.
     threshold: float | None = None
+    # Reduction applied to per-structure SynthSeg QC scores: min or mean.
     metric: str = "min"
+    # Shell command used to invoke SynthSeg.
     synthseg_cmd: str = DEFAULT_SYNTHSEG_CMD
+    # Number of CPU threads passed to SynthSeg.
     threads: int = 8
+    # Run SynthSeg in CPU mode instead of using GPU acceleration.
     cpu: bool = False
 
 
 @dataclass(frozen=True)
 class PushConfig:
+    """Hugging Face dataset publishing settings implemented by this pipeline."""
+
+    # Upload accepted outputs to Hugging Face after generation and QC.
     enabled: bool = False
+    # Target dataset repo, for example "username/synthetic-mri". Required when
+    # enabled.
     repo_id: str | None = None
+    # Visibility used when creating a new dataset repo. Existing repos keep
+    # their current visibility.
     private: bool = True
+    # Remote prefix for accepted generated images.
     remote_dir: str = "data"
+    # Replace same-path files in an existing dataset when true; fail on conflicts
+    # when false.
     allow_overwrite: bool = False
 
 
 @dataclass(frozen=True)
 class WaveDiTConfig:
+    """WaveDiT generation settings implemented by this pipeline."""
+
+    # Age conditions used to split the requested number of generated images.
     ages: tuple[float, ...] = DEFAULT_WAVEDIT_AGES
+    # Optional local checkpoint path. If unset, the checkpoint is downloaded from
+    # checkpoint_repo.
     checkpoint_path: Path | None = None
+    # Hugging Face model repo used when checkpoint_path is unset.
     checkpoint_repo: str = DEFAULT_WAVEDIT_CHECKPOINT_REPO
+    # Checkpoint filename inside checkpoint_repo.
     checkpoint_filename: str = DEFAULT_WAVEDIT_CHECKPOINT_FILENAME
+    # Checkpoint revision inside checkpoint_repo.
     checkpoint_revision: str = DEFAULT_WAVEDIT_CHECKPOINT_REVISION
+    # Number of WaveDiT flow sampling steps.
     num_flow_steps: int = 10
+    # WaveDiT sampler name.
     sampler: str = "heun"
+    # Classifier-free guidance scale passed to WaveDiT.
     cfg_scale: float = 1.0
+    # Guidance rescale value passed to WaveDiT.
     cfg_rescale: float = 0.7
+    # Optional Morpheus scale passed to WaveDiT when configured.
     morpheus_scale: float | None = None
+    # Device string passed to WaveDiT generation.
     device: str = "cuda"
 
 
 @dataclass(frozen=True)
 class PipelineConfig:
+    """Top-level synthetic data pipeline settings implemented by this package."""
+
+    # Generator backend orchestrated by this pipeline.
     generator_backend: str
+    # Local checkout path for the selected generator backend.
     generator_repo: Path
+    # Directory where generated data, QC outputs, logs, and manifests are written.
     output_dir: Path
+    # Requested image count. For NV this is per target; for WaveDiT this is total across ages.
     num_images: int
+    # Base random seed used to derive per-target generation seeds.
     random_seed: int
+    # Optional output volume size. Backend defaults are used when unset.
     output_size: tuple[int, int, int] | None
+    # Target filters passed to the selected generator backend.
     targets: TargetSelection
+    # SynthSeg QC behavior.
     qc: QCConfig
+    # Hugging Face dataset publishing behavior.
     push_to_hf: PushConfig
+    # Command used to invoke generator Python scripts.
     generator_python: tuple[str, ...]
+    # WaveDiT-specific options. Parsed even when another backend is selected.
     wavedit: WaveDiTConfig
+    # Number of GPUs assigned to generation work where supported.
     num_gpus: int = 1
 
 

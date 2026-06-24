@@ -119,7 +119,7 @@ def test_push_to_hf_uploads_accepted_images_and_manifest(
     ]
     assert [call["path_in_repo"] for call in fake_api.uploaded] == [
         "data/generated/whole_brain/mri_t1/axial/sample.nii.gz",
-        "manifests/out_accepted_manifest.csv",
+        "manifests/out/accepted_manifest.csv",
     ]
     assert all(call["repo_type"] == "dataset" for call in fake_api.uploaded)
     assert all(call["repo_id"] == "user/synthetic-mri" for call in fake_api.uploaded)
@@ -171,5 +171,5 @@ def test_push_to_hf_allows_existing_remote_path_when_enabled(
 
     assert [call["path_in_repo"] for call in fake_api.uploaded] == [
         "data/generated/whole_brain/mri_t1/axial/sample.nii.gz",
-        "manifests/out_accepted_manifest.csv",
+        "manifests/out/accepted_manifest.csv",
     ]

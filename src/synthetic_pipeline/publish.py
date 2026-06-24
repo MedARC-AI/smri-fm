@@ -67,7 +67,7 @@ def _collect_uploads(
             seen.add(path_in_repo)
             yield image_path, path_in_repo
 
-    manifest_path = f"manifests/{output_dir.name}_accepted_manifest.csv"
+    manifest_path = f"manifests/{output_dir.name}/accepted_manifest.csv"
     if manifest_path not in seen:
         yield accepted_manifest, manifest_path
 

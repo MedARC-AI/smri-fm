@@ -178,7 +178,7 @@ The publisher creates the dataset repo if needed, then uploads:
 
 ```text
 <remote_dir>/generated/<condition>/<modality>/<plane>/*.nii.gz
-manifests/<output_dir-name>_accepted_manifest.csv
+manifests/<output_dir-name>/accepted_manifest.csv
 ```
 
 Existing datasets are additive as long as the new run writes to paths that do
