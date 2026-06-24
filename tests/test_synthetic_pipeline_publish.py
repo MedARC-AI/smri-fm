@@ -79,7 +79,6 @@ def test_push_config_defaults_when_disabled(tmp_path: Path) -> None:
         enabled=False,
         repo_id=None,
         private=True,
-        remote_dir="data",
         allow_overwrite=False,
     )
 
@@ -102,7 +101,6 @@ def test_push_to_hf_uploads_accepted_images_and_manifest(
             enabled=True,
             repo_id="user/synthetic-mri",
             private=True,
-            remote_dir="data",
             allow_overwrite=False,
         ),
         manifest_path,
@@ -118,8 +116,8 @@ def test_push_to_hf_uploads_accepted_images_and_manifest(
         }
     ]
     assert [call["path_in_repo"] for call in fake_api.uploaded] == [
-        "data/generated/whole_brain/mri_t1/axial/sample.nii.gz",
-        "manifests/out/accepted_manifest.csv",
+        "runs/out/generated/whole_brain/mri_t1/axial/sample.nii.gz",
+        "runs/out/accepted_manifest.csv",
     ]
     assert all(call["repo_type"] == "dataset" for call in fake_api.uploaded)
     assert all(call["repo_id"] == "user/synthetic-mri" for call in fake_api.uploaded)
@@ -130,7 +128,7 @@ def test_push_to_hf_fails_on_existing_remote_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     output_dir, manifest_path = make_accepted_manifest(tmp_path)
-    fake_api = FakeHfApi(existing=["data/generated/whole_brain/mri_t1/axial/sample.nii.gz"])
+    fake_api = FakeHfApi(existing=["runs/out/generated/whole_brain/mri_t1/axial/sample.nii.gz"])
     monkeypatch.setattr(publish, "HfApi", lambda: fake_api)
 
     with pytest.raises(FileExistsError, match="Refusing to overwrite"):
@@ -139,7 +137,6 @@ def test_push_to_hf_fails_on_existing_remote_path(
                 enabled=True,
                 repo_id="user/synthetic-mri",
                 private=True,
-                remote_dir="data",
                 allow_overwrite=False,
             ),
             manifest_path,
@@ -154,7 +151,7 @@ def test_push_to_hf_allows_existing_remote_path_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     output_dir, manifest_path = make_accepted_manifest(tmp_path)
-    fake_api = FakeHfApi(existing=["data/generated/whole_brain/mri_t1/axial/sample.nii.gz"])
+    fake_api = FakeHfApi(existing=["runs/out/generated/whole_brain/mri_t1/axial/sample.nii.gz"])
     monkeypatch.setattr(publish, "HfApi", lambda: fake_api)
 
     publish.push_to_hf(
@@ -162,7 +159,6 @@ def test_push_to_hf_allows_existing_remote_path_when_enabled(
             enabled=True,
             repo_id="user/synthetic-mri",
             private=True,
-            remote_dir="data",
             allow_overwrite=True,
         ),
         manifest_path,
@@ -170,6 +166,6 @@ def test_push_to_hf_allows_existing_remote_path_when_enabled(
     )
 
     assert [call["path_in_repo"] for call in fake_api.uploaded] == [
-        "data/generated/whole_brain/mri_t1/axial/sample.nii.gz",
-        "manifests/out/accepted_manifest.csv",
+        "runs/out/generated/whole_brain/mri_t1/axial/sample.nii.gz",
+        "runs/out/accepted_manifest.csv",
     ]

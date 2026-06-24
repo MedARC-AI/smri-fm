@@ -42,7 +42,5 @@ push_to_hf:
   repo_id: null
   # private: visibility used when creating a new dataset repo. Existing repos keep current visibility.
   private: true
-  # remote_dir: remote prefix for accepted generated images.
-  remote_dir: data
   # allow_overwrite: if false, publishing fails when a remote file path already exists.
   allow_overwrite: false

@@ -73,8 +73,6 @@ class PushConfig:
     # Visibility used when creating a new dataset repo. Existing repos keep
     # their current visibility.
     private: bool = True
-    # Remote prefix for accepted generated images.
-    remote_dir: str = "data"
     # Replace same-path files in an existing dataset when true; fail on conflicts
     # when false.
     allow_overwrite: bool = False
@@ -219,15 +217,6 @@ def _as_optional_nonempty_string(value: Any, name: str) -> str | None:
     return _as_nonempty_string(value, name)
 
 
-def _as_remote_dir(value: Any, name: str) -> str:
-    remote_dir = _as_nonempty_string(value, name).strip("/")
-    if not remote_dir or remote_dir == ".":
-        raise ValueError(f"{name} must be a non-empty relative Hub path.")
-    if any(part in {"", ".", ".."} for part in remote_dir.split("/")):
-        raise ValueError(f"{name} must be a relative Hub path without '.' or '..' segments.")
-    return remote_dir
-
-
 def load_config(
     path: Path,
     *,
@@ -320,7 +309,6 @@ def load_config(
             enabled=push_enabled,
             repo_id=push_repo_id,
             private=_as_bool(raw_push.get("private", True), "push_to_hf.private"),
-            remote_dir=_as_remote_dir(raw_push.get("remote_dir", "data"), "push_to_hf.remote_dir"),
             allow_overwrite=_as_bool(
                 raw_push.get("allow_overwrite", False),
                 "push_to_hf.allow_overwrite",

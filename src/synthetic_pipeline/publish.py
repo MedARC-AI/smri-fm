@@ -60,14 +60,15 @@ def _collect_uploads(
     output_dir: Path,
 ) -> Iterable[tuple[Path, str]]:
     seen: set[str] = set()
+    run_dir = f"runs/{output_dir.name}"
     for image_path in _read_accepted_image_paths(accepted_manifest):
         relative_path = _relative_to_output_dir(image_path, output_dir)
-        path_in_repo = f"{config.remote_dir}/{relative_path.as_posix()}"
+        path_in_repo = f"{run_dir}/{relative_path.as_posix()}"
         if path_in_repo not in seen:
             seen.add(path_in_repo)
             yield image_path, path_in_repo
 
-    manifest_path = f"manifests/{output_dir.name}/accepted_manifest.csv"
+    manifest_path = f"{run_dir}/accepted_manifest.csv"
     if manifest_path not in seen:
         yield accepted_manifest, manifest_path
 

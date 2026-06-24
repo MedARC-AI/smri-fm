@@ -75,7 +75,6 @@ push_to_hf:
   enabled: false
   repo_id: null
   private: true
-  remote_dir: data
   allow_overwrite: false
 ```
 
@@ -181,19 +180,18 @@ The sbatch wrapper prints which `.env` keys are set, but not their values.
 | `enabled` | `false` | Run or skip the final publishing step. |
 | `repo_id` | `null` | Target dataset repo, for example `username/synthetic-mri`. Required when publishing is enabled. |
 | `private` | `true` | Visibility used when creating a new dataset repo. Existing repo visibility is not changed. |
-| `remote_dir` | `data` | Remote prefix for QC-accepted generated images. |
 | `allow_overwrite` | `false` | If `false`, publishing fails before upload when any destination file already exists. If `true`, same-path files may be replaced. |
 
 The publisher creates the dataset repo if needed, then uploads:
 
 ```text
-<remote_dir>/generated/<condition>/<modality>/<plane>/*.nii.gz
-manifests/<output_dir-name>/accepted_manifest.csv
+runs/<output_dir-name>/accepted_manifest.csv
+runs/<output_dir-name>/generated/<condition>/<modality>/<plane>/*.nii.gz
 ```
 
 Existing datasets are additive as long as the new run writes to paths that do
-not already exist. Use a different `remote_dir` for a separate dataset split or
-run namespace, or set `allow_overwrite: true` when replacing files is intended.
+not already exist. Use a different `output_dir` name for a separate run
+namespace, or set `allow_overwrite: true` when replacing files is intended.
 
 ## Run
 
