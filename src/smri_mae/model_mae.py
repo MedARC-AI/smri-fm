@@ -34,34 +34,11 @@ from .modules import (
     SinCosPosEmbed3D,
     Normalize,
 )
-def trim_patch_mask(
-    patch_mask: Float[Tensor, "B N"],
-    mask_ratio: float,
-    shuffle: bool = False,
-    generator: torch.Generator | None = None,
-) -> tuple[Float[Tensor, "B N"], Int[Tensor, "B L"]]:
-    """
-    Trim a batch of patch masks to the same number of patches.
-    Kept patches are selected randomly (shuffle=True) or sequentially (shuffle=False).
-    """
-    B, N = patch_mask.shape
-    device = patch_mask.device
-
-    if shuffle:
-        noise = torch.rand(B, N, generator=generator, device=device)
-        shuffle_ids = torch.argsort(noise, dim=1)
-        restore_ids = torch.argsort(shuffle_ids, dim=1)
-        patch_mask = patch_mask.gather(1, shuffle_ids)
-
-    min_count = patch_mask.sum(dim=1).min()
-    num_keep = int((1 - mask_ratio) * min_count.item())
-    patch_mask = patch_mask * (patch_mask.cumsum(dim=1) <= num_keep)
-
-    if shuffle:
-        patch_mask = patch_mask.gather(1, restore_ids)
-
-    mask_ids = patch_mask.nonzero(as_tuple=False)[:, 1].reshape(B, -1)
-    return patch_mask, mask_ids
+from .masking import (
+    MaskingPolicy,
+    pad_patch_mask,
+    trim_patch_mask,
+)
 
 
 class MaskedEncoder(nn.Module):
@@ -170,6 +147,18 @@ class MaskedEncoder(nn.Module):
             x = torch.cat(to_cat + [x], dim=1)
         return x
 
+    def cat_token_mask(self, token_mask: Tensor | None, batch_size: int) -> Tensor | None:
+        if token_mask is None:
+            return None
+        if self.num_prefix_tokens:
+            prefix_mask = torch.ones(
+                (batch_size, self.num_prefix_tokens),
+                dtype=torch.bool,
+                device=token_mask.device,
+            )
+            token_mask = torch.cat([prefix_mask, token_mask], dim=1)
+        return token_mask
+
     def chunk_tokens(self, x: Tensor) -> tuple[Tensor | None, Tensor | None, Tensor]:
         cls_offset = int(self.has_class_token)
         cls = x[:, :cls_offset] if self.has_class_token else None
@@ -185,12 +174,21 @@ class MaskedEncoder(nn.Module):
         x: Tensor,
         mask: Tensor | None = None,
         mask_ratio: float | None = None,
+        masking_policy: MaskingPolicy = "batch_min",
+        return_token_mask: bool = False,
     ) -> tuple[
         Float[Tensor, "B 1 D"] | None,
         Float[Tensor, "B R D"] | None,
         Float[Tensor, "B L D"],
         Tensor | None,
         Int[Tensor, "B L"] | None,
+    ] | tuple[
+        Float[Tensor, "B 1 D"] | None,
+        Float[Tensor, "B R D"] | None,
+        Float[Tensor, "B L D"],
+        Tensor | None,
+        Int[Tensor, "B L"] | None,
+        Tensor | None,
     ]:
         """
         x: input data shape [B, C, D, H, W] 
@@ -232,31 +230,52 @@ class MaskedEncoder(nn.Module):
         x = self.pos_embed(x)
 
         if mask is not None or mask_ratio is not None:
-            patch_mask, mask_ids = trim_patch_mask(
-                patch_mask,
-                mask_ratio=0.0 if mask_ratio is None else mask_ratio,
-                shuffle=mask_ratio is not None,
-            )
+            mask_ratio = 0.0 if mask_ratio is None else mask_ratio
+            token_mask = None
+            if masking_policy == "per_sample_pad":
+                patch_mask, mask_ids, token_mask = pad_patch_mask(
+                    patch_mask,
+                    mask_ratio=mask_ratio,
+                    shuffle=mask_ratio > 0,
+                )
+            elif masking_policy == "batch_min":
+                patch_mask, mask_ids = trim_patch_mask(
+                    patch_mask,
+                    mask_ratio=mask_ratio,
+                    shuffle=mask_ratio > 0,
+                )
+            else:
+                raise ValueError(f"unknown masking_policy {masking_policy!r}")
+
             mask_patches = mask_patches & patch_mask.unsqueeze(-1)
             mask = self.patchify.unpatchify(mask_patches)
             x = x.gather(1, mask_ids.unsqueeze(-1).expand(-1, -1, x.shape[-1]))
         else:
             mask_ids = None
+            token_mask = None
 
-        cls_embeds, reg_embeds, patch_embeds = self.forward_patch_embeds(x)
+        cls_embeds, reg_embeds, patch_embeds = self.forward_patch_embeds(
+            x,
+            token_mask=token_mask,
+        )
+        if return_token_mask:
+            return cls_embeds, reg_embeds, patch_embeds, mask, mask_ids, token_mask
         return cls_embeds, reg_embeds, patch_embeds, mask, mask_ids
 
     def forward_patch_embeds(
         self,
         x: Float[Tensor, "B L D"],
+        token_mask: Tensor | None = None,
     ) -> tuple[
         Float[Tensor, "B 1 D"] | None,
         Float[Tensor, "B R D"] | None,
         Float[Tensor, "B L D"],
     ]:
+        B = x.shape[0]
         x = self.cat_tokens(x)
+        token_mask = self.cat_token_mask(token_mask, B)
         for block in self.blocks:
-            x = block(x)
+            x = block(x, token_mask=token_mask)
         x = self.norm(x)
 
         cls_embeds, reg_embeds, patch_embeds = self.chunk_tokens(x)
@@ -403,6 +422,18 @@ class MaskedDecoder(nn.Module):
             x = torch.cat(to_cat + [x], dim=1)
         return x
 
+    def cat_token_mask(self, token_mask: Tensor | None, batch_size: int) -> Tensor | None:
+        if token_mask is None:
+            return None
+        if self.has_class_token:
+            cls_mask = torch.ones(
+                (batch_size, 1),
+                dtype=torch.bool,
+                device=token_mask.device,
+            )
+            token_mask = torch.cat([cls_mask, token_mask], dim=1)
+        return token_mask
+
     def chunk_tokens(self, x: Tensor) -> tuple[Tensor | None, Tensor]:
         cls_offset = int(self.has_class_token)
         cls = x[:, :cls_offset] if self.has_class_token else None
@@ -414,6 +445,8 @@ class MaskedDecoder(nn.Module):
         embeds: Float[Tensor, "B L D"],
         embed_ids: Int[Tensor, "B L"] | None = None,
         pred_ids: Int[Tensor, "B Q"] | None = None,
+        embed_token_mask: Tensor | None = None,
+        pred_token_mask: Tensor | None = None,
     ) -> Float[Tensor, "B Q P"]:
         """
         embeds: input embeddings, can be patch or register embeddings, which will be fed
@@ -439,6 +472,8 @@ class MaskedDecoder(nn.Module):
             # cross attention decoding (crossmae)
             x = mask
             context = embeds
+            token_mask = pred_token_mask
+            context_token_mask = embed_token_mask
             pred_offset = 0
         else:
             # standard self attention decoding (mae)
@@ -448,16 +483,27 @@ class MaskedDecoder(nn.Module):
                 embeds = self.pos_embed(embeds, pos_ids=embed_ids)
             x = torch.cat([embeds, mask], dim=1)
             context = None
+            token_mask = None
+            if embed_token_mask is not None or pred_token_mask is not None:
+                if embed_token_mask is None:
+                    embed_token_mask = torch.ones((B, L), dtype=torch.bool, device=embeds.device)
+                if pred_token_mask is None:
+                    pred_token_mask = torch.ones((B, Q), dtype=torch.bool, device=embeds.device)
+                token_mask = torch.cat([embed_token_mask, pred_token_mask], dim=1)
+            context_token_mask = None
             pred_offset = L
 
         x = self.cat_tokens(x)
+        token_mask = self.cat_token_mask(token_mask, B)
         for block in self.blocks:
-            x = block(x, context=context)
+            x = block(x, context=context, token_mask=token_mask, context_token_mask=context_token_mask)
 
         x = self.norm(x)
         _, x = self.chunk_tokens(x)
 
         pred = x[:, pred_offset:]
+        if pred_token_mask is not None:
+            pred = pred.masked_fill(~pred_token_mask.unsqueeze(-1), 0)
         pred = self.head(pred)
         return pred
 
@@ -625,6 +671,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         visible_mask: Tensor,
         pred_mask: Tensor | None = None,
         pred_mask_ratio: float | None = None,
+        masking_policy: MaskingPolicy = "batch_min",
     ):
         """
         prepare prediction mask by removing visible content
@@ -641,13 +688,23 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         # Randomize even when keeping all prediction candidates, because samples with
         # more valid brain patches are trimmed to the batch minimum.
         mask_ratio = 0.0 if pred_mask_ratio is None else pred_mask_ratio
-        pred_patch_mask, pred_ids = trim_patch_mask(
-            pred_patch_mask,
-            mask_ratio=mask_ratio,
-            shuffle=True,
-        )
+        pred_token_mask = None
+        if masking_policy == "per_sample_pad":
+            pred_patch_mask, pred_ids, pred_token_mask = pad_patch_mask(
+                pred_patch_mask,
+                mask_ratio=mask_ratio,
+                shuffle=True,
+            )
+        elif masking_policy == "batch_min":
+            pred_patch_mask, pred_ids = trim_patch_mask(
+                pred_patch_mask,
+                mask_ratio=mask_ratio,
+                shuffle=True,
+            )
+        else:
+            raise ValueError(f"unknown masking_policy {masking_policy!r}")
         pred_mask_patches = pred_mask_patches & pred_patch_mask.unsqueeze(-1)
-        return pred_mask_patches, pred_ids
+        return pred_mask_patches, pred_ids, pred_token_mask
 
     def forward_decoder(
         self,
@@ -655,6 +712,8 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         reg_embeds: Float[Tensor, "B R D"] | None,
         visible_ids: Int[Tensor, "B L"],
         pred_ids: Int[Tensor, "B Q"] | None,
+        visible_token_mask: Tensor | None = None,
+        pred_token_mask: Tensor | None = None,
     ) -> Float[Tensor, "B Q P"]:
         if self.decoding == "crossreg":
             assert reg_embeds is not None, "reg_embeds required for crossreg decoding"
@@ -665,7 +724,13 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
             embed_ids = visible_ids
         else:
             embed_ids = None
-        preds = self.decoder.forward(embeds, embed_ids=embed_ids, pred_ids=pred_ids)
+        preds = self.decoder.forward(
+            embeds,
+            embed_ids=embed_ids,
+            pred_ids=pred_ids,
+            embed_token_mask=visible_token_mask,
+            pred_token_mask=pred_token_mask,
+        )
         return preds
 
     def forward_loss(
@@ -674,13 +739,18 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         targets_patches: Float[Tensor, "B N P"],
         pred_mask_patches: Float[Tensor, "B N P"],
         pred_ids: Int[Tensor, "B Q"],
+        pred_token_mask: Tensor | None = None,
     ) -> Tensor:
         # select targets corresponding to predictions
         P = self.pred_patchify.patch_dim
         pred_ids = pred_ids.unsqueeze(-1).expand(-1, -1, P)
         targets_patches = targets_patches.gather(1, pred_ids)
         pred_mask_patches = pred_mask_patches.gather(1, pred_ids)
+        if pred_token_mask is not None:
+            pred_mask_patches = pred_mask_patches & pred_token_mask.unsqueeze(-1)
 
+        # loss over predicted patches, averaged per subject so variable mask sizes
+        # do not change the subject weighting in the batch.
         loss = (preds - targets_patches) ** 2
         per_subject_loss = (pred_mask_patches * loss).sum(dim=(1, 2)) / pred_mask_patches.sum(
             dim=(1, 2)
@@ -692,11 +762,14 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         self,
         preds: Float[Tensor, "B Q P"],
         pred_ids: Float[Tensor, "B Q"],
+        pred_token_mask: Tensor | None = None,
         img_mask: Tensor | None = None,
         targets_stats: tuple[Tensor, Tensor] | None = None,
     ) -> Tensor:
         B, _, P = preds.shape
         N = self.pred_patchify.num_patches
+        if pred_token_mask is not None:
+            preds = preds.masked_fill(~pred_token_mask.unsqueeze(-1), 0)
 
         preds = torch.zeros((B, N, P), dtype=preds.dtype, device=preds.device).scatter_(
             1, pred_ids.unsqueeze(-1).expand(-1, -1, P), preds
@@ -717,6 +790,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         img_mask: Tensor,
         mask_ratio: float,
         pred_mask_ratio: float | None = None,
+        masking_policy: MaskingPolicy = "batch_min",
         with_state: bool = True,
     ) -> Tensor | tuple[Tensor, dict[str, Tensor]] | tuple[Tensor, dict]:
         img_mask, visible_mask, pred_mask = self.prepare_masks(
@@ -727,28 +801,55 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         )
         targets_patches, targets_stats = self.prepare_targets(images, img_mask)
 
-        cls_embeds, reg_embeds, patch_embeds, visible_mask, visible_ids = self.encoder(
+        (
+            cls_embeds,
+            reg_embeds,
+            patch_embeds,
+            visible_mask,
+            visible_ids,
+            visible_token_mask,
+        ) = self.encoder(
             images,
             mask=visible_mask,
             mask_ratio=mask_ratio,
+            masking_policy=masking_policy,
+            return_token_mask=True,
         )
 
-        pred_mask_patches, pred_ids = self.prepare_pred_mask(
+        pred_mask_patches, pred_ids, pred_token_mask = self.prepare_pred_mask(
             visible_mask,
             pred_mask=pred_mask,
             pred_mask_ratio=pred_mask_ratio,
+            masking_policy=masking_policy,
         )
 
-        preds = self.forward_decoder(patch_embeds, reg_embeds, visible_ids, pred_ids)
+        preds = self.forward_decoder(
+            patch_embeds,
+            reg_embeds,
+            visible_ids,
+            pred_ids,
+            visible_token_mask=visible_token_mask,
+            pred_token_mask=pred_token_mask,
+        )
 
-        loss = self.forward_loss(preds, targets_patches, pred_mask_patches, pred_ids)
+        loss = self.forward_loss(
+            preds,
+            targets_patches,
+            pred_mask_patches,
+            pred_ids,
+            pred_token_mask=pred_token_mask,
+        )
 
         if not with_state:
             return loss
 
         pred_mask = self.pred_patchify.unpatchify(pred_mask_patches)
         pred_images = self.forward_pred_images(
-            preds, pred_ids, img_mask=img_mask, targets_stats=targets_stats
+            preds,
+            pred_ids,
+            pred_token_mask=pred_token_mask,
+            img_mask=img_mask,
+            targets_stats=targets_stats,
         )
 
         state = {
@@ -759,8 +860,10 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
             "reg_embeds": reg_embeds,
             "visible_mask": visible_mask,
             "visible_ids": visible_ids,
+            "visible_token_mask": visible_token_mask,
             "pred_mask": pred_mask,
             "pred_ids": pred_ids,
+            "pred_token_mask": pred_token_mask,
             "preds": preds,
             "pred_images": pred_images,
         }
