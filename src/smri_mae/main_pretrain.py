@@ -36,6 +36,10 @@ DEFAULT_CONFIG = Path(__file__).parent / "config/default_pretrain.yaml"
 MODELS_DICT = models_mae.__dict__
 
 
+def masking_policy_from_config(args: DictConfig) -> str:
+    return "per_sample_pad" if args.get("per_sample_pad", False) else "batch_min"
+
+
 def main(args: DictConfig):
     # setup
     ut.init_distributed_mode(args)
@@ -296,6 +300,7 @@ def train_one_epoch(
                 img_mask=img_mask,
                 mask_ratio=args.mask_ratio,
                 pred_mask_ratio=args.pred_mask_ratio,
+                masking_policy=masking_policy_from_config(args),
                 with_state=False,
             )
 
@@ -392,6 +397,7 @@ def evaluate(
                 img_mask=img_mask,
                 mask_ratio=args.mask_ratio,
                 pred_mask_ratio=args.pred_mask_ratio,
+                masking_policy=masking_policy_from_config(args),
             )
 
         metric_logger.update(loss=loss)

@@ -55,6 +55,8 @@ class Attention(nn.Module):
         self,
         x: Float[Tensor, "B N D"],
         context: Float[Tensor, "B M D"] | None = None,
+        token_mask: Tensor | None = None,
+        context_token_mask: Tensor | None = None,
     ) -> Float[Tensor, "B N D"]:
         B, N, D = x.shape
         h, dh = self.num_heads, self.head_dim
@@ -64,13 +66,25 @@ class Attention(nn.Module):
             q = self.q(x).reshape(B, N, h, dh).transpose(1, 2)
             kv = self.kv(context).reshape(B, M, 2, h, dh).permute(2, 0, 3, 1, 4)
             k, v = kv.unbind(0)
+            key_mask = context_token_mask
         else:
             qkv = self.qkv(x).reshape(B, N, 3, h, dh).permute(2, 0, 3, 1, 4)
             q, k, v = qkv.unbind(0)
+            key_mask = token_mask
 
-        x = F.scaled_dot_product_attention(q, k, v)
+        attn_mask = None
+        if key_mask is not None:
+            key_mask = key_mask.to(device=x.device, dtype=torch.bool)
+            attn_mask = key_mask[:, None, None, :]
+            if token_mask is not None:
+                query_mask = token_mask.to(device=x.device, dtype=torch.bool)
+                attn_mask = attn_mask & query_mask[:, None, :, None]
+
+        x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
         x = x.transpose(1, 2).reshape(B, N, D)
         x = self.proj(x)
+        if token_mask is not None:
+            x = x.masked_fill(~token_mask.to(device=x.device, dtype=torch.bool).unsqueeze(-1), 0)
         return x
 
 
@@ -134,10 +148,21 @@ class Block(nn.Module):
         self,
         x: Float[Tensor, "B N D"],
         context: Float[Tensor, "B M D"] | None = None,
+        token_mask: Tensor | None = None,
+        context_token_mask: Tensor | None = None,
     ) -> Float[Tensor, "B N D"]:
         # should the context also be normalized? capi doesn't, so I guess not
-        x = x + self.drop_path1(self.attn(self.norm1(x), context=self.norm_context(context) if context is not None else None))
+        x = x + self.drop_path1(
+            self.attn(
+                self.norm1(x),
+                context=self.norm_context(context) if context is not None else None,
+                token_mask=token_mask,
+                context_token_mask=context_token_mask,
+            )
+        )
         x = x + self.drop_path2(self.mlp(self.norm2(x)))
+        if token_mask is not None:
+            x = x.masked_fill(~token_mask.to(device=x.device, dtype=torch.bool).unsqueeze(-1), 0)
         return x
 
 

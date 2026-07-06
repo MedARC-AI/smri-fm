@@ -15,6 +15,7 @@ patch_size: 8
 # Masking.
 mask_ratio: 0.80
 pred_mask_ratio: null
+per_sample_pad: true
 
 # Model.
 model: mae_vit_large
@@ -38,15 +39,15 @@ model_kwargs:
 # Datasets.
 datasets:
   fomo_train:
-    url: datasets/FOMO300/wds_spr_all/shard.{00000..00039}.tar
-    samples_per_epoch: 32000
+    url: datasets/FOMO_with_dwi/shard.{000000..001620}.tar
+    samples_per_epoch: 243200
     shuffle: true
     buffer_size: 8000
     drop_last: true
 
   fomo_val:
-    url: datasets/FOMO300/wds_spr_all/shard.{00040..00049}.tar
-    samples_per_epoch: 7000
+    url: datasets/FOMO_with_dwi/shard.{001621..001800}.tar
+    samples_per_epoch: 26880
     shuffle: false
     buffer_size: 1000
     drop_last: true
@@ -56,9 +57,9 @@ eval_datasets:
   - fomo_val
 
 # Data loader.
-num_workers: 16
-prefetch_factor: 8
-presend_cuda: true
+num_workers: 4
+prefetch_factor: 2
+presend_cuda: false
 
 # Optimization.
 epochs: 100
@@ -82,8 +83,11 @@ ckpt: null
 resume: false
 auto_resume: true
 start_epoch: 0
-checkpoint_period: 5
+checkpoint_period: 10
 max_checkpoints: 5
+
+# Evaluation.
+eval_period: 10
 
 # Sync checkpoints to an R2 bucket using the AWS CLI. Set to a URL to enable.
 r2_sync: null

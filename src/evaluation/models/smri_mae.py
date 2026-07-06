@@ -10,6 +10,7 @@ from torch import Tensor
 from evaluation.models.registry import register_model
 
 import smri_mae.model_mae as models_mae
+from smri_mae.masking import MaskingPolicy
 
 
 class SmriMaeBackbone(nn.Module):
@@ -17,23 +18,35 @@ class SmriMaeBackbone(nn.Module):
         self,
         encoder: models_mae.MaskedEncoder,
         global_pool: Literal["cls", "reg", "patch"] = "patch",
+        masking_policy: MaskingPolicy = "per_sample_pad",
     ):
         super().__init__()
         self.encoder = encoder
         self.global_pool = global_pool
+        self.masking_policy = masking_policy
 
     def forward(self, batch: dict[str, Tensor]) -> Tensor:
         images = batch["image"]
         mask = batch["mask"]
 
-        cls, reg, patch = self.encoder.forward_embedding(images, mask=mask)
+        cls, reg, patch, token_mask = self.encoder.forward_embedding(
+            images,
+            mask=mask,
+            masking_policy=self.masking_policy,
+            return_token_mask=True,
+        )
 
         if self.global_pool == "cls":
             embed = cls[:, 0, :]
         elif self.global_pool == "reg":
             embed = reg.mean(dim=1)
         elif self.global_pool == "patch":
-            embed = patch.mean(dim=1)
+            if token_mask is None:
+                embed = patch.mean(dim=1)
+            else:
+                token_mask = token_mask.to(device=patch.device, dtype=torch.bool)
+                denom = token_mask.sum(dim=1, keepdim=True).clamp(min=1).to(dtype=patch.dtype)
+                embed = (patch * token_mask.unsqueeze(-1)).sum(dim=1) / denom
         return embed
 
 
@@ -113,7 +126,11 @@ def pad_to_shape(x: torch.Tensor, target_shape: tuple[int, ...]):
 
 
 @register_model
-def smri_mae(ckpt_path: str, global_pool: str = "patch"):
+def smri_mae(
+    ckpt_path: str,
+    global_pool: str = "patch",
+    masking_policy: MaskingPolicy = "per_sample_pad",
+):
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
     args = ckpt["args"]
 
@@ -126,7 +143,11 @@ def smri_mae(ckpt_path: str, global_pool: str = "patch"):
     )
     model.load_state_dict(ckpt["model"])
 
-    backbone = SmriMaeBackbone(model.encoder, global_pool=global_pool)
+    backbone = SmriMaeBackbone(
+        model.encoder,
+        global_pool=global_pool,
+        masking_policy=masking_policy,
+    )
     transform = SmriMaeTransform(img_size=args["img_size"])
 
     return backbone, transform
