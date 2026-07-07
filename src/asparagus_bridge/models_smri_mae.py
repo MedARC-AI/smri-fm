@@ -57,7 +57,7 @@ class SmriMaeClsRegBackbone(nn.Module):
 
     def _features(self, x: Tensor) -> Tensor:
         """Encoder output"""
-        cls_embeds, _, patch_embeds, _, _ = self.encoder(x)
+        cls_embeds, _, patch_embeds, _, _, _ = self.encoder(x)
         if self.pool == "cls":
             return cls_embeds.squeeze(1)
         else:
@@ -111,7 +111,7 @@ class SmriMaeSegBackbone(BaseNet):
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        _, _, patch_embeds, _, _ = self.encoder(x)
+        _, _, patch_embeds, _, _, _ = self.encoder(x)
         expected_tokens = math.prod(self.grid_size)
         if patch_embeds.shape[1] != expected_tokens:
             raise ValueError(

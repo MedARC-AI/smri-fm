@@ -175,14 +175,7 @@ class MaskedEncoder(nn.Module):
         mask: Tensor | None = None,
         mask_ratio: float | None = None,
         masking_policy: MaskingPolicy = "batch_min",
-        return_token_mask: bool = False,
     ) -> tuple[
-        Float[Tensor, "B 1 D"] | None,
-        Float[Tensor, "B R D"] | None,
-        Float[Tensor, "B L D"],
-        Tensor | None,
-        Int[Tensor, "B L"] | None,
-    ] | tuple[
         Float[Tensor, "B 1 D"] | None,
         Float[Tensor, "B R D"] | None,
         Float[Tensor, "B L D"],
@@ -201,6 +194,7 @@ class MaskedEncoder(nn.Module):
         - patch_embeds: [B, L, D], where L is the number of visible patches
         - mask: observed mask, 1 = observed, 0 = unobserved. same shape as input
         - mask_ids: indices of visible patches [B L]
+        - token_mask: valid token mask for padded per-sample masking [B L]
         """
         # apply mask to the input
         if mask is not None:
@@ -238,14 +232,12 @@ class MaskedEncoder(nn.Module):
                     mask_ratio=mask_ratio,
                     shuffle=mask_ratio > 0,
                 )
-            elif masking_policy == "batch_min":
+            else:
                 patch_mask, mask_ids = trim_patch_mask(
                     patch_mask,
                     mask_ratio=mask_ratio,
                     shuffle=mask_ratio > 0,
                 )
-            else:
-                raise ValueError(f"unknown masking_policy {masking_policy!r}")
 
             mask_patches = mask_patches & patch_mask.unsqueeze(-1)
             mask = self.patchify.unpatchify(mask_patches)
@@ -258,9 +250,7 @@ class MaskedEncoder(nn.Module):
             x,
             token_mask=token_mask,
         )
-        if return_token_mask:
-            return cls_embeds, reg_embeds, patch_embeds, mask, mask_ids, token_mask
-        return cls_embeds, reg_embeds, patch_embeds, mask, mask_ids
+        return cls_embeds, reg_embeds, patch_embeds, mask, mask_ids, token_mask
 
     def forward_patch_embeds(
         self,
@@ -695,14 +685,12 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
                 mask_ratio=mask_ratio,
                 shuffle=True,
             )
-        elif masking_policy == "batch_min":
+        else:
             pred_patch_mask, pred_ids = trim_patch_mask(
                 pred_patch_mask,
                 mask_ratio=mask_ratio,
                 shuffle=True,
             )
-        else:
-            raise ValueError(f"unknown masking_policy {masking_policy!r}")
         pred_mask_patches = pred_mask_patches & pred_patch_mask.unsqueeze(-1)
         return pred_mask_patches, pred_ids, pred_token_mask
 
@@ -749,8 +737,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         if pred_token_mask is not None:
             pred_mask_patches = pred_mask_patches & pred_token_mask.unsqueeze(-1)
 
-        # loss over predicted patches, averaged per subject so variable mask sizes
-        # do not change the subject weighting in the batch.
+        # loss over predicted patches, averaged per subject.
         loss = (preds - targets_patches) ** 2
         per_subject_loss = (pred_mask_patches * loss).sum(dim=(1, 2)) / pred_mask_patches.sum(
             dim=(1, 2)
@@ -813,7 +800,6 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
             mask=visible_mask,
             mask_ratio=mask_ratio,
             masking_policy=masking_policy,
-            return_token_mask=True,
         )
 
         pred_mask_patches, pred_ids, pred_token_mask = self.prepare_pred_mask(
