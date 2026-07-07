@@ -26,14 +26,20 @@ class SmriMaeBackbone(nn.Module):
         images = batch["image"]
         mask = batch["mask"]
 
-        cls, reg, patch = self.encoder.forward_embedding(images, mask=mask)
+        cls, reg, patch, _, _, token_mask = self.encoder(
+            images,
+            mask=mask,
+            masking_policy="per_sample_pad",
+        )
 
         if self.global_pool == "cls":
             embed = cls[:, 0, :]
         elif self.global_pool == "reg":
             embed = reg.mean(dim=1)
         elif self.global_pool == "patch":
-            embed = patch.mean(dim=1)
+            token_mask = token_mask.to(device=patch.device, dtype=torch.bool)
+            denom = token_mask.sum(dim=1, keepdim=True).clamp(min=1).to(dtype=patch.dtype)
+            embed = (patch * token_mask.unsqueeze(-1)).sum(dim=1) / denom
         return embed
 
 
