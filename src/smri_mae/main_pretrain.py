@@ -38,6 +38,16 @@ DEFAULT_CONFIG = Path(__file__).parent / "config/default_pretrain.yaml"
 MODELS_DICT = models_mae.__dict__
 
 
+def masking_kwargs_from_config(args: DictConfig) -> dict:
+    return {
+        "pad_to_multiple": args.get("pad_to_multiple"),
+        "masking_strategy": args.get("masking_strategy", "random"),
+        "block_mask_fraction": args.get("block_mask_fraction", 0.7),
+        "block_mask_min_size": args.get("block_mask_min_size", 2),
+        "block_mask_max_size": args.get("block_mask_max_size", 6),
+    }
+
+
 def main(args: DictConfig):
     # setup
     ut.init_distributed_mode(args)
@@ -302,7 +312,7 @@ def train_one_epoch(
                     img_mask=img_mask,
                     mask_ratio=args.mask_ratio,
                     pred_mask_ratio=args.pred_mask_ratio,
-                    pad_to_multiple=args.pad_to_multiple,
+                    **masking_kwargs_from_config(args),
                     with_state=False,
                 )
 
@@ -393,7 +403,7 @@ def evaluate(
                 img_mask=img_mask,
                 mask_ratio=args.mask_ratio,
                 pred_mask_ratio=args.pred_mask_ratio,
-                pad_to_multiple=args.pad_to_multiple,
+                **masking_kwargs_from_config(args),
             )
 
         loss_value = loss.detach().float().item()
@@ -459,6 +469,7 @@ def make_plots(
         target=images,
         pred=state["pred_images"],
         pred_mask=state["pred_mask"],
+        block_mask=state.get("block_hidden_mask"),
         img_mask=img_mask,
         patch_size=args.patch_size,
         raw_mean=raw_mean,

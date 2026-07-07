@@ -16,6 +16,10 @@ patch_size: 8
 mask_ratio: 0.80
 pred_mask_ratio: null
 pad_to_multiple: 32
+masking_strategy: block
+block_mask_fraction: 0.70
+block_mask_min_size: 2
+block_mask_max_size: 6
 
 # Model.
 model: mae_vit_large

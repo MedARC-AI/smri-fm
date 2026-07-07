@@ -35,7 +35,12 @@ from .modules import (
     SinCosPosEmbed3D,
     unpack_tokens,
 )
-from .masking import pad_patch_mask
+from .masking import (
+    MaskingStrategy,
+    block_patch_mask,
+    patch_ids_from_mask,
+    pad_patch_mask,
+)
 
 
 class MaskedEncoder(nn.Module):
@@ -168,6 +173,11 @@ class MaskedEncoder(nn.Module):
         mask: Tensor | None = None,
         mask_ratio: float | None = None,
         pad_to_multiple: int | None = None,
+        masking_strategy: MaskingStrategy = "random",
+        block_mask_fraction: float = 0.7,
+        block_mask_min_size: int | Sequence[int] = 2,
+        block_mask_max_size: int | Sequence[int] = 6,
+        return_block_mask: bool = False,
     ) -> tuple[
         Float[Tensor, "B 1 D"] | None,
         Float[Tensor, "B R D"] | None,
@@ -175,11 +185,20 @@ class MaskedEncoder(nn.Module):
         Tensor | None,
         Int[Tensor, "B L"] | None,
         Tensor | None,
+    ] | tuple[
+        Float[Tensor, "B 1 D"] | None,
+        Float[Tensor, "B R D"] | None,
+        Float[Tensor, "B L D"],
+        Tensor | None,
+        Int[Tensor, "B L"] | None,
+        Tensor | None,
+        Tensor | None,
     ]:
         """
         x: input data shape [B, C, D, H, W] 
-        mask: visible mask, 1 = visible, 0 = invisible. broadcastable shape
-        mask_ratio: mask ratio for uniform random masking
+        mask: valid data mask, 1 = visible candidate, 0 = invalid. broadcastable shape
+        mask_ratio: ratio of valid patches hidden from the encoder
+        masking_strategy: random independent patches or mixed block/random patches
 
         returns:
         - cls_embeds: [B, 1, D]
@@ -215,15 +234,35 @@ class MaskedEncoder(nn.Module):
         # patch and position embed
         x = self.patch_embed(x)
         x = self.pos_embed(x)
+        block_hidden_mask = None
 
         if mask is not None or mask_ratio is not None:
             mask_ratio = 0.0 if mask_ratio is None else mask_ratio
-            patch_mask, mask_ids, token_mask = pad_patch_mask(
-                patch_mask,
-                mask_ratio=mask_ratio,
-                shuffle=mask_ratio > 0,
-                pad_to_multiple=pad_to_multiple,
-            )
+            if masking_strategy == "block":
+                patch_mask, block_patch_hidden = block_patch_mask(
+                    patch_mask,
+                    grid_size=self.patchify.grid_size,
+                    mask_ratio=mask_ratio,
+                    block_fraction=block_mask_fraction,
+                    block_size_min=block_mask_min_size,
+                    block_size_max=block_mask_max_size,
+                    return_block_mask=True,
+                )
+                block_hidden_patches = block_patch_hidden.unsqueeze(-1).expand(-1, -1, P)
+                block_hidden_mask = self.patchify.unpatchify(block_hidden_patches)
+                mask_ids, token_mask = patch_ids_from_mask(
+                    patch_mask,
+                    pad_to_multiple=pad_to_multiple,
+                )
+            elif masking_strategy == "random":
+                patch_mask, mask_ids, token_mask = pad_patch_mask(
+                    patch_mask,
+                    mask_ratio=mask_ratio,
+                    shuffle=mask_ratio > 0,
+                    pad_to_multiple=pad_to_multiple,
+                )
+            else:
+                raise ValueError(f"unknown masking_strategy {masking_strategy!r}")
 
             mask_patches = mask_patches & patch_mask.unsqueeze(-1)
             mask = self.patchify.unpatchify(mask_patches)
@@ -236,6 +275,16 @@ class MaskedEncoder(nn.Module):
             x,
             token_mask=token_mask,
         )
+        if return_block_mask:
+            return (
+                cls_embeds,
+                reg_embeds,
+                patch_embeds,
+                mask,
+                mask_ids,
+                token_mask,
+                block_hidden_mask,
+            )
         return cls_embeds, reg_embeds, patch_embeds, mask, mask_ids, token_mask
 
     def forward_patch_embeds(
@@ -716,6 +765,10 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         mask_ratio: float,
         pred_mask_ratio: float | None = None,
         pad_to_multiple: int | None = None,
+        masking_strategy: MaskingStrategy = "random",
+        block_mask_fraction: float = 0.7,
+        block_mask_min_size: int | Sequence[int] = 2,
+        block_mask_max_size: int | Sequence[int] = 6,
         with_state: bool = True,
     ) -> Tensor | tuple[Tensor, dict]:
         img_mask, visible_mask, pred_mask = self.prepare_masks(
@@ -733,11 +786,17 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
             visible_mask,
             visible_ids,
             visible_token_mask,
+            block_hidden_mask,
         ) = self.encoder(
             images,
             mask=visible_mask,
             mask_ratio=mask_ratio,
             pad_to_multiple=pad_to_multiple,
+            masking_strategy=masking_strategy,
+            block_mask_fraction=block_mask_fraction,
+            block_mask_min_size=block_mask_min_size,
+            block_mask_max_size=block_mask_max_size,
+            return_block_mask=True,
         )
 
         pred_mask_patches, pred_ids, pred_token_mask = self.prepare_pred_mask(
@@ -786,6 +845,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
             "visible_mask": visible_mask,
             "visible_ids": visible_ids,
             "visible_token_mask": visible_token_mask,
+            "block_hidden_mask": block_hidden_mask,
             "pred_mask": pred_mask,
             "pred_ids": pred_ids,
             "pred_token_mask": pred_token_mask,
