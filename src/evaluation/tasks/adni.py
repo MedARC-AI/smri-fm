@@ -11,12 +11,12 @@ from evaluation.tasks.metrics import (
 )
 from evaluation.tasks.registry import register_task
 
-ADNI_EVAL_REPO_ID = "medarc/adni-mini"
+ADNI_EVAL_REPO_ID = "medarc/adni-mini-v1-1"
 IMAGE_COLUMN = "nifti"
 
 
 def load_adni_eval() -> Dataset:
-    return load_dataset(ADNI_EVAL_REPO_ID)["test"]
+    return load_dataset(ADNI_EVAL_REPO_ID)["eval"]
 
 
 def _filter_diagnoses(data: Dataset, labels: set[str]) -> Dataset:
@@ -35,7 +35,7 @@ def adni_age(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         target_column="age",
         n_splits=n_splits,
         seed=seed,
-        metric_fns=(r2,),
+        metric_fns=(r2, pearson_r),
     )
 
 
@@ -57,7 +57,7 @@ def adni_sex(n_splits: int = 5, seed: int = 0) -> ColumnTask:
 
 @register_task
 def adni_ad_cn(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """Binary AD-vs-CN diagnosis classification (MCI dropped)."""
+    """Binary AD-vs-CN diagnosis classification (MCI dropped). Sanity task."""
     data = _filter_diagnoses(load_adni_eval(), {"CN", "AD"})
     return ColumnTask(
         name="adni_ad_cn",
@@ -74,7 +74,7 @@ def adni_ad_cn(n_splits: int = 5, seed: int = 0) -> ColumnTask:
 
 @register_task
 def adni_cn_mci_ad(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """3-way diagnosis classification over CN / MCI / AD scans."""
+    """3-way diagnosis classification over CN / MCI / AD (staging)."""
     data = load_adni_eval()
     return ColumnTask(
         name="adni_cn_mci_ad",
@@ -90,24 +90,8 @@ def adni_cn_mci_ad(n_splits: int = 5, seed: int = 0) -> ColumnTask:
 
 
 @register_task
-def adni_amyloid_status(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """Amyloid-PET positivity."""
-    return ColumnTask(
-        name="adni_amyloid_status",
-        kind="classification",
-        data=load_adni_eval(),
-        image_column=IMAGE_COLUMN,
-        target_column="amyloid_status",
-        n_splits=n_splits,
-        seed=seed,
-        metric_fns=(bacc, auroc),
-        positive_label=1.0,
-    )
-
-
-@register_task
 def adni_amyloid_centiloid(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """Amyloid burden in centiloids."""
+    """Amyloid burden in centiloids (all diagnoses)."""
     return ColumnTask(
         name="adni_amyloid_centiloid",
         kind="regression",
@@ -116,29 +100,59 @@ def adni_amyloid_centiloid(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         target_column="amyloid_centiloid",
         n_splits=n_splits,
         seed=seed,
-        metric_fns=(pearson_r,),
+        metric_fns=(pearson_r, r2),
     )
 
 
 @register_task
-def adni_tau_status(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """Tau-PET positivity."""
+def adni_amyloid_centiloid_cn(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """Centiloid within CN — primary preclinical amyloid task."""
+    data = _filter_diagnoses(load_adni_eval(), {"CN"})
     return ColumnTask(
-        name="adni_tau_status",
-        kind="classification",
-        data=load_adni_eval(),
+        name="adni_amyloid_centiloid_cn",
+        kind="regression",
+        data=data,
         image_column=IMAGE_COLUMN,
-        target_column="tau_status",
+        target_column="amyloid_centiloid",
         n_splits=n_splits,
         seed=seed,
-        metric_fns=(bacc, auroc),
-        positive_label=1.0,
+        metric_fns=(pearson_r, r2),
+    )
+
+
+@register_task
+def adni_amyloid_centiloid_mci(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    data = _filter_diagnoses(load_adni_eval(), {"MCI"})
+    return ColumnTask(
+        name="adni_amyloid_centiloid_mci",
+        kind="regression",
+        data=data,
+        image_column=IMAGE_COLUMN,
+        target_column="amyloid_centiloid",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, r2),
+    )
+
+
+@register_task
+def adni_amyloid_centiloid_ad(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    data = _filter_diagnoses(load_adni_eval(), {"AD"})
+    return ColumnTask(
+        name="adni_amyloid_centiloid_ad",
+        kind="regression",
+        data=data,
+        image_column=IMAGE_COLUMN,
+        target_column="amyloid_centiloid",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, r2),
     )
 
 
 @register_task
 def adni_tau_suvr(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """Tau burden in meta-temporal SUVR."""
+    """Tau burden in meta-temporal SUVR (all diagnoses)."""
     return ColumnTask(
         name="adni_tau_suvr",
         kind="regression",
@@ -147,13 +161,43 @@ def adni_tau_suvr(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         target_column="tau_suvr",
         n_splits=n_splits,
         seed=seed,
-        metric_fns=(pearson_r,),
+        metric_fns=(pearson_r, r2),
+    )
+
+
+@register_task
+def adni_tau_suvr_cn(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """Tau SUVR within CN — primary stratified tau task."""
+    data = _filter_diagnoses(load_adni_eval(), {"CN}")
+    return ColumnTask(
+        name="adni_tau_suvr_cn",
+        kind="regression",
+        data=data,
+        image_column=IMAGE_COLUMN,
+        target_column="tau_suvr",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, r2),
+    )
+
+
+@register_task
+def adni_tau_suvr_mci(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    data = _filter_diagnoses(load_adni_eval(), {"MCI"})
+    return ColumnTask(
+        name="adni_tau_suvr_mci",
+        kind="regression",
+        data=data,
+        image_column=IMAGE_COLUMN,
+        target_column="tau_suvr",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, r2),
     )
 
 
 @register_task
 def adni_csf_abeta(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """CSF Abeta42."""
     return ColumnTask(
         name="adni_csf_abeta",
         kind="regression",
@@ -168,7 +212,6 @@ def adni_csf_abeta(n_splits: int = 5, seed: int = 0) -> ColumnTask:
 
 @register_task
 def adni_csf_ptau(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """CSF p-tau."""
     return ColumnTask(
         name="adni_csf_ptau",
         kind="regression",
@@ -183,7 +226,6 @@ def adni_csf_ptau(n_splits: int = 5, seed: int = 0) -> ColumnTask:
 
 @register_task
 def adni_csf_ttau(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """CSF t-tau."""
     return ColumnTask(
         name="adni_csf_ttau",
         kind="regression",
@@ -197,18 +239,33 @@ def adni_csf_ttau(n_splits: int = 5, seed: int = 0) -> ColumnTask:
 
 
 @register_task
-def adni_mci_conversion(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """MCI to AD conversion within 36 months."""
+def adni_csf_abeta_cn(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    data = _filter_diagnoses(load_adni_eval(), {"CN"})
     return ColumnTask(
-        name="adni_mci_conversion",
-        kind="classification",
-        data=load_adni_eval(),
+        name="adni_csf_abeta_cn",
+        kind="regression",
+        data=data,
         image_column=IMAGE_COLUMN,
-        target_column="conversion_3y",
+        target_column="csf_abeta",
         n_splits=n_splits,
         seed=seed,
-        metric_fns=(bacc, auroc),
-        positive_label=1.0,
+        metric_fns=(spearman_r,),
+    )
+
+
+@register_task
+def adni_mci_conversion_time(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """Continuous time-to-AD (months) among labeled MCI subjects."""
+    data = _filter_diagnoses(load_adni_eval(), {"MCI"})
+    return ColumnTask(
+        name="adni_mci_conversion_time",
+        kind="regression",
+        data=data,
+        image_column=IMAGE_COLUMN,
+        target_column="conversion_time_months",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, r2),
     )
 
 
