@@ -24,6 +24,37 @@ Layer = Type[nn.Module]
 # Transformer modules adapted from capi (but removed the efficient residual)
 
 
+def jagged_scaled_dot_product_attention(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    query_mask: Tensor,
+    key_mask: Tensor,
+) -> Tensor:
+    """Run SDPA on packed variable-length sequences and restore padding."""
+    query_mask = query_mask.to(device=query.device, dtype=torch.bool)
+    key_mask = key_mask.to(device=query.device, dtype=torch.bool)
+
+    def pack(tokens: Tensor, mask: Tensor) -> Tensor:
+        counts = mask.sum(dim=1)
+        offsets = F.pad(counts.cumsum(dim=0), (1, 0))
+        values = tokens.transpose(1, 2)[mask]
+        return torch.nested.nested_tensor_from_jagged(values, offsets).transpose(1, 2)
+
+    output_jagged = F.scaled_dot_product_attention(
+        pack(query, query_mask),
+        pack(key, key_mask),
+        pack(value, key_mask),
+    )
+    output_values = output_jagged.transpose(1, 2).values()
+    batch_ids, token_ids = query_mask.nonzero(as_tuple=True)
+    output = torch.zeros_like(query.transpose(1, 2)).index_put(
+        (batch_ids, token_ids),
+        output_values,
+    )
+    return output.transpose(1, 2)
+
+
 class Attention(nn.Module):
     def __init__(
         self,
@@ -72,15 +103,13 @@ class Attention(nn.Module):
             q, k, v = qkv.unbind(0)
             key_mask = token_mask
 
-        attn_mask = None
-        if key_mask is not None:
-            key_mask = key_mask.to(device=x.device, dtype=torch.bool)
-            attn_mask = key_mask[:, None, None, :]
-            if token_mask is not None:
-                query_mask = token_mask.to(device=x.device, dtype=torch.bool)
-                attn_mask = attn_mask & query_mask[:, None, :, None]
-
-        x = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
+        x = jagged_scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            query_mask=token_mask,
+            key_mask=key_mask,
+        )
         x = x.transpose(1, 2).reshape(B, N, D)
         x = self.proj(x)
         if token_mask is not None:

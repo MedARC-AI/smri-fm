@@ -45,6 +45,7 @@ def main(args: DictConfig):
     is_master = global_rank == 0
     world_size = ut.get_world_size()
     device = torch.device(args.device)
+    ut.configure_sdpa_backend(args.get("sdpa_backend", "flash"), device)
     ut.random_seed(args.seed, rank=global_rank)
 
     if args.name and not args.output_dir.endswith(args.name):
@@ -262,8 +263,6 @@ def train_one_epoch(
 
     print_freq = args.get("print_freq", 100) if not args.debug else 1
     num_batches = epoch_num_batches if not args.debug else 10
-    masking_policy = "per_sample_pad" if args.get("per_sample_pad", False) else "batch_min"
-
     amp_dtype = getattr(torch, args.amp_dtype)
     use_cuda = device.type == "cuda"
     if use_cuda and args.presend_cuda:
@@ -302,7 +301,7 @@ def train_one_epoch(
                     img_mask=img_mask,
                     mask_ratio=args.mask_ratio,
                     pred_mask_ratio=args.pred_mask_ratio,
-                    masking_policy=masking_policy,
+                    pad_to_multiple=args.pad_to_multiple,
                     with_state=False,
                 )
 
@@ -365,7 +364,6 @@ def evaluate(
     num_batches = min(num_batches, epoch_num_batches)
     eval_seed = int(args.get("eval_seed", args.seed)) + ut.get_rank()
     example_step = random.Random(eval_seed).randint(1, num_batches)
-    masking_policy = "per_sample_pad" if args.get("per_sample_pad", False) else "batch_min"
     amp_dtype = getattr(torch, args.amp_dtype)
     use_cuda = device.type == "cuda"
     rng_state = ut.capture_rng_state()
@@ -397,7 +395,7 @@ def evaluate(
                 img_mask=img_mask,
                 mask_ratio=args.mask_ratio,
                 pred_mask_ratio=args.pred_mask_ratio,
-                masking_policy=masking_policy,
+                pad_to_multiple=args.pad_to_multiple,
             )
 
         loss_value = loss.detach().float().item()

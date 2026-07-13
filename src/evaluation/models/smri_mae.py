@@ -17,10 +17,12 @@ class SmriMaeBackbone(nn.Module):
         self,
         encoder: models_mae.MaskedEncoder,
         global_pool: Literal["cls", "reg", "patch"] = "patch",
+        pad_to_multiple: int | None = 128,
     ):
         super().__init__()
         self.encoder = encoder
         self.global_pool = global_pool
+        self.pad_to_multiple = pad_to_multiple
 
     def forward(self, batch: dict[str, Tensor]) -> Tensor:
         images = batch["image"]
@@ -29,7 +31,7 @@ class SmriMaeBackbone(nn.Module):
         cls, reg, patch, _, _, token_mask = self.encoder(
             images,
             mask=mask,
-            masking_policy="per_sample_pad",
+            pad_to_multiple=self.pad_to_multiple,
         )
 
         if self.global_pool == "cls":
@@ -132,7 +134,11 @@ def smri_mae(ckpt_path: str, global_pool: str = "patch"):
     )
     model.load_state_dict(ckpt["model"])
 
-    backbone = SmriMaeBackbone(model.encoder, global_pool=global_pool)
+    backbone = SmriMaeBackbone(
+        model.encoder,
+        global_pool=global_pool,
+        pad_to_multiple=args.get("pad_to_multiple", 128),
+    )
     transform = SmriMaeTransform(img_size=args["img_size"])
 
     return backbone, transform

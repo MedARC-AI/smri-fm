@@ -33,6 +33,21 @@ from torch.optim import Optimizer
 # thanks to the original authors, wherever you are
 
 
+def configure_sdpa_backend(name: str, device: torch.device) -> None:
+    """Restrict CUDA SDPA to a requested backend, or enable automatic selection."""
+    if name not in ("auto", "flash"):
+        raise ValueError(f"unknown sdpa_backend {name!r}; expected 'auto' or 'flash'")
+    if device.type != "cuda":
+        return
+
+    auto = name == "auto"
+    torch.backends.cuda.enable_flash_sdp(True)
+    torch.backends.cuda.enable_mem_efficient_sdp(auto)
+    torch.backends.cuda.enable_math_sdp(auto)
+    torch.backends.cuda.enable_cudnn_sdp(auto)
+    print(f"SDPA backend: {name}")
+
+
 class SmoothedValue:
     """Track a series of values and provide access to smoothed values over a
     window or the global series average.

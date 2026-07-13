@@ -34,11 +34,7 @@ from .modules import (
     SinCosPosEmbed3D,
     Normalize,
 )
-from .masking import (
-    MaskingPolicy,
-    pad_patch_mask,
-    trim_patch_mask,
-)
+from .masking import pad_patch_mask
 
 
 class MaskedEncoder(nn.Module):
@@ -174,7 +170,7 @@ class MaskedEncoder(nn.Module):
         x: Tensor,
         mask: Tensor | None = None,
         mask_ratio: float | None = None,
-        masking_policy: MaskingPolicy = "batch_min",
+        pad_to_multiple: int | None = None,
     ) -> tuple[
         Float[Tensor, "B 1 D"] | None,
         Float[Tensor, "B R D"] | None,
@@ -225,19 +221,12 @@ class MaskedEncoder(nn.Module):
 
         if mask is not None or mask_ratio is not None:
             mask_ratio = 0.0 if mask_ratio is None else mask_ratio
-            token_mask = None
-            if masking_policy == "per_sample_pad":
-                patch_mask, mask_ids, token_mask = pad_patch_mask(
-                    patch_mask,
-                    mask_ratio=mask_ratio,
-                    shuffle=mask_ratio > 0,
-                )
-            else:
-                patch_mask, mask_ids = trim_patch_mask(
-                    patch_mask,
-                    mask_ratio=mask_ratio,
-                    shuffle=mask_ratio > 0,
-                )
+            patch_mask, mask_ids, token_mask = pad_patch_mask(
+                patch_mask,
+                mask_ratio=mask_ratio,
+                shuffle=mask_ratio > 0,
+                pad_to_multiple=pad_to_multiple,
+            )
 
             mask_patches = mask_patches & patch_mask.unsqueeze(-1)
             mask = self.patchify.unpatchify(mask_patches)
@@ -661,7 +650,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         visible_mask: Tensor,
         pred_mask: Tensor | None = None,
         pred_mask_ratio: float | None = None,
-        masking_policy: MaskingPolicy = "batch_min",
+        pad_to_multiple: int | None = None,
     ):
         """
         prepare prediction mask by removing visible content
@@ -678,19 +667,12 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         # Randomize even when keeping all prediction candidates, because samples with
         # more valid brain patches are trimmed to the batch minimum.
         mask_ratio = 0.0 if pred_mask_ratio is None else pred_mask_ratio
-        pred_token_mask = None
-        if masking_policy == "per_sample_pad":
-            pred_patch_mask, pred_ids, pred_token_mask = pad_patch_mask(
-                pred_patch_mask,
-                mask_ratio=mask_ratio,
-                shuffle=True,
-            )
-        else:
-            pred_patch_mask, pred_ids = trim_patch_mask(
-                pred_patch_mask,
-                mask_ratio=mask_ratio,
-                shuffle=True,
-            )
+        pred_patch_mask, pred_ids, pred_token_mask = pad_patch_mask(
+            pred_patch_mask,
+            mask_ratio=mask_ratio,
+            shuffle=True,
+            pad_to_multiple=pad_to_multiple,
+        )
         pred_mask_patches = pred_mask_patches & pred_patch_mask.unsqueeze(-1)
         return pred_mask_patches, pred_ids, pred_token_mask
 
@@ -758,7 +740,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         if pred_token_mask is not None:
             preds = preds.masked_fill(~pred_token_mask.unsqueeze(-1), 0)
 
-        preds = torch.zeros((B, N, P), dtype=preds.dtype, device=preds.device).scatter_(
+        preds = torch.zeros((B, N, P), dtype=preds.dtype, device=preds.device).scatter_add_(
             1, pred_ids.unsqueeze(-1).expand(-1, -1, P), preds
         )
 
@@ -777,7 +759,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         img_mask: Tensor,
         mask_ratio: float,
         pred_mask_ratio: float | None = None,
-        masking_policy: MaskingPolicy = "batch_min",
+        pad_to_multiple: int | None = None,
         with_state: bool = True,
     ) -> Tensor | tuple[Tensor, dict[str, Tensor]] | tuple[Tensor, dict]:
         img_mask, visible_mask, pred_mask = self.prepare_masks(
@@ -799,14 +781,14 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
             images,
             mask=visible_mask,
             mask_ratio=mask_ratio,
-            masking_policy=masking_policy,
+            pad_to_multiple=pad_to_multiple,
         )
 
         pred_mask_patches, pred_ids, pred_token_mask = self.prepare_pred_mask(
             visible_mask,
             pred_mask=pred_mask,
             pred_mask_ratio=pred_mask_ratio,
-            masking_policy=masking_policy,
+            pad_to_multiple=pad_to_multiple,
         )
 
         preds = self.forward_decoder(
@@ -924,10 +906,16 @@ class MaskedViT(MaskedEncoder, PyTorchModelHubMixin):
         x: Tensor,
         mask: Tensor | None = None,
         mask_ratio: float | None = None,
+        pad_to_multiple: int | None = None,
     ):
         if mask is not None:
             mask = mask.to(device=x.device, dtype=x.dtype)
-        return super().forward(x, mask=mask, mask_ratio=mask_ratio)
+        return super().forward(
+            x,
+            mask=mask,
+            mask_ratio=mask_ratio,
+            pad_to_multiple=pad_to_multiple,
+        )
 
     def forward_embedding(
         self,

@@ -15,7 +15,7 @@ patch_size: 8
 # Masking.
 mask_ratio: 0.80
 pred_mask_ratio: null
-per_sample_pad: true
+pad_to_multiple: 128
 
 # Model.
 model: mae_vit_large
@@ -75,6 +75,7 @@ clip_grad: 1.0
 
 amp: true
 amp_dtype: bfloat16
+sdpa_backend: flash  # flash or auto
 
 compile: false
 
