@@ -33,7 +33,6 @@ class ColumnTask:
     positive_label: object | None = None
 
     def __post_init__(self):
-        self._metric_fns = self.metric_fns
         targets = np.asarray(self.data[self.target_column])
         present = pd.notna(targets)
         valid = present if present.ndim == 1 else present.all(axis=tuple(range(1, present.ndim)))
@@ -69,9 +68,9 @@ class ColumnTask:
         test_idx: np.ndarray,
         y_score: np.ndarray | None = None,
     ) -> dict:
-        if self._metric_fns is not None:
+        if self.metric_fns is not None:
             scores = {}
-            for metric_fn in self._metric_fns:
+            for metric_fn in self.metric_fns:
                 value = metric_fn(
                     y_true,
                     y_pred,

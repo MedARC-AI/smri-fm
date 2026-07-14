@@ -1,8 +1,7 @@
-import json
 import math
 from functools import partial
 from glob import glob
-from typing import Any, Sequence
+from typing import Sequence
 
 import braceexpand
 import numpy as np
@@ -16,15 +15,15 @@ def collate(
     *,
     include_meta: bool = True,
 ) -> dict[str, Tensor]:
-    masks = [torch.as_tensor(sample["img_mask"].copy()) for sample in samples]
+    masks = [torch.as_tensor(sample["img_mask"]) for sample in samples]
     batch = {"img_mask": torch.stack(masks)}
     image_values = [
-        torch.as_tensor(sample["image_values"].copy(), dtype=torch.float16) for sample in samples
+        torch.as_tensor(sample["image_values"], dtype=torch.float16) for sample in samples
     ]
     batch["image_values"] = torch.cat(image_values)
 
     if include_meta:
-        batch["meta"] = [make_collatable(sample["meta"]) for sample in samples]
+        batch["meta"] = [sample["meta"] for sample in samples]
     return batch
 
 
@@ -63,21 +62,6 @@ def densify_sparse_image_batch(
     )
     images[masks] = image_values.to(dtype=dtype)
     return images, masks
-
-
-def make_collatable(value: Any) -> Any:
-    """Replace JSON null values in metadata dictionaries for PyTorch collation.
-
-    Lists and tuples are stringified because variable-length sequences in
-    metadata break `torch.utils.data.default_collate`.
-    """
-    if value is None:
-        return ""
-    if isinstance(value, dict):
-        return {key: make_collatable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return json.dumps(value)
-    return value
 
 
 def expand_urls(urls: str | list[str]) -> list[str]:

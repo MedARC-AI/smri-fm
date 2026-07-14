@@ -1,6 +1,7 @@
 import importlib
 import logging
 import pkgutil
+from inspect import signature
 from typing import Callable
 
 import evaluation.tasks
@@ -33,10 +34,13 @@ def register_task(name_or_func: str | Callable[..., Task] | None = None):
     return _decorator
 
 
-def create_task(name: str, **kwargs) -> Task:
+def create_task(name: str, *, default_seed: int | None = None, **kwargs) -> Task:
     if name not in _TASK_REGISTRY:
         raise ValueError(f"Task {name} not registered")
-    return _TASK_REGISTRY[name](**kwargs)
+    task_builder = _TASK_REGISTRY[name]
+    if default_seed is not None and "seed" in signature(task_builder).parameters:
+        kwargs.setdefault("seed", default_seed)
+    return task_builder(**kwargs)
 
 
 def list_tasks() -> list[str]:

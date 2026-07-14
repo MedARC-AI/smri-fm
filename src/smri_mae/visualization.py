@@ -3,9 +3,9 @@ from io import BytesIO
 
 import torch
 
-from matplotlib import patches
 from matplotlib import pyplot as plt
 from PIL import Image
+from timm.layers import to_3tuple
 from torch import Tensor
 
 VIEW_NAMES = {
@@ -14,6 +14,9 @@ VIEW_NAMES = {
     "axial": "Axial",
     "coronal": "Coronal",
 }
+
+BLOCK_MASK_COLOR = (0.12, 0.23, 0.55)
+RANDOM_MASK_COLOR = (0.57, 0.25, 0.05)
 
 
 def fig2pil(fig) -> Image.Image:
@@ -48,8 +51,8 @@ def raw_stats_from_batch(batch: dict) -> tuple[Tensor | None, Tensor | None]:
 def plot_mask_pred(
     target: Tensor,
     pred: Tensor,
-    visible_mask: Tensor | None = None,
     pred_mask: Tensor | None = None,
+    block_mask: Tensor | None = None,
     img_mask: Tensor | None = None,
     sample_idx: int = 0,
     channel_idx: int = 0,
@@ -58,12 +61,15 @@ def plot_mask_pred(
     views: tuple[str, ...] = ("sagittal", "axial", "coronal"),
     cmap: str = "gray",
     figsize: tuple[float, float] | None = None,
-    mask_style: str = "blank",
     raw_mean: float | Tensor | None = None,
     raw_std: float | Tensor | None = None,
 ):
-    del visible_mask
+    """
+    Plot masked input, reconstruction composite, and target slices.
 
+    When ``block_mask`` is provided, the masked input row colors block-hidden
+    pixels blue and random-hidden pixels amber.
+    """
     target_vol = _select_volume(target, sample_idx=sample_idx, channel_idx=channel_idx)
     pred_vol = _select_volume(pred, sample_idx=sample_idx, channel_idx=channel_idx)
     if raw_mean is not None and raw_std is not None:
@@ -76,6 +82,11 @@ def plot_mask_pred(
         if pred_mask is None
         else _select_volume(pred_mask, sample_idx=sample_idx, channel_idx=channel_idx) > 0
     )
+    block_mask_vol = None
+    if block_mask is not None:
+        block_mask_vol = (
+            _select_volume(block_mask, sample_idx=sample_idx, channel_idx=channel_idx) > 0
+        )
     img_mask_vol = None
     if img_mask is not None:
         img_mask_vol = _select_volume(img_mask, sample_idx=sample_idx, channel_idx=channel_idx) > 0
@@ -83,7 +94,7 @@ def plot_mask_pred(
     composite_vol = _prediction_composite(target_vol, pred_vol, pred_mask_vol)
     vmin, vmax = _intensity_limits(target_vol, img_mask_vol)
 
-    patch_size = _as_3tuple(patch_size)
+    patch_size = to_3tuple(patch_size)
     view_items = []
     for view in views:
         view_key = view.lower()
@@ -92,6 +103,11 @@ def plot_mask_pred(
         target_slice = _extract_view_slice(target_vol, view_key, slice_idx)
         composite_slice = _extract_view_slice(composite_vol, view_key, slice_idx)
         mask_slice = _extract_view_slice(pred_mask_vol.float(), view_key, slice_idx) > 0
+        block_mask_slice = None
+        if block_mask_vol is not None:
+            block_mask_slice = (
+                _extract_view_slice(block_mask_vol.float(), view_key, slice_idx) > 0
+            )
         img_mask_slice = None
         if img_mask_vol is not None:
             img_mask_slice = _extract_view_slice(img_mask_vol.float(), view_key, slice_idx) > 0
@@ -99,10 +115,18 @@ def plot_mask_pred(
             {
                 "key": view_key,
                 "title": VIEW_NAMES[view_key],
-                "target": _masked_input_display(target_slice, mask_slice, img_mask_slice, vmin),
+                "target": _masked_input_display(
+                    target_slice,
+                    mask_slice,
+                    img_mask_slice,
+                    vmin,
+                    vmax,
+                    block_mask_slice,
+                ),
                 "composite": _apply_display_mask(composite_slice, img_mask_slice, vmin),
                 "actual": _apply_display_mask(target_slice, img_mask_slice, vmin),
                 "mask": mask_slice,
+                "block_mask": block_mask_slice,
                 "img_mask": img_mask_slice,
                 "patch_rc": _view_patch_size(view_key, patch_size),
             }
@@ -122,41 +146,24 @@ def plot_mask_pred(
             fontsize=7,
         )
     for label, y in zip(("Masked", "Pred", "Actual"), layout["row_centers"]):
-        fig.text(layout["label_x"], y, label, ha="right", va="center", color="#cbd5e1", fontsize=6)
+        fig.text(
+            layout["label_x"],
+            y,
+            label,
+            ha="right",
+            va="center",
+            color="#cbd5e1",
+            fontsize=6,
+        )
 
     for item, top_ax, middle_ax, bottom_ax in zip(view_items, axes[0], axes[1], axes[2]):
-        top_ax.imshow(
-            item["target"],
-            cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            interpolation="nearest",
-            origin="upper",
-        )
-        if mask_style == "boxes":
-            _draw_patch_boxes(top_ax, item["mask"], item["patch_rc"])
-        elif mask_style != "blank":
-            raise ValueError("mask_style must be 'blank' or 'boxes'")
+        _imshow(top_ax, item["target"], cmap=cmap, vmin=vmin, vmax=vmax)
         _style_axis(top_ax)
 
-        middle_ax.imshow(
-            item["composite"],
-            cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            interpolation="nearest",
-            origin="upper",
-        )
+        _imshow(middle_ax, item["composite"], cmap=cmap, vmin=vmin, vmax=vmax)
         _style_axis(middle_ax)
 
-        bottom_ax.imshow(
-            item["actual"],
-            cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            interpolation="nearest",
-            origin="upper",
-        )
+        _imshow(bottom_ax, item["actual"], cmap=cmap, vmin=vmin, vmax=vmax)
         _style_axis(bottom_ax)
     return fig
 
@@ -183,28 +190,6 @@ def _select_scalar(value: float | Tensor, sample_idx: int = 0) -> float:
             value = value.reshape(-1)[sample_idx]
         return float(value)
     return float(value)
-
-
-def _central_slice(
-    x: Tensor,
-    sample_idx: int = 0,
-    channel_idx: int = 0,
-    slice_idx: int | None = None,
-) -> Tensor:
-    x = x.detach().float().cpu()
-    if x.ndim == 5:
-        depth = x.shape[2]
-        slice_idx = depth // 2 if slice_idx is None else slice_idx
-        return x[sample_idx, channel_idx, slice_idx]
-    if x.ndim == 4:
-        return x[sample_idx, channel_idx]
-    if x.ndim == 3:
-        depth = x.shape[0]
-        slice_idx = depth // 2 if slice_idx is None else slice_idx
-        return x[slice_idx]
-    if x.ndim == 2:
-        return x
-    raise ValueError(f"expected a 2D image or 3D volume tensor, got shape {tuple(x.shape)}")
 
 
 def _prediction_composite(target: Tensor, pred: Tensor, pred_mask: Tensor) -> Tensor:
@@ -268,9 +253,43 @@ def _masked_input_display(
     pred_mask: Tensor,
     img_mask: Tensor | None,
     fill_value: float,
+    max_value: float,
+    block_mask: Tensor | None = None,
 ) -> Tensor:
+    if block_mask is not None:
+        return _masked_input_rgb_display(
+            image,
+            pred_mask,
+            img_mask,
+            min_value=fill_value,
+            max_value=max_value,
+            block_mask=block_mask,
+        )
     display = torch.where(pred_mask, torch.full_like(image, fill_value), image)
     return _apply_display_mask(display, img_mask, fill_value)
+
+
+def _masked_input_rgb_display(
+    image: Tensor,
+    pred_mask: Tensor,
+    img_mask: Tensor | None,
+    min_value: float,
+    max_value: float,
+    block_mask: Tensor,
+) -> Tensor:
+    scale = max(max_value - min_value, 1e-6)
+    gray = ((image - min_value) / scale).clamp(0.0, 1.0)
+    if img_mask is not None:
+        gray = torch.where(img_mask, gray, torch.zeros_like(gray))
+        pred_mask = pred_mask & img_mask
+        block_mask = block_mask & img_mask
+
+    rgb = gray.unsqueeze(-1).repeat(1, 1, 3)
+    block_pixels = pred_mask & block_mask
+    random_pixels = pred_mask & ~block_mask
+    rgb[block_pixels] = image.new_tensor(BLOCK_MASK_COLOR)
+    rgb[random_pixels] = image.new_tensor(RANDOM_MASK_COLOR)
+    return rgb
 
 
 def _crop_view_items(view_items: list[dict]) -> None:
@@ -298,14 +317,6 @@ def _content_crop(mask: Tensor, patch_size: tuple[int, int]) -> tuple[slice, sli
     col0 = max((int(cols.min()) // patch_w - 1) * patch_w, 0)
     col1 = min((int(cols.max()) // patch_w + 2) * patch_w, width)
     return slice(row0, row1), slice(col0, col1)
-
-
-def _as_3tuple(value: int | tuple[int, int, int]) -> tuple[int, int, int]:
-    if isinstance(value, int):
-        return (value, value, value)
-    if len(value) != 3:
-        raise ValueError(f"expected a 3-tuple patch size, got {value!r}")
-    return tuple(int(v) for v in value)
 
 
 def _view_patch_size(view: str, patch_size: tuple[int, int, int]) -> tuple[int, int]:
@@ -381,45 +392,18 @@ def _make_figure_canvas(
     return fig, axes, layout
 
 
+def _imshow(ax, image: Tensor, cmap: str, vmin: float, vmax: float) -> None:
+    kwargs = {
+        "interpolation": "nearest",
+        "origin": "upper",
+    }
+    if image.ndim == 2:
+        kwargs.update({"cmap": cmap, "vmin": vmin, "vmax": vmax})
+    ax.imshow(image, **kwargs)
+
+
 def _style_axis(ax) -> None:
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
         spine.set_visible(False)
-
-
-def _draw_patch_boxes(
-    ax,
-    mask: Tensor,
-    patch_size: tuple[int, int],
-    color: str = "#facc15",
-) -> None:
-    for col, row, width, height in _patch_rectangles(mask, patch_size):
-        ax.add_patch(
-            patches.Rectangle(
-                (col - 0.5, row - 0.5),
-                width,
-                height,
-                fill=False,
-                edgecolor=color,
-                linewidth=0.75,
-                alpha=0.95,
-            )
-        )
-
-
-def _patch_rectangles(
-    mask: Tensor,
-    patch_size: tuple[int, int],
-) -> list[tuple[int, int, int, int]]:
-    mask = mask.detach().cpu() > 0
-    patch_h, patch_w = patch_size
-    height, width = mask.shape
-    rectangles = []
-    for row in range(0, height, patch_h):
-        box_h = min(patch_h, height - row)
-        for col in range(0, width, patch_w):
-            box_w = min(patch_w, width - col)
-            if mask[row : row + box_h, col : col + box_w].any():
-                rectangles.append((col, row, box_w, box_h))
-    return rectangles

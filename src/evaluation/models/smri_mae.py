@@ -17,23 +17,31 @@ class SmriMaeBackbone(nn.Module):
         self,
         encoder: models_mae.MaskedEncoder,
         global_pool: Literal["cls", "reg", "patch"] = "patch",
+        pad_to_multiple: int | None = 32,
     ):
         super().__init__()
         self.encoder = encoder
         self.global_pool = global_pool
+        self.pad_to_multiple = pad_to_multiple
 
     def forward(self, batch: dict[str, Tensor]) -> Tensor:
         images = batch["image"]
         mask = batch["mask"]
 
-        cls, reg, patch = self.encoder.forward_embedding(images, mask=mask)
+        cls, reg, patch, _, _, token_mask = self.encoder(
+            images,
+            mask=mask,
+            pad_to_multiple=self.pad_to_multiple,
+        )
 
         if self.global_pool == "cls":
             embed = cls[:, 0, :]
         elif self.global_pool == "reg":
             embed = reg.mean(dim=1)
         elif self.global_pool == "patch":
-            embed = patch.mean(dim=1)
+            token_mask = token_mask.to(device=patch.device, dtype=torch.bool)
+            denom = token_mask.sum(dim=1, keepdim=True).clamp(min=1).to(dtype=patch.dtype)
+            embed = (patch * token_mask.unsqueeze(-1)).sum(dim=1) / denom
         return embed
 
 
@@ -126,7 +134,11 @@ def smri_mae(ckpt_path: str, global_pool: str = "patch"):
     )
     model.load_state_dict(ckpt["model"])
 
-    backbone = SmriMaeBackbone(model.encoder, global_pool=global_pool)
+    backbone = SmriMaeBackbone(
+        model.encoder,
+        global_pool=global_pool,
+        pad_to_multiple=args.get("pad_to_multiple", 32),
+    )
     transform = SmriMaeTransform(img_size=args["img_size"])
 
     return backbone, transform

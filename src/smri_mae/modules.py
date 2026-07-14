@@ -7,7 +7,7 @@
 
 import math
 from functools import partial
-from typing import Type
+from typing import NamedTuple, Type
 
 import numpy as np
 import torch
@@ -21,7 +21,51 @@ from timm.layers import DropPath, to_3tuple
 Layer = Type[nn.Module]
 
 
-# Transformer modules adapted from capi (but removed the efficient residual)
+class JaggedBatch(NamedTuple):
+    """Sequence boundaries and cached launch metadata for jagged attention."""
+
+    offsets: Tensor
+    max_seqlen: int
+
+    @classmethod
+    def from_mask(cls, mask: Tensor) -> "JaggedBatch":
+        mask = mask.to(dtype=torch.bool)
+        counts = mask.sum(dim=1)
+        return cls(
+            offsets=F.pad(counts.cumsum(dim=0), (1, 0)),
+            max_seqlen=mask.shape[1],
+        )
+
+    def as_nested(self, tokens: Tensor) -> Tensor:
+        # Cached conservative bounds avoid min/max reductions and GPU-to-CPU
+        # synchronization when Flash SDPA inspects the jagged sequence lengths.
+        return torch.nested.nested_tensor_from_jagged(
+            tokens,
+            self.offsets,
+            min_seqlen=1,
+            max_seqlen=self.max_seqlen,
+        ).transpose(1, 2)
+
+
+def unpack_tokens(tokens: Tensor, token_mask: Tensor) -> Tensor:
+    """Restore packed values to a padded batch, filling invalid slots with zero."""
+    output = tokens.new_zeros((*token_mask.shape, *tokens.shape[1:]))
+    return output.index_put((token_mask,), tokens)
+
+
+def jagged_scaled_dot_product_attention(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    jagged_batch: JaggedBatch,
+) -> Tensor:
+    """Run SDPA on a packed batch of variable-length sequences."""
+    output_jagged = F.scaled_dot_product_attention(
+        jagged_batch.as_nested(query),
+        jagged_batch.as_nested(key),
+        jagged_batch.as_nested(value),
+    )
+    return output_jagged.transpose(1, 2).values()
 
 
 class Attention(nn.Module):
@@ -31,45 +75,34 @@ class Attention(nn.Module):
         num_heads: int,
         qkv_bias: bool = False,
         proj_bias: bool = False,
-        context_dim: int | None = None,
     ) -> None:
         super().__init__()
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        self.is_cross_attn = context_dim is not None
-
-        if self.is_cross_attn:
-            # cross-attention: Q from x, fused KV from context
-            self.q = nn.Linear(dim, dim, bias=qkv_bias)
-            self.kv = nn.Linear(context_dim, 2 * dim, bias=qkv_bias)
-        else:
-            # self-attention: single fused QKV GEMM
-            self.qkv = nn.Linear(dim, 3 * dim, bias=qkv_bias)
+        self.qkv = nn.Linear(dim, 3 * dim, bias=qkv_bias)
         self.proj = nn.Linear(dim, dim, bias=proj_bias)
 
     def extra_repr(self):
-        kind = "cross" if self.is_cross_attn else "self"
-        return f"type={kind}, num_heads={self.num_heads}"
+        return f"num_heads={self.num_heads}"
 
     def forward(
         self,
-        x: Float[Tensor, "B N D"],
-        context: Float[Tensor, "B M D"] | None = None,
-    ) -> Float[Tensor, "B N D"]:
-        B, N, D = x.shape
+        x: Float[Tensor, "L D"],
+        jagged_batch: JaggedBatch,
+    ) -> Float[Tensor, "L D"]:
+        L, D = x.shape
         h, dh = self.num_heads, self.head_dim
 
-        if self.is_cross_attn:
-            M = context.shape[1]
-            q = self.q(x).reshape(B, N, h, dh).transpose(1, 2)
-            kv = self.kv(context).reshape(B, M, 2, h, dh).permute(2, 0, 3, 1, 4)
-            k, v = kv.unbind(0)
-        else:
-            qkv = self.qkv(x).reshape(B, N, 3, h, dh).permute(2, 0, 3, 1, 4)
-            q, k, v = qkv.unbind(0)
+        qkv = self.qkv(x).reshape(L, 3, h, dh)
+        q, k, v = qkv.unbind(1)
 
-        x = F.scaled_dot_product_attention(q, k, v)
-        x = x.transpose(1, 2).reshape(B, N, D)
+        x = jagged_scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            jagged_batch=jagged_batch,
+        )
+        x = x.reshape(L, D)
         x = self.proj(x)
         return x
 
@@ -105,20 +138,17 @@ class Block(nn.Module):
         num_heads: int,
         qkv_bias: bool = False,
         proj_bias: bool = False,
-        context_dim: int | None = None,
         mlp_ratio: int | float = 4,
         drop_path: float = 0.0,
         norm_layer: Layer = LayerNorm,
     ) -> None:
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.norm_context = norm_layer(context_dim) if context_dim is not None else None
         self.attn = Attention(
             dim=dim,
             num_heads=num_heads,
             qkv_bias=qkv_bias,
             proj_bias=proj_bias,
-            context_dim=context_dim,
         )
         self.drop_path1 = DropPath(drop_path) if drop_path > 0 else nn.Identity()
 
@@ -132,11 +162,15 @@ class Block(nn.Module):
 
     def forward(
         self,
-        x: Float[Tensor, "B N D"],
-        context: Float[Tensor, "B M D"] | None = None,
-    ) -> Float[Tensor, "B N D"]:
-        # should the context also be normalized? capi doesn't, so I guess not
-        x = x + self.drop_path1(self.attn(self.norm1(x), context=self.norm_context(context) if context is not None else None))
+        x: Float[Tensor, "L D"],
+        jagged_batch: JaggedBatch,
+    ) -> Float[Tensor, "L D"]:
+        x = x + self.drop_path1(
+            self.attn(
+                self.norm1(x),
+                jagged_batch=jagged_batch,
+            )
+        )
         x = x + self.drop_path2(self.mlp(self.norm2(x)))
         return x
 
@@ -176,46 +210,6 @@ class Patchify3D(nn.Module):
 
     def extra_repr(self):
         return f"{self.img_size}, {self.patch_size}, in_chans={self.in_chans}"
-
-
-class StridedPatchify3D(nn.Module):
-    def __init__(
-        self,
-        img_size: int | tuple[int, int, int],
-        patch_size: int | tuple[int, int, int],
-        in_chans: int = 3,
-        t_stride: int = 2,
-    ) -> None:
-        super().__init__()
-        T, H, W = to_3tuple(img_size)
-        p_t, p_h, p_w = to_3tuple(patch_size)
-        assert (T % t_stride) == (p_t % t_stride) == 0, "invalid t_stride"
-
-        self.img_size = (T, H, W)
-        self.patch_size = (p_t // t_stride, p_h, p_w)
-        self.in_chans = in_chans
-        self.t_stride = t_stride
-
-        self.grid_size = (T // p_t, H // p_h, W // p_w)
-        self.num_patches = math.prod(self.grid_size)
-        self.patch_dim = in_chans * math.prod(self.patch_size)
-
-    def forward(self, x: Float[Tensor, "B C T H W"]) -> Float[Tensor, "B N P"]:
-        x = x[:, :, :: self.t_stride]
-        x = patchify3d(x, self.patch_size)
-        return x
-
-    def unpatchify(self, x: Float[Tensor, "B N P"]) -> Float[Tensor, "B C T H W"]:
-        T, H, W = self.img_size
-        x = unpatchify3d(x, patch_size=self.patch_size, img_size=(T // self.t_stride, H, W))
-        x = torch.repeat_interleave(x, self.t_stride, dim=2)
-        return x
-
-    def extra_repr(self):
-        return (
-            f"{self.img_size}, {self.patch_size}, in_chans={self.in_chans}, "
-            f"t_stride={self.t_stride}"
-        )
 
 
 def patchify3d(x: Tensor, patch_size: tuple[int, int, int]) -> Tensor:
@@ -358,21 +352,6 @@ def get_3d_sincos_pos_embed(embed_dim, grid_size, grid_depth, cls_token=False, u
     emb_d = get_1d_sincos_pos_embed_from_grid(d_embed_dim, grid_d)  # (T*H*W, D3)
     pos_embed = np.concatenate([emb_d, emb_h, emb_w], axis=1)
     pos_embed = pos_embed[:, :embed_dim]
-    if cls_token:
-        pos_embed = np.concatenate([np.zeros([1, embed_dim]), pos_embed], axis=0)
-    return pos_embed
-
-
-def get_1d_sincos_pos_embed(embed_dim, grid_size, cls_token=False):
-    """
-    embed_dim: output dimension for each position
-    grid_size: int of the grid length
-    returns:
-        pos_embed: [grid_size, embed_dim] (w/o cls_token)
-                or [1+grid_size, embed_dim] (w/ cls_token)
-    """
-    grid = np.arange(grid_size, dtype=float)
-    pos_embed = get_1d_sincos_pos_embed_from_grid(embed_dim, grid)
     if cls_token:
         pos_embed = np.concatenate([np.zeros([1, embed_dim]), pos_embed], axis=0)
     return pos_embed

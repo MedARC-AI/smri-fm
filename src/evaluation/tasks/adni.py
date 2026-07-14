@@ -227,7 +227,7 @@ def adni_synthseg_volumes(n_splits: int = 5, seed: int = 0) -> ColumnTask:
 
 
 @register_task
-def adni_ad_cn_bag() -> ColumnTask:
+def adni_ad_cn_bag(seed: int = 0) -> ColumnTask:
     dataset = load_adni_eval()
     diagnosis_names = dataset.features["diagnosis"].names
     return BrainAgeGapTask(
@@ -238,4 +238,5 @@ def adni_ad_cn_bag() -> ColumnTask:
         control_label=diagnosis_names.index("CN"),
         case_label=diagnosis_names.index("AD"),
         image_column=IMAGE_COLUMN,
+        seed=seed,
     )

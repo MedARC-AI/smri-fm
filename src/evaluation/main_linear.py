@@ -110,6 +110,7 @@ def run_linear(
 ):
     logger.info("extracting features...")
     dataset = task.dataset()
+    logger.info(f"dataset: {len(dataset)} samples")
     start = time.perf_counter()
     X, y = extract_features(model, dataset, transform, device, batch_size, num_workers)
     tput = len(y) / (time.perf_counter() - start)
@@ -207,13 +208,13 @@ def main(
 
     device = torch.device(cfg.device)
 
-    task = create_task(cfg.task)
+    task_kwargs = OmegaConf.to_container(cfg.task_kwargs, resolve=True)
+    task = create_task(cfg.task, default_seed=cfg.seed, **task_kwargs)
     model, transform = create_model(cfg.model, **(cfg.model_kwargs or {}))
     model.to(device)
 
     logger.info(f"task: {cfg.task} ({task.kind})")
     logger.info(f"model: {cfg.model}")
-    logger.info(f"dataset: {len(task.dataset())} samples")
 
     metrics = run_linear(
         task,
