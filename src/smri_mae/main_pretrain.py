@@ -278,7 +278,7 @@ def train_one_epoch(
             batch = ut.send_data(batch, device, dtype_map={torch.float16: amp_dtype})
 
         batch_step = batch_idx + 1
-        log_step = batch_idx % print_freq == 0 or batch_step == num_batches
+        log_step = batch_step % print_freq == 0 or batch_step == num_batches
         update_in_epoch = batch_idx // args.accum_iter
         group_size = min(args.accum_iter, num_batches - update_in_epoch * args.accum_iter)
         need_update = batch_step % args.accum_iter == 0 or batch_step == num_batches
@@ -306,11 +306,8 @@ def train_one_epoch(
                     with_state=False,
                 )
 
-            loss_value = loss.detach().float().item()
-            if not math.isfinite(loss_value):
-                raise RuntimeError(f"Loss is {loss_value}, stopping training")
-            batch_size = int(batch["img_mask"].shape[0])
-            metric_logger.meters["loss"].update(loss_value, n=batch_size)
+            loss_for_log = loss.detach()
+            torch._assert_async(torch.isfinite(loss_for_log), "non-finite loss")
 
             grad_norm = ut.backward_step(
                 loss / group_size,
@@ -320,17 +317,17 @@ def train_one_epoch(
                 max_norm=args.clip_grad,
             )
 
-        if need_update:
+        if need_update and log_step:
+            loss_value = loss_for_log.item()
             grad_norm_value = grad_norm.item()
-            metric_logger.update(lr=lr, grad=grad_norm_value)
-            if log_wandb and log_step:
-                wandb_stats = {
-                    "train/loss": metric_logger.meters["loss"].global_avg,
-                    "train/lr": lr,
-                    "train/grad": grad_norm_value,
-                }
+            metric_logger.update(loss=loss_value, lr=lr, grad=grad_norm_value)
+            if log_wandb:
                 wandb.log(
-                    wandb_stats,
+                    {
+                        "train/loss": loss_value,
+                        "train/lr": lr,
+                        "train/grad": grad_norm_value,
+                    },
                     step=int(1000 * (epoch + batch_step / epoch_num_batches)),
                 )
 
