@@ -33,19 +33,13 @@ from torch.optim import Optimizer
 # thanks to the original authors, wherever you are
 
 
-def configure_sdpa_backend(name: str, device: torch.device) -> None:
-    """Restrict CUDA SDPA to a requested backend, or enable automatic selection."""
-    if name not in ("auto", "flash"):
-        raise ValueError(f"unknown sdpa_backend {name!r}; expected 'auto' or 'flash'")
-    if device.type != "cuda":
-        return
-
-    auto = name == "auto"
+def configure_flash_sdpa() -> None:
+    """Use Flash Attention exclusively for CUDA SDPA."""
     torch.backends.cuda.enable_flash_sdp(True)
-    torch.backends.cuda.enable_mem_efficient_sdp(auto)
-    torch.backends.cuda.enable_math_sdp(auto)
-    torch.backends.cuda.enable_cudnn_sdp(auto)
-    print(f"SDPA backend: {name}")
+    torch.backends.cuda.enable_mem_efficient_sdp(False)
+    torch.backends.cuda.enable_math_sdp(False)
+    torch.backends.cuda.enable_cudnn_sdp(False)
+    print("SDPA backend: flash")
 
 
 class SmoothedValue:
@@ -461,10 +455,11 @@ def backward_step(
 def clip_grad(optimizer: Optimizer, max_norm: float | None = None) -> Tensor:
     params = [p for group in optimizer.param_groups for p in group["params"]]
     if max_norm:
-        total_norm = nn.utils.clip_grad_norm_(params, max_norm, error_if_nonfinite=True)
+        total_norm = nn.utils.clip_grad_norm_(params, max_norm, error_if_nonfinite=False)
     else:
         grads = [p.grad for p in params if p.grad is not None]
-        total_norm = nn.utils.get_total_norm(grads, error_if_nonfinite=True)
+        total_norm = nn.utils.get_total_norm(grads, error_if_nonfinite=False)
+    torch._assert_async(torch.isfinite(total_norm), "non-finite gradient norm")
     return total_norm
 
 

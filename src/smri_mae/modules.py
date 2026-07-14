@@ -7,7 +7,7 @@
 
 import math
 from functools import partial
-from typing import Type
+from typing import NamedTuple, Type
 
 import numpy as np
 import torch
@@ -21,38 +21,51 @@ from timm.layers import DropPath, to_3tuple
 Layer = Type[nn.Module]
 
 
-# Transformer modules adapted from capi (but removed the efficient residual)
+class JaggedBatch(NamedTuple):
+    """Sequence boundaries and cached launch metadata for jagged attention."""
+
+    offsets: Tensor
+    max_seqlen: int
+
+    @classmethod
+    def from_mask(cls, mask: Tensor) -> "JaggedBatch":
+        mask = mask.to(dtype=torch.bool)
+        counts = mask.sum(dim=1)
+        return cls(
+            offsets=F.pad(counts.cumsum(dim=0), (1, 0)),
+            max_seqlen=mask.shape[1],
+        )
+
+    def as_nested(self, tokens: Tensor) -> Tensor:
+        # Cached conservative bounds avoid min/max reductions and GPU-to-CPU
+        # synchronization when Flash SDPA inspects the jagged sequence lengths.
+        return torch.nested.nested_tensor_from_jagged(
+            tokens,
+            self.offsets,
+            min_seqlen=1,
+            max_seqlen=self.max_seqlen,
+        ).transpose(1, 2)
+
+
+def unpack_tokens(tokens: Tensor, token_mask: Tensor) -> Tensor:
+    """Restore packed values to a padded batch, filling invalid slots with zero."""
+    output = tokens.new_zeros((*token_mask.shape, *tokens.shape[1:]))
+    return output.index_put((token_mask,), tokens)
 
 
 def jagged_scaled_dot_product_attention(
     query: Tensor,
     key: Tensor,
     value: Tensor,
-    query_mask: Tensor,
-    key_mask: Tensor,
+    jagged_batch: JaggedBatch,
 ) -> Tensor:
-    """Run SDPA on packed variable-length sequences and restore padding."""
-    query_mask = query_mask.to(device=query.device, dtype=torch.bool)
-    key_mask = key_mask.to(device=query.device, dtype=torch.bool)
-
-    def pack(tokens: Tensor, mask: Tensor) -> Tensor:
-        counts = mask.sum(dim=1)
-        offsets = F.pad(counts.cumsum(dim=0), (1, 0))
-        values = tokens.transpose(1, 2)[mask]
-        return torch.nested.nested_tensor_from_jagged(values, offsets).transpose(1, 2)
-
+    """Run SDPA on a packed batch of variable-length sequences."""
     output_jagged = F.scaled_dot_product_attention(
-        pack(query, query_mask),
-        pack(key, key_mask),
-        pack(value, key_mask),
+        jagged_batch.as_nested(query),
+        jagged_batch.as_nested(key),
+        jagged_batch.as_nested(value),
     )
-    output_values = output_jagged.transpose(1, 2).values()
-    batch_ids, token_ids = query_mask.nonzero(as_tuple=True)
-    output = torch.zeros_like(query.transpose(1, 2)).index_put(
-        (batch_ids, token_ids),
-        output_values,
-    )
-    return output.transpose(1, 2)
+    return output_jagged.transpose(1, 2).values()
 
 
 class Attention(nn.Module):
@@ -62,58 +75,35 @@ class Attention(nn.Module):
         num_heads: int,
         qkv_bias: bool = False,
         proj_bias: bool = False,
-        context_dim: int | None = None,
     ) -> None:
         super().__init__()
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        self.is_cross_attn = context_dim is not None
-
-        if self.is_cross_attn:
-            # cross-attention: Q from x, fused KV from context
-            self.q = nn.Linear(dim, dim, bias=qkv_bias)
-            self.kv = nn.Linear(context_dim, 2 * dim, bias=qkv_bias)
-        else:
-            # self-attention: single fused QKV GEMM
-            self.qkv = nn.Linear(dim, 3 * dim, bias=qkv_bias)
+        self.qkv = nn.Linear(dim, 3 * dim, bias=qkv_bias)
         self.proj = nn.Linear(dim, dim, bias=proj_bias)
 
     def extra_repr(self):
-        kind = "cross" if self.is_cross_attn else "self"
-        return f"type={kind}, num_heads={self.num_heads}"
+        return f"num_heads={self.num_heads}"
 
     def forward(
         self,
-        x: Float[Tensor, "B N D"],
-        context: Float[Tensor, "B M D"] | None = None,
-        token_mask: Tensor | None = None,
-        context_token_mask: Tensor | None = None,
-    ) -> Float[Tensor, "B N D"]:
-        B, N, D = x.shape
+        x: Float[Tensor, "L D"],
+        jagged_batch: JaggedBatch,
+    ) -> Float[Tensor, "L D"]:
+        L, D = x.shape
         h, dh = self.num_heads, self.head_dim
 
-        if self.is_cross_attn:
-            M = context.shape[1]
-            q = self.q(x).reshape(B, N, h, dh).transpose(1, 2)
-            kv = self.kv(context).reshape(B, M, 2, h, dh).permute(2, 0, 3, 1, 4)
-            k, v = kv.unbind(0)
-            key_mask = context_token_mask
-        else:
-            qkv = self.qkv(x).reshape(B, N, 3, h, dh).permute(2, 0, 3, 1, 4)
-            q, k, v = qkv.unbind(0)
-            key_mask = token_mask
+        qkv = self.qkv(x).reshape(L, 3, h, dh)
+        q, k, v = qkv.unbind(1)
 
         x = jagged_scaled_dot_product_attention(
             q,
             k,
             v,
-            query_mask=token_mask,
-            key_mask=key_mask,
+            jagged_batch=jagged_batch,
         )
-        x = x.transpose(1, 2).reshape(B, N, D)
+        x = x.reshape(L, D)
         x = self.proj(x)
-        if token_mask is not None:
-            x = x.masked_fill(~token_mask.to(device=x.device, dtype=torch.bool).unsqueeze(-1), 0)
         return x
 
 
@@ -148,20 +138,17 @@ class Block(nn.Module):
         num_heads: int,
         qkv_bias: bool = False,
         proj_bias: bool = False,
-        context_dim: int | None = None,
         mlp_ratio: int | float = 4,
         drop_path: float = 0.0,
         norm_layer: Layer = LayerNorm,
     ) -> None:
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.norm_context = norm_layer(context_dim) if context_dim is not None else None
         self.attn = Attention(
             dim=dim,
             num_heads=num_heads,
             qkv_bias=qkv_bias,
             proj_bias=proj_bias,
-            context_dim=context_dim,
         )
         self.drop_path1 = DropPath(drop_path) if drop_path > 0 else nn.Identity()
 
@@ -175,23 +162,16 @@ class Block(nn.Module):
 
     def forward(
         self,
-        x: Float[Tensor, "B N D"],
-        context: Float[Tensor, "B M D"] | None = None,
-        token_mask: Tensor | None = None,
-        context_token_mask: Tensor | None = None,
-    ) -> Float[Tensor, "B N D"]:
-        # should the context also be normalized? capi doesn't, so I guess not
+        x: Float[Tensor, "L D"],
+        jagged_batch: JaggedBatch,
+    ) -> Float[Tensor, "L D"]:
         x = x + self.drop_path1(
             self.attn(
                 self.norm1(x),
-                context=self.norm_context(context) if context is not None else None,
-                token_mask=token_mask,
-                context_token_mask=context_token_mask,
+                jagged_batch=jagged_batch,
             )
         )
         x = x + self.drop_path2(self.mlp(self.norm2(x)))
-        if token_mask is not None:
-            x = x.masked_fill(~token_mask.to(device=x.device, dtype=torch.bool).unsqueeze(-1), 0)
         return x
 
 

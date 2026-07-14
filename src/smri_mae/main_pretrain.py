@@ -45,7 +45,7 @@ def main(args: DictConfig):
     is_master = global_rank == 0
     world_size = ut.get_world_size()
     device = torch.device(args.device)
-    ut.configure_sdpa_backend(args.get("sdpa_backend", "flash"), device)
+    ut.configure_flash_sdpa()
     ut.random_seed(args.seed, rank=global_rank)
 
     if args.name and not args.output_dir.endswith(args.name):
@@ -95,11 +95,12 @@ def main(args: DictConfig):
 
     model_without_ddp = model
     if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+        model = torch.nn.parallel.DistributedDataParallel(
+            model,
+            device_ids=[args.gpu],
+            gradient_as_bucket_view=True,
+        )
         model_without_ddp = model.module
-
-    if args.compile:
-        model = torch.compile(model)
 
     # optimizer
     total_batch_size = args.batch_size * args.accum_iter * world_size
@@ -277,7 +278,7 @@ def train_one_epoch(
             batch = ut.send_data(batch, device, dtype_map={torch.float16: amp_dtype})
 
         batch_step = batch_idx + 1
-        log_step = batch_step % print_freq == 0 or batch_step == num_batches
+        log_step = batch_idx % print_freq == 0 or batch_step == num_batches
         update_in_epoch = batch_idx // args.accum_iter
         group_size = min(args.accum_iter, num_batches - update_in_epoch * args.accum_iter)
         need_update = batch_step % args.accum_iter == 0 or batch_step == num_batches

@@ -15,14 +15,11 @@ patch_size: 8
 # Masking.
 mask_ratio: 0.80
 pred_mask_ratio: null
-pad_to_multiple: 128
+pad_to_multiple: 32
 
 # Model.
 model: mae_vit_large
 model_kwargs:
-  # decoding mode: attn, cross, or crossreg.
-  decoding: attn
-
   # target normalization: null/none, global, slice, or patch.
   target_norm: none
 
@@ -59,7 +56,7 @@ eval_datasets:
 # Data loader.
 num_workers: 4
 prefetch_factor: 2
-presend_cuda: false
+presend_cuda: true
 
 # Optimization.
 epochs: 100
@@ -75,9 +72,6 @@ clip_grad: 1.0
 
 amp: true
 amp_dtype: bfloat16
-sdpa_backend: flash  # flash or auto
-
-compile: false
 
 # Checkpointing.
 ckpt: null
@@ -99,6 +93,6 @@ seed: 7338
 eval_seed: 7338
 debug: false
 
-wandb: true
+wandb: false
 wandb_entity: null
 wandb_project: smri-fm

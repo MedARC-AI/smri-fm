@@ -17,7 +17,7 @@ class SmriMaeBackbone(nn.Module):
         self,
         encoder: models_mae.MaskedEncoder,
         global_pool: Literal["cls", "reg", "patch"] = "patch",
-        pad_to_multiple: int | None = 128,
+        pad_to_multiple: int | None = 32,
     ):
         super().__init__()
         self.encoder = encoder
@@ -137,7 +137,7 @@ def smri_mae(ckpt_path: str, global_pool: str = "patch"):
     backbone = SmriMaeBackbone(
         model.encoder,
         global_pool=global_pool,
-        pad_to_multiple=args.get("pad_to_multiple", 128),
+        pad_to_multiple=args.get("pad_to_multiple", 32),
     )
     transform = SmriMaeTransform(img_size=args["img_size"])
 
