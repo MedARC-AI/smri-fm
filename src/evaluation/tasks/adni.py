@@ -12,7 +12,7 @@ from evaluation.tasks.metrics import (
 )
 from evaluation.tasks.registry import register_task
 
-ADNI_EVAL_REPO_ID = "medarc/adni-mini-v1-2"
+ADNI_EVAL_REPO_ID = "medarc/adni-mini-v1-3"
 IMAGE_COLUMN = "nifti"
 
 
@@ -24,6 +24,11 @@ def _filter_diagnoses(data: Dataset, labels: set[str]) -> Dataset:
     names = data.features["diagnosis"].names
     keep = {names.index(label) for label in labels}
     return data.filter(lambda dx: dx in keep, input_columns="diagnosis")
+
+
+def _filter_cn_aplus(data: Dataset) -> Dataset:
+    data = _filter_diagnoses(data, {"CN"})
+    return data.filter(lambda status: status == 1.0, input_columns="amyloid_status")
 
 
 @register_task
@@ -145,26 +150,9 @@ def adni_mci_conversion_3y(n_splits: int = 5, seed: int = 0) -> ColumnTask:
 
 
 @register_task
-def adni_mci_aplus_to_ad_3y(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """Secondary: MCI A+ → AD within 36 months."""
-    data = _filter_diagnoses(load_adni_eval(), {"MCI"})
-    return ColumnTask(
-        name="adni_mci_aplus_to_ad_3y",
-        kind="classification",
-        data=data,
-        image_column=IMAGE_COLUMN,
-        target_column="mci_aplus_to_ad_3y",
-        n_splits=n_splits,
-        seed=seed,
-        metric_fns=(bacc, auroc, auprc),
-        positive_label=1.0,
-    )
-
-
-@register_task
 def adni_cn_aplus_to_mci_ad_3y(n_splits: int = 5, seed: int = 0) -> ColumnTask:
     """Secondary: CN A+ → MCI/AD within 36 months (thin events)."""
-    data = _filter_diagnoses(load_adni_eval(), {"CN"})
+    data = _filter_cn_aplus(load_adni_eval())
     return ColumnTask(
         name="adni_cn_aplus_to_mci_ad_3y",
         kind="classification",
@@ -199,14 +187,29 @@ def adni_adas13_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
 
 
 @register_task
-def adni_ldeltotal_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """Annualized Logical Memory delayed-recall slope (more negative = decline)."""
+def adni_ravlt_delayed_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """Annualized RAVLT 30-minute delayed-recall slope (more negative = decline)."""
     return ColumnTask(
-        name="adni_ldeltotal_slope_48m",
+        name="adni_ravlt_delayed_slope_48m",
         kind="regression",
         data=load_adni_eval(),
         image_column=IMAGE_COLUMN,
-        target_column="ldeltotal_slope_48m",
+        target_column="ravlt_delayed_slope_48m",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, spearman_r, r2),
+    )
+
+
+@register_task
+def adni_ravlt_learning_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """Annualized RAVLT learning slope (sum of AVTOT1-5; more negative = decline)."""
+    return ColumnTask(
+        name="adni_ravlt_learning_slope_48m",
+        kind="regression",
+        data=load_adni_eval(),
+        image_column=IMAGE_COLUMN,
+        target_column="ravlt_learning_slope_48m",
         n_splits=n_splits,
         seed=seed,
         metric_fns=(pearson_r, spearman_r, r2),
@@ -249,17 +252,108 @@ def adni_ventricle_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
 
 
 @register_task
-def adni_amygdala_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """Amygdala L+R / ICV annualized change (more negative = atrophy)."""
+def adni_entorhinal_thickness_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """Bilateral entorhinal cortical-thickness annualized change."""
     return ColumnTask(
-        name="adni_amygdala_slope_48m",
+        name="adni_entorhinal_thickness_slope_48m",
         kind="regression",
         data=load_adni_eval(),
         image_column=IMAGE_COLUMN,
-        target_column="amygdala_slope_48m",
+        target_column="entorhinal_thickness_slope_48m",
         n_splits=n_splits,
         seed=seed,
         metric_fns=(pearson_r, spearman_r, r2),
+    )
+
+
+# ---------------------------------------------------------------------------
+# CN amyloid-positive prognosis (continuous annualized slopes, 48m)
+# ---------------------------------------------------------------------------
+
+
+def _cn_aplus_slope_task(
+    *,
+    name: str,
+    target_column: str,
+    n_splits: int,
+    seed: int,
+) -> ColumnTask:
+    data = _filter_cn_aplus(load_adni_eval())
+    return ColumnTask(
+        name=name,
+        kind="regression",
+        data=data,
+        image_column=IMAGE_COLUMN,
+        target_column=target_column,
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, spearman_r, r2),
+    )
+
+
+@register_task
+def adni_cn_aplus_adas13_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    return _cn_aplus_slope_task(
+        name="adni_cn_aplus_adas13_slope_48m",
+        target_column="adas13_slope_48m",
+        n_splits=n_splits,
+        seed=seed,
+    )
+
+
+@register_task
+def adni_cn_aplus_ravlt_delayed_slope_48m(
+    n_splits: int = 5, seed: int = 0
+) -> ColumnTask:
+    return _cn_aplus_slope_task(
+        name="adni_cn_aplus_ravlt_delayed_slope_48m",
+        target_column="ravlt_delayed_slope_48m",
+        n_splits=n_splits,
+        seed=seed,
+    )
+
+
+@register_task
+def adni_cn_aplus_ravlt_learning_slope_48m(
+    n_splits: int = 5, seed: int = 0
+) -> ColumnTask:
+    return _cn_aplus_slope_task(
+        name="adni_cn_aplus_ravlt_learning_slope_48m",
+        target_column="ravlt_learning_slope_48m",
+        n_splits=n_splits,
+        seed=seed,
+    )
+
+
+@register_task
+def adni_cn_aplus_hippocampus_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    return _cn_aplus_slope_task(
+        name="adni_cn_aplus_hippocampus_slope_48m",
+        target_column="hippocampus_slope_48m",
+        n_splits=n_splits,
+        seed=seed,
+    )
+
+
+@register_task
+def adni_cn_aplus_ventricle_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    return _cn_aplus_slope_task(
+        name="adni_cn_aplus_ventricle_slope_48m",
+        target_column="ventricle_slope_48m",
+        n_splits=n_splits,
+        seed=seed,
+    )
+
+
+@register_task
+def adni_cn_aplus_entorhinal_thickness_slope_48m(
+    n_splits: int = 5, seed: int = 0
+) -> ColumnTask:
+    return _cn_aplus_slope_task(
+        name="adni_cn_aplus_entorhinal_thickness_slope_48m",
+        target_column="entorhinal_thickness_slope_48m",
+        n_splits=n_splits,
+        seed=seed,
     )
 
 
