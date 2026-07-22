@@ -13,14 +13,14 @@ def get_cfg():
 
 @call_parse
 def predict(
-    output:str,    # path to save output .txt file
-    flair:str,     # path to T2 FLAIR image
-    adc:str,       # path to ADC image
-    dwi:str,       # path to DWI image
-    t2s:str=None,  # path to T2* image (optional)
-    swi:str=None,  # path to SWI image (optional)
+    output:str=None, # path to save output .txt file
+    flair :str=None, # path to T2 FLAIR image
+    adc   :str=None, # path to ADC image
+    dwi   :str=None, # path to DWI image
+    t2s   :str=None, # path to T2* image (optional)
+    swi   :str=None, # path to SWI image (optional)
 ):
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    (device,cuda) = ('cuda',True) if torch.cuda.is_available() else ('cpu',False)
     cfg = get_cfg()
     model = SmriMaeClsRegBackbone(input_channels=1, output_channels=2, **cfg) # todo: out channel correct?
     ckpt = torch.load(local_path('checkpoint.pth'), map_location=device, weights_only=False)['state_dict']
@@ -29,9 +29,8 @@ def predict(
     tfm = SmriMaeTransform(img_size=cfg.get('img_size', (160,160,160)))
     x = tfm(nib.load(flair))
     x = x['image'][None].to(device)
-    if device=='cuda':
-        model.half()
-        x = x.half()
+    if cuda: model.half()
+    x = x.half() if cuda else x.float()
     with torch.no_grad(): pred = model(x).softmax(-1)[0,1].item()
     # Save prediction ot file
     Path(output).parent.mkdir(parents=True, exist_ok=True)
