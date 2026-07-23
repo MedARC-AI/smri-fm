@@ -49,7 +49,7 @@ Reference for how to write code in this repo. These principles apply generally t
 ## 7. Reproducibility
 
 - Every run writes fully resolved config + git SHA to its run dir. One command + SHA reproduces it.
-- Use `uv` + tracked lockfile for reproducible environments.
+- Use `uv` for reproducible environments. Key dependencies can be pinned in the `pyproject.toml`. Lock file is not usually tracked, to avoid merge conflicts.
 - Configuration should be lightweight: omegaconf + one flat yaml default config, no hydra nesting. Struct mode on: code reads keys directly and crashes on missing/typo'd keys; avoid `.get(k, default)` scattered around.
 - Log loss / lr / grad-norm etc. to wandb and a local jsonl log.
 - One seed flag, set everywhere. Aim for *reproducible enough to trust a result*, not exact numerical reproducibility. Prefer multiple seeds per experiment when feasible, to judge robustness.
