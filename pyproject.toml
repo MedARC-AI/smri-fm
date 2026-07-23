@@ -24,6 +24,7 @@ dependencies = [
     "pre-commit",
     "pytest",
     "pyyaml",
+    "s3fs>=2026.4.0",
     "scikit-learn",
     "scipy",
     "seaborn",
