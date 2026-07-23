@@ -1,4 +1,4 @@
-exclude: 'build|third-party|.github|baselines'
+exclude: 'build|third_party|.github'
 
 default_language_version:
     python: python3
