@@ -37,6 +37,7 @@ wandb/
 .scratch
 tmp
 .tmp*
+/ref_code/
 
 # AI assistants
 .claude/
