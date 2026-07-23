@@ -160,27 +160,84 @@ def aggregate(per_repeat: list[dict[str, float]]) -> dict[str, float]:
     return summary
 
 
+Metric = Callable[[np.ndarray, np.ndarray], float]
+
+
+def bootstrap_ci(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    metrics: dict[str, Metric],
+    n_boot: int,
+    seed: int,
+    groups: np.ndarray | None = None,
+    alpha: float = 0.05,
+) -> dict[str, float]:
+    """Percentile CI per metric, resampling subjects with replacement.
+
+    `groups` gives a subject id per row so a subject's rows resample together (seg has many
+    patch rows per subject); None means one row per subject. Resamples with a single unique
+    label, where a metric is undefined, are skipped and counted.
+    """
+    if groups is None:
+        groups = np.arange(len(y_true))
+    unique = np.unique(groups)
+    rows_by_group = [np.flatnonzero(groups == g) for g in unique]
+    rng = np.random.default_rng(seed)
+
+    samples: dict[str, list[float]] = {key: [] for key in metrics}
+    n_dropped = 0
+    for _ in range(n_boot):
+        pick = rng.integers(0, len(unique), size=len(unique))
+        rows = np.concatenate([rows_by_group[i] for i in pick])
+        yt, ys = y_true[rows], y_score[rows]
+        if len(np.unique(yt)) < 2:
+            n_dropped += 1
+            continue
+        for key, metric in metrics.items():
+            samples[key].append(metric(yt, ys))
+
+    if n_dropped:
+        logger.info(f"bootstrap dropped {n_dropped} single-label resamples")
+
+    ci = {}
+    for key, values in samples.items():
+        low, high = np.percentile(values, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+        ci[f"{key}_ci_low"] = float(low)
+        ci[f"{key}_ci_high"] = float(high)
+    return ci
+
+
+def balanced_accuracy_at_half(y_true: np.ndarray, y_score: np.ndarray) -> float:
+    return balanced_accuracy_score(y_true, y_score > 0.5)
+
+
 # ---- probes ---------------------------------------------------------------------------
 
 
-def reg_probe(X: np.ndarray, y: np.ndarray, n_splits: int, n_repeats: int, seed: int) -> dict:
+def reg_probe(
+    X: np.ndarray, y: np.ndarray, n_splits: int, n_repeats: int, seed: int, n_boot: int = 2000
+) -> dict:
+    metrics = {"mae": mean_absolute_error, "pearson_r": pearson_r}
+
     def fit_predict(X_train, y_train, X_test):
         model = make_pipeline(StandardScaler(), RidgeCV(alphas=np.logspace(-3, 3, 13)))
         return model.fit(X_train, y_train).predict(X_test)
 
-    oofs = repeated_oof(
-        X, y.astype(float), fit_predict, n_splits, n_repeats, seed, stratified=False
-    )
-    per_repeat = [
-        {"mae": mean_absolute_error(y, oof), "pearson_r": pearson_r(y, oof)} for oof in oofs
-    ]
-    return aggregate(per_repeat)
+    y = y.astype(float)
+    oofs = repeated_oof(X, y, fit_predict, n_splits, n_repeats, seed, stratified=False)
+    per_repeat = [{key: metric(y, oof) for key, metric in metrics.items()} for oof in oofs]
+    summary = aggregate(per_repeat)
+    summary.update(bootstrap_ci(y, np.mean(oofs, axis=0), metrics, n_boot, seed))
+    return summary
 
 
-def cls_probe(X: np.ndarray, y: np.ndarray, n_splits: int, n_repeats: int, seed: int) -> dict:
-    assert set(np.unique(y)) <= {0, 1}, (
+def cls_probe(
+    X: np.ndarray, y: np.ndarray, n_splits: int, n_repeats: int, seed: int, n_boot: int = 2000
+) -> dict:
+    assert set(np.unique(y)) == {0, 1}, (
         f"cls probe expects binary 0/1 labels, got {set(np.unique(y))}"
     )
+    metrics = {"auroc": roc_auc_score, "balanced_accuracy": balanced_accuracy_at_half}
 
     def fit_predict(X_train, y_train, X_test):
         clf = LogisticRegressionCV(
@@ -191,14 +248,10 @@ def cls_probe(X: np.ndarray, y: np.ndarray, n_splits: int, n_repeats: int, seed:
         return model.predict_proba(X_test)[:, positive]
 
     oofs = repeated_oof(X, y, fit_predict, n_splits, n_repeats, seed, stratified=True)
-    per_repeat = [
-        {
-            "auroc": float(roc_auc_score(y, oof)),
-            "balanced_accuracy": float(balanced_accuracy_score(y, oof > 0.5)),
-        }
-        for oof in oofs
-    ]
-    return aggregate(per_repeat)
+    per_repeat = [{key: metric(y, oof) for key, metric in metrics.items()} for oof in oofs]
+    summary = aggregate(per_repeat)
+    summary.update(bootstrap_ci(y, np.mean(oofs, axis=0), metrics, n_boot, seed))
+    return summary
 
 
 def seg_probe(
@@ -207,6 +260,7 @@ def seg_probe(
     n_splits: int,
     n_repeats: int,
     seed: int,
+    n_boot: int = 2000,
 ) -> dict:
     """Patch-level lesion detection. Subject-level CV; metrics pooled over held-out patches."""
     labels = [(frac > FG_THRESHOLD).astype(int) for frac in fractions]
@@ -214,7 +268,9 @@ def seg_probe(
     # No positive patches means every mask vanished (e.g. resized below the patch grid).
     assert set(np.unique(y_true)) == {0, 1}, "seg labels have no foreground patches"
     n_subjects = len(features)
+    metrics = {"detection_ap": average_precision_score, "patch_auroc": roc_auc_score}
 
+    score_sum = [np.zeros(len(feat)) for feat in features]
     per_repeat = []
     for repeat in range(n_repeats):
         rng = np.random.default_rng(seed + repeat)
@@ -230,14 +286,16 @@ def seg_probe(
             positive = list(clf.classes_).index(1)
             for i in test_idx:
                 oof_scores[i] = clf.predict_proba(features[i])[:, positive]
+        for i in range(n_subjects):
+            score_sum[i] = score_sum[i] + oof_scores[i]
         scores = np.concatenate(oof_scores)
-        per_repeat.append(
-            {
-                "detection_ap": float(average_precision_score(y_true, scores)),
-                "patch_auroc": float(roc_auc_score(y_true, scores)),
-            }
-        )
-    return aggregate(per_repeat)
+        per_repeat.append({key: metric(y_true, scores) for key, metric in metrics.items()})
+    summary = aggregate(per_repeat)
+
+    y_score = np.concatenate([total / n_repeats for total in score_sum])
+    groups = np.concatenate([np.full(len(feat), i) for i, feat in enumerate(features)])
+    summary.update(bootstrap_ci(y_true, y_score, metrics, n_boot, seed, groups=groups))
+    return summary
 
 
 def _subsample_background(

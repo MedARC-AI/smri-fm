@@ -6,8 +6,11 @@ from datasets import Dataset, Features, Nifti
 
 from nanobrain.eval import probe as probe_module
 from nanobrain.eval.models import create_model
+from sklearn.metrics import roc_auc_score
+
 from nanobrain.eval.probe import (
     aggregate,
+    bootstrap_ci,
     cls_probe,
     extract_global_features,
     reg_probe,
@@ -28,9 +31,13 @@ def test_reg_probe_recovers_linear_signal():
     X = rng.standard_normal((60, 8))
     y = X @ rng.standard_normal(8) + 0.1 * rng.standard_normal(60)
     scores = reg_probe(X, y, n_splits=5, n_repeats=2, seed=0)
-    assert set(scores) == {"mae", "mae_std", "pearson_r", "pearson_r_std"}
+    assert set(scores) == {
+        "mae", "mae_std", "mae_ci_low", "mae_ci_high",
+        "pearson_r", "pearson_r_std", "pearson_r_ci_low", "pearson_r_ci_high",
+    }  # fmt: skip
     assert scores["pearson_r"] > 0.9
     assert scores["mae"] < y.std()
+    assert scores["pearson_r_ci_low"] <= scores["pearson_r"] <= scores["pearson_r_ci_high"]
 
 
 def test_cls_probe_separable():
@@ -136,8 +143,12 @@ def test_seg_probe_detects_separable_patches():
         features.append(feats)
         fractions.append(frac)
     scores = seg_probe(features, fractions, n_splits=4, n_repeats=2, seed=0)
-    assert set(scores) == {"detection_ap", "detection_ap_std", "patch_auroc", "patch_auroc_std"}
+    assert set(scores) == {
+        "detection_ap", "detection_ap_std", "detection_ap_ci_low", "detection_ap_ci_high",
+        "patch_auroc", "patch_auroc_std", "patch_auroc_ci_low", "patch_auroc_ci_high",
+    }  # fmt: skip
     assert scores["detection_ap"] > 0.8
+    assert scores["patch_auroc_ci_low"] <= scores["patch_auroc"] <= scores["patch_auroc_ci_high"]
 
 
 def test_random_features_patchify_matches_grid():
@@ -150,6 +161,29 @@ def test_random_features_patchify_matches_grid():
     fractions = model.patchify_labels(sample["seg"])
     assert fractions.shape == ((32 // 8) ** 3,)
     assert (fractions > 0).any() and (fractions == 0).any()
+
+
+def test_bootstrap_ci_brackets_point_and_is_deterministic():
+    rng = np.random.default_rng(0)
+    y_true = np.array([0] * 50 + [1] * 50)
+    y_score = np.clip(y_true + 0.3 * rng.standard_normal(100), 0, 1)
+    metrics = {"auroc": roc_auc_score}
+    ci = bootstrap_ci(y_true, y_score, metrics, n_boot=500, seed=0)
+    point = roc_auc_score(y_true, y_score)
+    assert ci["auroc_ci_low"] < point < ci["auroc_ci_high"]
+    assert ci == bootstrap_ci(y_true, y_score, metrics, n_boot=500, seed=0)
+
+
+def test_bootstrap_ci_resamples_by_group():
+    # Two subjects, one all-positive and one all-negative: a per-row bootstrap could draw
+    # a single class, but grouped resampling keeps each subject's rows together, so any
+    # non-degenerate draw (both subjects picked) has both classes present.
+    y_true = np.array([1, 1, 1, 0, 0, 0])
+    y_score = np.array([0.9, 0.8, 0.7, 0.2, 0.1, 0.3])
+    groups = np.array([0, 0, 0, 1, 1, 1])
+    ci = bootstrap_ci(y_true, y_score, {"auroc": roc_auc_score}, n_boot=200, seed=1, groups=groups)
+    # Draws that pick the same subject twice are single-class and dropped; the rest score 1.0.
+    assert ci["auroc_ci_low"] == 1.0 and ci["auroc_ci_high"] == 1.0
 
 
 def test_read_targets_remaps():

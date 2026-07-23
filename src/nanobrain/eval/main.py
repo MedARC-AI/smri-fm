@@ -24,7 +24,7 @@ logger = logging.getLogger("nanobrain.eval")
 def run_probe(cfg, task, model, transform, device) -> dict:
     dataset = task.dataset_fn()
     logger.info(f"dataset: {len(dataset)} samples")
-    cv = (cfg.n_splits, cfg.n_repeats, cfg.seed)
+    cv = (cfg.n_splits, cfg.n_repeats, cfg.seed, cfg.n_boot)
 
     if isinstance(task, RegressionTask):
         X = probe_module.extract_global_features(
