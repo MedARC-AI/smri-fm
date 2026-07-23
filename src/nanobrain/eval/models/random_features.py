@@ -24,15 +24,13 @@ class RandomFeaturesTransform:
     def __call__(
         self, img: nib.Nifti1Image, seg: nib.Nifti1Image | None = None
     ) -> dict[str, Tensor]:
-        data = torch.from_numpy(nib.as_closest_canonical(img).get_fdata(dtype=np.float32))
-        data = resize(data, self.size)
+        data = resize(canonical_fdata(img), self.size)
         brain = data > data.mean()
         mean = data[brain].mean()
         std = data[brain].std().clamp_min(1e-6)
         sample = {"image": torch.where(brain, (data - mean) / std, 0.0).unsqueeze(0)}
         if seg is not None:
-            seg_data = torch.from_numpy(nib.as_closest_canonical(seg).get_fdata(dtype=np.float32))
-            sample["seg"] = resize(seg_data, self.size, nearest=True).unsqueeze(0)
+            sample["seg"] = resize(canonical_fdata(seg), self.size, nearest=True).unsqueeze(0)
         return sample  # image, seg: (1, S, S, S)
 
 
@@ -70,6 +68,16 @@ class RandomFeatures(nn.Module):
 
 def _projection(in_dim: int, out_dim: int, generator: torch.Generator) -> Tensor:
     return torch.randn(in_dim, out_dim, generator=generator) / in_dim**0.5
+
+
+def canonical_fdata(img: nib.Nifti1Image) -> Tensor:
+    # HF decodes to a Nifti1ImageWrapper whose reorientation is broken, so rebuild a plain
+    # image before going to RAS -- otherwise non-RAS volumes (e.g. DLBS) crash on load.
+    # ascontiguousarray drops the negative strides an axis flip leaves behind (torch rejects
+    # them); it is a no-op for already-RAS volumes.
+    plain = nib.Nifti1Image(img.dataobj, img.affine, img.header)
+    data = nib.as_closest_canonical(plain).get_fdata(dtype=np.float32)
+    return torch.from_numpy(np.ascontiguousarray(data))
 
 
 def resize(volume: Tensor, size: int, nearest: bool = False) -> Tensor:

@@ -100,6 +100,23 @@ def test_cls_probe_rejects_non_binary():
         assert "binary" in str(err)
 
 
+def test_random_features_transform_handles_non_ras():
+    # HF decodes niftis to a wrapper that breaks nibabel reorientation; a non-RAS volume
+    # must still load. Regression test for the DLBS decode crash.
+    affine = np.diag([-1.0, -1.0, 1.0, 1.0])  # axcodes L,P,S -> forces reorientation
+    data = np.random.default_rng(0).random((20, 24, 22), dtype=np.float32)
+    img_bytes = nib.Nifti1Image(data, affine).to_bytes()
+    dataset = Dataset.from_dict(
+        {"image": [{"path": None, "bytes": img_bytes}]}, features=Features({"image": Nifti()})
+    )
+    wrapped = dataset[0]["image"]  # datasets Nifti1ImageWrapper, as the loader would yield
+
+    _, transform = create_model("random_features", size=32, patch=8, dim=16)
+    sample = transform(wrapped)
+    assert sample["image"].shape == (1, 32, 32, 32)
+    assert torch.isfinite(sample["image"]).all()
+
+
 def test_random_features_contract():
     model, transform = create_model("random_features", size=32, patch=8, dim=64)
     img = nib.Nifti1Image(
