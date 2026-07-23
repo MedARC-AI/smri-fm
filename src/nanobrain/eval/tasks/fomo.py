@@ -139,3 +139,56 @@ def fomo_task3_age(url: str = f"{BASE_URL}/Task_3.zip") -> RegressionTask:
     return RegressionTask(
         name="fomo_task3_age", dataset_fn=lambda: load_task3(url), target_col="age"
     )
+
+
+# ---- Task 4: trigeminal nerve/vessel segmentation --------------------------------------
+
+
+def _generate_task4(url: str) -> Iterator[dict]:
+    with _open_zip(url) as zf:
+        for sub in _subjects(zf, "seg.nii.gz"):
+            stem = f"Task_4/{{}}/{sub}/ses-01"
+            image = zf.read(stem.format("preprocessed") + "/t2w.nii.gz")
+            seg = zf.read(stem.format("labels") + "/seg.nii.gz")
+            yield {"subject": sub, "image": _nifti(image), "seg": _nifti(seg)}
+
+
+def load_task4(url: str) -> Dataset:
+    features = Features({"subject": Value("string"), "image": Nifti(), "seg": Nifti()})
+    return _from_generator(_generate_task4, features, url)
+
+
+@register_task
+def fomo_task4_trigeminal(url: str = f"{BASE_URL}/Task_4.zip") -> SegmentationTask:
+    return SegmentationTask(
+        name="fomo_task4_trigeminal", dataset_fn=lambda: load_task4(url), seg_col="seg"
+    )
+
+
+# ---- Task 5: polymicrogyria classification ---------------------------------------------
+
+# TODO: back up Task_5 to online location
+TASK5_DIR = "data/fomo_eval/Task_5"
+
+
+def _generate_task5(root: str) -> Iterator[dict]:
+    base = Path(root)
+    for sub_dir in sorted((base / "preprocessed").iterdir()):
+        sub = sub_dir.name
+        label = int((base / "labels" / sub / "ses_01" / "labels.txt").read_text().strip())
+        image = (sub_dir / "ses_01" / "t1.nii.gz").read_bytes()
+        yield {"subject": sub, "label": label, "image": _nifti(image)}
+
+
+def load_task5(root: str) -> Dataset:
+    features = Features({"subject": Value("string"), "label": Value("int32"), "image": Nifti()})
+    return Dataset.from_generator(
+        _generate_task5, features=features, gen_kwargs={"root": root}, writer_batch_size=16
+    )
+
+
+@register_task
+def fomo_task5_polymicrogyria(root: str = TASK5_DIR) -> ClassificationTask:
+    return ClassificationTask(
+        name="fomo_task5_polymicrogyria", dataset_fn=lambda: load_task5(root), target_col="label"
+    )
