@@ -1,0 +1,19 @@
+# Run-level settings. Task/model choice comes from the CLI; per-model and per-task
+# construction kwargs go in model_kwargs / task_kwargs.
+output_root: output/eval
+name: null  # defaults to {model}__{task}
+
+model_kwargs: {}
+task_kwargs: {}
+
+# Cross-validation: n_splits folds, repeated n_repeats times with shifted seeds.
+# Metrics are pooled over out-of-fold predictions per repeat, then averaged over repeats.
+n_splits: 5
+n_repeats: 5
+
+# Feature extraction.
+batch_size: 4
+num_workers: 8
+device: cuda
+
+seed: 4466
