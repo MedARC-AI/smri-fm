@@ -58,7 +58,10 @@ class SmriMaeTransform:
         """
         TODO(mihir): check
         """
-        # reorient to RAS
+        # reorient to RAS. datasets' Nifti1ImageWrapper takes a single ctor arg,
+        # so nibabel's as_reoriented() blows up rebuilding self.__class__ on any
+        # scan that isn't already canonical; drop to a plain Nifti1Image first.
+        img = nib.Nifti1Image.from_image(img)
         img = nib.as_closest_canonical(img)
 
         # note, shape is (X, Y, Z) in contiguous F-order
