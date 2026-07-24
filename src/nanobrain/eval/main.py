@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from nanobrain.eval import probe as probe_module
+from nanobrain.eval import global_probe, seg_probe
 from nanobrain.eval.models import create_model, list_models
 from nanobrain.eval.tasks import create_task, list_tasks
 from nanobrain.eval.tasks.base import ClassificationTask, RegressionTask, SegmentationTask
@@ -27,22 +27,22 @@ def run_probe(cfg, task, model, transform, device) -> dict:
     cv = (cfg.n_splits, cfg.n_repeats, cfg.seed, cfg.n_boot)
 
     if isinstance(task, RegressionTask):
-        X = probe_module.extract_global_features(
+        X = global_probe.extract_global_features(
             model, transform, dataset, task.image_col, device, cfg.batch_size, cfg.num_workers
         )
-        y = probe_module.read_targets(dataset, task.target_col)
-        return probe_module.reg_probe(X, y, *cv)
+        y = global_probe.read_targets(dataset, task.target_col)
+        return global_probe.reg_probe(X, y, *cv)
     if isinstance(task, ClassificationTask):
-        X = probe_module.extract_global_features(
+        X = global_probe.extract_global_features(
             model, transform, dataset, task.image_col, device, cfg.batch_size, cfg.num_workers
         )
-        y = probe_module.read_targets(dataset, task.target_col, task.target_map)
-        return probe_module.cls_probe(X, y, *cv)
+        y = global_probe.read_targets(dataset, task.target_col, task.target_map)
+        return global_probe.cls_probe(X, y, *cv)
     if isinstance(task, SegmentationTask):
-        features, fractions = probe_module.extract_patch_features(
+        features, fractions = seg_probe.extract_patch_features(
             model, transform, dataset, task.image_col, task.seg_col, device
         )
-        return probe_module.seg_probe(features, fractions, *cv)
+        return seg_probe.seg_probe(features, fractions, *cv)
     raise TypeError(f"unknown task type {type(task)}")
 
 
