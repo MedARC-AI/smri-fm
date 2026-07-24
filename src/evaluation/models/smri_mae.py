@@ -66,8 +66,13 @@ class SmriMaeTransform:
 
         # note, shape is (X, Y, Z) in contiguous F-order
         data = img.get_fdata(dtype=np.float32)
+        # some PPMI T1w are 4D (repeated/multi-echo volumes). Take the first
+        # volume; averaging them would raise SNR but only where the echoes share
+        # contrast, which is not guaranteed across sites.
+        if data.ndim > 3:
+            data = data[..., 0]
         data = torch.from_numpy(data)
-        spacing = img.header.get_zooms()
+        spacing = img.header.get_zooms()[:3]
 
         # resize
         if max(abs(s - s_) for s, s_ in zip(spacing, self.spacing)) > 0.05:
