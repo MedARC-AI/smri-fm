@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from datasets import Dataset, Features, Nifti
 
-from nanobrain.eval.global_probe import (
+from nanobrain.eval.probe_global import (
     cls_probe,
     extract_global_features,
     read_targets,

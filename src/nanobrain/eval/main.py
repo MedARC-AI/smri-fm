@@ -3,19 +3,16 @@
 import argparse
 import json
 import logging
-import random
-import subprocess
-import sys
 from pathlib import Path
 
-import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from nanobrain.eval import global_probe, seg_probe
+from nanobrain.eval import probe_global, probe_seg
 from nanobrain.eval.models import create_model, list_models
 from nanobrain.eval.tasks import create_task, list_tasks
 from nanobrain.eval.tasks.base import ClassificationTask, RegressionTask, SegmentationTask
+from nanobrain.eval.utils import git_sha, set_seed, setup_logging
 
 DEFAULT_CONFIG = Path(__file__).parent / "config.yaml"
 logger = logging.getLogger("nanobrain.eval")
@@ -27,49 +24,23 @@ def run_probe(cfg, task, model, transform, device) -> dict:
     cv = (cfg.n_splits, cfg.n_repeats, cfg.seed, cfg.n_boot)
 
     if isinstance(task, RegressionTask):
-        X = global_probe.extract_global_features(
+        X = probe_global.extract_global_features(
             model, transform, dataset, task.image_col, device, cfg.batch_size, cfg.num_workers
         )
-        y = global_probe.read_targets(dataset, task.target_col)
-        return global_probe.reg_probe(X, y, *cv)
+        y = probe_global.read_targets(dataset, task.target_col)
+        return probe_global.reg_probe(X, y, *cv)
     if isinstance(task, ClassificationTask):
-        X = global_probe.extract_global_features(
+        X = probe_global.extract_global_features(
             model, transform, dataset, task.image_col, device, cfg.batch_size, cfg.num_workers
         )
-        y = global_probe.read_targets(dataset, task.target_col, task.target_map)
-        return global_probe.cls_probe(X, y, *cv)
+        y = probe_global.read_targets(dataset, task.target_col, task.target_map)
+        return probe_global.cls_probe(X, y, *cv)
     if isinstance(task, SegmentationTask):
-        features, fractions = seg_probe.extract_patch_features(
+        features, fractions = probe_seg.extract_patch_features(
             model, transform, dataset, task.image_col, task.seg_col, device
         )
-        return seg_probe.seg_probe(features, fractions, *cv)
+        return probe_seg.seg_probe(features, fractions, *cv)
     raise TypeError(f"unknown task type {type(task)}")
-
-
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-
-
-def git_sha() -> str:
-    out = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"],
-        cwd=Path(__file__).parent,
-        capture_output=True,
-        text=True,
-    )
-    return out.stdout.strip() or "unknown"
-
-
-def setup_logging(run_dir: Path) -> None:
-    handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(run_dir / "log.txt")]
-    logger.setLevel(logging.INFO)
-    logger.handlers.clear()
-    for handler in handlers:
-        handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
-        logger.addHandler(handler)
-    logger.propagate = False
 
 
 def main(

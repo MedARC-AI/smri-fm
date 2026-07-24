@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from nanobrain.eval.seg_probe import seg_probe
+from nanobrain.eval.probe_seg import seg_probe
 
 
 def test_seg_probe_requires_foreground():

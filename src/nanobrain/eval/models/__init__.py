@@ -1,4 +1,4 @@
-from nanobrain.eval.registry import make_registry
+from nanobrain.eval.utils import make_registry
 
 register_model, create_model, list_models = make_registry()
 
