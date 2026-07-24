@@ -38,22 +38,27 @@ def _visits(path: Path, value_col: str) -> pd.DataFrame:
     return df.dropna(subset=["dt"])[["PATNO", "dt", value_col]]
 
 
-def _updrs3_offstate(path: Path) -> pd.DataFrame:
-    """UPDRS-III is scored ON or OFF medication; ON scores are drug-suppressed.
+def _updrs3(path: Path, *, off_only: bool) -> pd.DataFrame:
+    """UPDRS-III motor exam.
 
-    Keep OFF exams and exams on untreated participants, drop ON.
+    The exam is scored either ON or OFF dopaminergic medication. ON scores are
+    drug-suppressed, so an ON/OFF mix measures treatment response as much as
+    disease progression. off_only=True keeps OFF exams plus exams on untreated
+    participants; off_only=False keeps everything (larger N, mixed states).
     """
     df = pd.read_csv(path, low_memory=False)
     df = df[df["NP3TOT"].notna()]
-    untreated = df["PDSTATE"].isna() & (df["PDTRTMNT"] == 0)
-    df = df[(df["PDSTATE"] == "OFF") | untreated]
-    df["NHY"] = df["NHY"].replace(101, np.nan)  # 101 = "unable to assess"
+    if off_only:
+        untreated = df["PDSTATE"].isna() & (df["PDTRTMNT"] == 0)
+        df = df[(df["PDSTATE"] == "OFF") | untreated]
+    # NHY (Hoehn & Yahr) is a 0-5 stage; 101 is an out-of-range "not assessed"
+    # code, and 97% of those rows also have no NP3TOT.
+    df["NHY"] = df["NHY"].replace(101, np.nan)
     df["dt"] = pd.to_datetime(df["INFODT"], format="%m/%Y", errors="coerce")
     df = df.dropna(subset=["dt"])
-    # one exam per person-visit
-    return df.sort_values("dt").drop_duplicates(["PATNO", "dt"])[
-        ["PATNO", "dt", "NP3TOT", "NHY"]
-    ]
+    # one exam per person-visit; prefer OFF when a visit has both
+    df = df.sort_values(["dt", "PDSTATE"])
+    return df.drop_duplicates(["PATNO", "dt"])[["PATNO", "dt", "NP3TOT", "NHY"]]
 
 
 def _slope_and_baseline(
@@ -90,10 +95,18 @@ def build(loni_root: Path, scans: pd.DataFrame) -> pd.DataFrame:
     )
 
     out = scans[["sample_id", "PATNO"]].copy()
-    u = _updrs3_offstate(motor)
-    for col in ("NP3TOT", "NHY"):
-        sub = u[u[col].notna()][["PATNO", "dt", col]]
-        out = out.merge(_slope_and_baseline(scans, sub, col), on="sample_id", how="left")
+    # emit both medication-state variants so the eval can measure whether the
+    # ON/OFF confound actually costs anything
+    for off_only, tag in ((True, "off"), (False, "all")):
+        u = _updrs3(motor, off_only=off_only)
+        for col in ("NP3TOT", "NHY"):
+            sub = u[u[col].notna()][["PATNO", "dt", col]]
+            got = _slope_and_baseline(scans, sub, col)
+            got.columns = [
+                c if c == "sample_id" else c.replace(col.lower(), f"{col.lower()}_{tag}")
+                for c in got.columns
+            ]
+            out = out.merge(got, on="sample_id", how="left")
     out = out.merge(
         _slope_and_baseline(scans, _visits(moca, "MCATOT"), "MCATOT"),
         on="sample_id",

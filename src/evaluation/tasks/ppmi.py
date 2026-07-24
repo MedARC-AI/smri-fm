@@ -156,17 +156,36 @@ def ppmi_pd_cn_bag() -> BrainAgeGapTask:
 
 
 @register_task
-def ppmi_updrs3_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+def ppmi_updrs3_slope_48m_off(n_splits: int = 5, seed: int = 0) -> ColumnTask:
     """Annualized MDS-UPDRS Part III motor progression. Higher = worsening.
 
-    OFF-medication and untreated exams only; ON scores are drug-suppressed.
+    OFF-medication and untreated exams only (n=765). Cleaner signal, smaller N.
+    Compare against ppmi_updrs3_slope_48m_all to price the ON/OFF confound.
     """
     return ColumnTask(
-        name="ppmi_updrs3_slope_48m",
+        name="ppmi_updrs3_slope_48m_off",
         kind="regression",
         data=load_ppmi_clinical(),
         image_column=IMAGE_COLUMN,
-        target_column="np3tot_slope_48m",
+        target_column="np3tot_off_slope_48m",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, spearman_r, r2),
+    )
+
+
+@register_task
+def ppmi_updrs3_slope_48m_all(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """As above but keeping ON-medication exams too (n=953).
+
+    Larger N, but the target mixes disease progression with treatment response.
+    """
+    return ColumnTask(
+        name="ppmi_updrs3_slope_48m_all",
+        kind="regression",
+        data=load_ppmi_clinical(),
+        image_column=IMAGE_COLUMN,
+        target_column="np3tot_all_slope_48m",
         n_splits=n_splits,
         seed=seed,
         metric_fns=(pearson_r, spearman_r, r2),
@@ -196,7 +215,7 @@ def ppmi_hoehn_yahr_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         kind="regression",
         data=load_ppmi_clinical(),
         image_column=IMAGE_COLUMN,
-        target_column="nhy_slope_48m",
+        target_column="nhy_off_slope_48m",
         n_splits=n_splits,
         seed=seed,
         metric_fns=(pearson_r, spearman_r, r2),
@@ -216,7 +235,7 @@ def ppmi_updrs3_baseline(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         kind="regression",
         data=load_ppmi_clinical(),
         image_column=IMAGE_COLUMN,
-        target_column="np3tot_baseline",
+        target_column="np3tot_off_baseline",
         n_splits=n_splits,
         seed=seed,
         metric_fns=(pearson_r, spearman_r, r2),
@@ -231,7 +250,7 @@ def ppmi_hoehn_yahr_baseline(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         kind="regression",
         data=load_ppmi_clinical(),
         image_column=IMAGE_COLUMN,
-        target_column="nhy_baseline",
+        target_column="nhy_off_baseline",
         n_splits=n_splits,
         seed=seed,
         metric_fns=(pearson_r, spearman_r, r2),
