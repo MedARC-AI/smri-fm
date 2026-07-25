@@ -223,6 +223,48 @@ def ppmi_hoehn_yahr_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
 
 
 # ---------------------------------------------------------------------------
+# Severity within PD only.
+#
+# The whole-cohort baseline tasks below are near-collinear with diagnosis (CN
+# and Prodromal sit at H&Y 0, PD at 1-2), so a good score there can just mean
+# "detects PD", not "grades severity". Holding diagnosis constant separates the
+# two: signal that survives here is severity, signal that vanishes was group
+# separation.
+# ---------------------------------------------------------------------------
+
+
+@register_task
+def ppmi_updrs3_baseline_pd(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """UPDRS-III motor score within PD only (n=346, mean 23.1 +- 10.4)."""
+    return ColumnTask(
+        name="ppmi_updrs3_baseline_pd",
+        kind="regression",
+        data=_filter_diagnoses(load_ppmi_clinical(), {"PD"}),
+        image_column=IMAGE_COLUMN,
+        target_column="np3tot_off_baseline",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, spearman_r, r2),
+    )
+
+
+@register_task
+def ppmi_hoehn_yahr_baseline_pd(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """H&Y stage within PD only (n=346). Nearly all stage 1 or 2, so the
+    achievable ceiling is low even if severity is readable."""
+    return ColumnTask(
+        name="ppmi_hoehn_yahr_baseline_pd",
+        kind="regression",
+        data=_filter_diagnoses(load_ppmi_clinical(), {"PD"}),
+        image_column=IMAGE_COLUMN,
+        target_column="nhy_off_baseline",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, spearman_r, r2),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Cross-sectional severity at the time of the scan (baseline controls for the
 # slope tasks: if the model only reads current severity, these saturate first)
 # ---------------------------------------------------------------------------
