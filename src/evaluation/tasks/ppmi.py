@@ -311,3 +311,104 @@ def ppmi_moca_baseline(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         seed=seed,
         metric_fns=(pearson_r, spearman_r, r2),
     )
+
+
+# ---------------------------------------------------------------------------
+# Cognitive composite, function, and a genetic negative control
+# ---------------------------------------------------------------------------
+
+
+@register_task
+def ppmi_cogcomp_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """Annualized slope of the 5-test cognitive composite. Lower = declining.
+
+    Mean z-score across HVLT-R, Symbol Digit, Benton JLO, Letter-Number
+    Sequencing and semantic fluency. The primary cognitive prognosis target:
+    MoCA is a screening instrument that ceilings in early PD, so a composite
+    built from full-length tests has a wider dynamic range at the same N
+    (n=930 vs 921).
+    """
+    return ColumnTask(
+        name="ppmi_cogcomp_slope_48m",
+        kind="regression",
+        data=load_ppmi_clinical(),
+        image_column=IMAGE_COLUMN,
+        target_column="cogcomp_slope_48m",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, spearman_r, r2),
+    )
+
+
+@register_task
+def ppmi_cogcomp_baseline(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """Cross-sectional cognitive composite, in SD units."""
+    return ColumnTask(
+        name="ppmi_cogcomp_baseline",
+        kind="regression",
+        data=load_ppmi_clinical(),
+        image_column=IMAGE_COLUMN,
+        target_column="cogcomp_baseline",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, spearman_r, r2),
+    )
+
+
+@register_task
+def ppmi_updrs2_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """Annualized MDS-UPDRS Part II slope. Higher = worsening.
+
+    Patient-reported motor experiences of daily living. Unlike Part III this is
+    not scored ON/OFF medication, so it needs no state split.
+    """
+    return ColumnTask(
+        name="ppmi_updrs2_slope_48m",
+        kind="regression",
+        data=load_ppmi_clinical(),
+        image_column=IMAGE_COLUMN,
+        target_column="np2ptot_slope_48m",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, spearman_r, r2),
+    )
+
+
+@register_task
+def ppmi_schwab_england_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """Annualized Schwab & England ADL slope. Lower = declining independence.
+
+    Clinician-rated, so it measures the same construct as UPDRS-II through a
+    different rater. Agreement between the two is evidence that any signal is
+    in the participant rather than in one rating style.
+    """
+    return ColumnTask(
+        name="ppmi_schwab_england_slope_48m",
+        kind="regression",
+        data=load_ppmi_clinical(),
+        image_column=IMAGE_COLUMN,
+        target_column="mseadlg_slope_48m",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, spearman_r, r2),
+    )
+
+
+@register_task
+def ppmi_prs(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """PD polygenic risk score (META5). Negative control.
+
+    PRS is fixed at conception and cannot be caused by brain morphology, so the
+    honest result is ~0. A non-trivial correlation means something is leaking
+    (population structure, site, or age) rather than that MRI reads genotype.
+    """
+    return ColumnTask(
+        name="ppmi_prs",
+        kind="regression",
+        data=load_ppmi_clinical(),
+        image_column=IMAGE_COLUMN,
+        target_column="prs_meta5",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, spearman_r, r2),
+    )

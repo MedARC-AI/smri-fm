@@ -21,6 +21,22 @@ import pandas as pd
 WINDOW = (-0.25, 4.0)
 MIN_VISITS = 2
 
+# Five-domain cognitive battery, the standard PPMI composite (Weintraub et al.
+# 2015). Every test is scored so higher = better, so the composite needs no sign
+# flips and a negative slope always means decline. Raw totals rather than PPMI's
+# derived T-scores: the derived scores are age-normed, which would silently
+# remove the very covariate we are trying to hold the model accountable for.
+COG_TESTS = {
+    "HVLT": ("Hopkins_Verbal_Learning_Test*_*.csv", ["HVLTRT1", "HVLTRT2", "HVLTRT3"]),
+    "SDMT": ("Symbol_Digit_Modalities_Test_*.csv", ["SDMTOTAL"]),
+    "JLO": ("Benton_Judgement_of_Line_Orientation_*.csv", ["JLO_TOTRAW"]),
+    "LNS": ("Letter_-_Number_Sequencing_*.csv", ["LNS_TOTRAW"]),
+    "SFT": ("Modified_Semantic_Fluency_*.csv", ["VLTANIM"]),
+}
+# a visit needs this many of the five to get a composite, else the score jumps
+# around as tests drop in and out of the battery
+MIN_TESTS = 3
+
 
 def _find(root: Path, pattern: str) -> Path:
     """LONI stamps every export with its download date, so glob the suffix."""
@@ -59,6 +75,35 @@ def _updrs3(path: Path, *, off_only: bool) -> pd.DataFrame:
     # one exam per person-visit; prefer OFF when a visit has both
     df = df.sort_values(["dt", "PDSTATE"])
     return df.drop_duplicates(["PATNO", "dt"])[["PATNO", "dt", "NP3TOT", "NHY"]]
+
+
+def _cognitive_composite(loni_root: Path) -> pd.DataFrame:
+    """Mean z-score across the five-test battery, one row per person-visit.
+
+    Each test is z-scored over every visit in the study before averaging, so the
+    tests are on a common scale and the composite is in SD units. MoCA is left
+    out on purpose: it is a screening instrument that ceilings in early PD, and
+    it already has its own task.
+    """
+    per_test = []
+    for name, (pattern, cols) in COG_TESTS.items():
+        path = _find(loni_root / "Non-motor_Assessments", pattern)
+        df = pd.read_csv(path, low_memory=False)
+        df["raw"] = df[cols].sum(axis=1, min_count=len(cols))
+        df = df[df["raw"].notna()]
+        df["dt"] = pd.to_datetime(df["INFODT"], format="%m/%Y", errors="coerce")
+        df = df.dropna(subset=["dt"])
+        # one score per person-visit before z-scoring, else duplicate rows
+        # would tilt the mean and SD
+        df = df.drop_duplicates(["PATNO", "dt"])
+        df["z"] = (df["raw"] - df["raw"].mean()) / df["raw"].std()
+        per_test.append(df[["PATNO", "dt", "z"]].assign(test=name))
+
+    long = pd.concat(per_test)
+    g = long.groupby(["PATNO", "dt"])["z"]
+    comp = g.agg(["mean", "count"]).reset_index()
+    comp = comp[comp["count"] >= MIN_TESTS]
+    return comp.rename(columns={"mean": "COGCOMP"})[["PATNO", "dt", "COGCOMP"]]
 
 
 def _slope_and_baseline(
@@ -112,6 +157,35 @@ def build(loni_root: Path, scans: pd.DataFrame) -> pd.DataFrame:
         on="sample_id",
         how="left",
     )
+
+    # cognitive composite: the primary prognosis target, MoCA without the ceiling
+    out = out.merge(
+        _slope_and_baseline(scans, _cognitive_composite(loni_root), "COGCOMP"),
+        on="sample_id",
+        how="left",
+    )
+
+    # Function, both instruments. UPDRS-II is patient-reported and Schwab &
+    # England is clinician-rated, so agreement between them is evidence the
+    # signal is in the participant rather than in one rating style. Neither is
+    # scored ON/OFF medication, so no state split is needed.
+    for folder, pattern, col in [
+        ("Motor___MDS-UPDRS", "MDS_UPDRS_Part_II__Patient_Questionnaire_*.csv", "NP2PTOT"),
+        ("Motor___MDS-UPDRS", "Modified_Schwab___England_*.csv", "MSEADLG"),
+    ]:
+        path = _find(loni_root / folder, pattern)
+        out = out.merge(
+            _slope_and_baseline(scans, _visits(path, col), col),
+            on="sample_id",
+            how="left",
+        )
+
+    # Polygenic risk score: a negative control. PRS is fixed at conception, so
+    # T1w morphology should carry essentially none of it; a non-trivial
+    # correlation means something is leaking rather than that MRI reads genotype.
+    prs = pd.read_csv(_find(subj, "Polygenic_Risk_Scores_*.csv"), low_memory=False)
+    prs = prs.drop_duplicates("PATNO")[["PATNO", "META5_PGS"]]
+    out = out.merge(prs.rename(columns={"META5_PGS": "prs_meta5"}), on="PATNO", how="left")
 
     # UPSIT (smell) and RBD (dream enactment) are single-timepoint prodromal markers
     for folder, pattern, col in [
