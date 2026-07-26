@@ -66,9 +66,11 @@ class SmriMaeTransform:
 
         # note, shape is (X, Y, Z) in contiguous F-order
         data = img.get_fdata(dtype=np.float32)
-        # some PPMI T1w are 4D (repeated/multi-echo volumes). Take the first
-        # volume; averaging them would raise SNR but only where the echoes share
-        # contrast, which is not guaranteed across sites.
+        # some PPMI T1w are 4D. The one case in ppmi-mini (sub-3200) is a repeat
+        # acquisition of the same sequence: the two volumes correlate at r=0.98
+        # and differ only by small head motion at tissue edges. Averaging would
+        # cut noise there, but a 4D file is not guaranteed to be same-contrast
+        # repeats, so take the first volume and stay correct in general.
         if data.ndim > 3:
             data = data[..., 0]
         data = torch.from_numpy(data)
