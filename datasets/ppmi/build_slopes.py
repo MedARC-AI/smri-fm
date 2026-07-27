@@ -77,6 +77,35 @@ def _updrs3(path: Path, *, off_only: bool) -> pd.DataFrame:
     return df.drop_duplicates(["PATNO", "dt"])[["PATNO", "dt", "NP3TOT", "NHY"]]
 
 
+# RBDSQ items 1-12, one binary symptom each.
+RBD_ITEMS = [
+    "DRMVIVID", "DRMAGRAC", "DRMNOCTB", "SLPLMBMV", "SLPINJUR", "DRMVERBL",
+    "DRMFIGHT", "DRMUMV", "DRMOBJFL", "MVAWAKEN", "DRMREMEM", "SLPDSTRB",
+]
+# item 13 scores 1 if any neurological disorder is present
+RBD_NEURO = [
+    "STROKE", "HETRA", "PARKISM", "RLS", "NARCLPSY",
+    "DEPRS", "EPILEPSY", "BRNINFM", "CNSOTH",
+]
+
+
+def _rbdsq(path: Path) -> pd.DataFrame:
+    """REM Sleep Behaviour Disorder Screening Questionnaire total, 0-13.
+
+    PPMI ships the individual items, not the total. Note that PTCGBOTH in this
+    file is NOT a score -- it records whether the participant, the caregiver or
+    both filled the form in.
+    """
+    df = pd.read_csv(path, low_memory=False)
+    items = df[RBD_ITEMS].sum(axis=1, min_count=len(RBD_ITEMS))
+    neuro = df[RBD_NEURO].max(axis=1)  # item 13: any condition present
+    df["RBDSQ"] = items + neuro
+    df = df[df["RBDSQ"].notna()]
+    df["dt"] = pd.to_datetime(df["INFODT"], format="%m/%Y", errors="coerce")
+    df = df.dropna(subset=["dt"])
+    return df.drop_duplicates(["PATNO", "dt"])[["PATNO", "dt", "RBDSQ"]]
+
+
 def _cognitive_composite(loni_root: Path) -> pd.DataFrame:
     """Mean z-score across the five-test battery, one row per person-visit.
 
@@ -187,24 +216,23 @@ def build(loni_root: Path, scans: pd.DataFrame) -> pd.DataFrame:
     prs = prs.drop_duplicates("PATNO")[["PATNO", "META5_PGS"]]
     out = out.merge(prs.rename(columns={"META5_PGS": "prs_meta5"}), on="PATNO", how="left")
 
-    # UPSIT (smell) and RBD (dream enactment) are single-timepoint prodromal
-    # markers. Their LONI column names say nothing to a reader, so rename.
-    for folder, pattern, col, name in [
-        ("Non-motor_Assessments", "University_of_Pennsylvania_Smell*_*.csv", "TOTAL_CORRECT", "upsit"),
-        ("Non-motor_Assessments", "REM_Sleep_Behavior_Disorder_*.csv", "PTCGBOTH", "rbd"),
-    ]:
-        try:
-            path = _find(loni_root / folder, pattern)
-        except FileNotFoundError:
-            continue
-        df = pd.read_csv(path, low_memory=False)
-        if col not in df.columns:
-            continue
-        near = _slope_and_baseline(scans, _visits(path, col), col)
-        near = near[["sample_id", f"{col.lower()}_baseline"]].rename(
-            columns={f"{col.lower()}_baseline": f"{name}_baseline"}
-        )
-        out = out.merge(near, on="sample_id", how="left")
+    # UPSIT: 40 scratch-and-sniff items, TOTAL_CORRECT is 0-40, lower = worse
+    # smell. Hyposmia is one of the strongest prodromal markers of PD.
+    upsit = _find(loni_root / "Non-motor_Assessments", "University_of_Pennsylvania_Smell*_*.csv")
+    near = _slope_and_baseline(scans, _visits(upsit, "TOTAL_CORRECT"), "TOTAL_CORRECT")
+    out = out.merge(
+        near[["sample_id", "total_correct_baseline"]].rename(
+            columns={"total_correct_baseline": "upsit_baseline"}
+        ),
+        on="sample_id",
+        how="left",
+    )
+
+    rbd = _find(loni_root / "Non-motor_Assessments", "REM_Sleep_Behavior_Disorder_*.csv")
+    near = _slope_and_baseline(scans, _rbdsq(rbd), "RBDSQ")
+    out = out.merge(
+        near[["sample_id", "rbdsq_baseline"]], on="sample_id", how="left"
+    )
 
     # PATNO is the LONI subject ID and is already encoded in sample_id as
     # sub-<PATNO>_ses-<date>. Keeping it would duplicate the identifier for no
@@ -268,6 +296,9 @@ def cli() -> None:
 
     scans = load_scans()
     out = build(args.loni_root, scans)
+    # This file is meant to be publishable to the gated dataset repo, so the raw
+    # LONI subject ID must never reach it -- sample_id already encodes it.
+    assert "PATNO" not in out.columns, "PATNO must not reach the output table"
     args.out.parent.mkdir(parents=True, exist_ok=True)
     out.to_parquet(args.out, index=False)
 
