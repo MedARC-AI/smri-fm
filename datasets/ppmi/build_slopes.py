@@ -168,7 +168,7 @@ def build(loni_root: Path, scans: pd.DataFrame) -> pd.DataFrame:
         "Montreal_Cognitive_Assessment__MoCA__*.csv",
     )
 
-    out = scans[["sample_id", "PATNO"]].copy()
+    out = scans[["sample_id", "participant_id", "PATNO"]].copy()
     # emit both medication-state variants so the eval can measure whether the
     # ON/OFF confound actually costs anything
     for off_only, tag in ((True, "off"), (False, "all")):
