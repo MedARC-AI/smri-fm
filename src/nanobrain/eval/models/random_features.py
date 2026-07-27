@@ -2,7 +2,8 @@
 
 A sanity floor for real backbones and a smoke test for the harness. `global_embed` resizes
 the volume to a cube and projects the flattened voxels; `dense_embed` projects each `patch^3`
-block on the RAS-canonical grid and broadcasts its embedding to that block's voxels.
+block on the RAS-canonical grid and broadcasts its embedding to that block's voxels. Dense
+features get their own narrower `patch_dim`, since one vector per voxel is the memory cost.
 """
 
 import nibabel as nib
@@ -17,13 +18,12 @@ from nanobrain.eval.nifti import brain_mask, canonical
 
 
 class RandomFeatures(nn.Module):
-    def __init__(self, size: int = 64, patch: int = 16, dim: int = 1024, seed: int = 0):
+    def __init__(self, size: int = 64, patch: int = 16, dim: int = 1024, patch_dim: int = 128):
         super().__init__()
         self.size = size
         self.patch = patch
-        generator = torch.Generator().manual_seed(seed)
-        self.global_proj = nn.Parameter(_projection(size**3, dim, generator), requires_grad=False)
-        self.patch_proj = nn.Parameter(_projection(patch**3, dim, generator), requires_grad=False)
+        self.global_proj = nn.Parameter(_projection(size**3, dim), requires_grad=False)
+        self.patch_proj = nn.Parameter(_projection(patch**3, patch_dim), requires_grad=False)
 
     @torch.inference_mode()
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
@@ -43,8 +43,8 @@ class RandomFeatures(nn.Module):
         return emb[: shape[0], : shape[1], : shape[2]].contiguous().cpu()  # (X, Y, Z, D)
 
 
-def _projection(in_dim: int, out_dim: int, generator: torch.Generator) -> Tensor:
-    return torch.randn(in_dim, out_dim, generator=generator) / in_dim**0.5
+def _projection(in_dim: int, out_dim: int) -> Tensor:
+    return torch.randn(in_dim, out_dim) / in_dim**0.5
 
 
 def _normalize(data: Tensor) -> Tensor:
@@ -64,6 +64,6 @@ def _resize(volume: Tensor, size: int) -> Tensor:
 
 @register_model
 def random_features(
-    size: int = 64, patch: int = 16, dim: int = 1024, seed: int = 0
+    size: int = 64, patch: int = 16, dim: int = 1024, patch_dim: int = 128
 ) -> RandomFeatures:
-    return RandomFeatures(size=size, patch=patch, dim=dim, seed=seed)
+    return RandomFeatures(size=size, patch=patch, dim=dim, patch_dim=patch_dim)
