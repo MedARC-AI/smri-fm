@@ -16,9 +16,8 @@ from sklearn.metrics import mean_absolute_error, roc_auc_score
 from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
-from torch.utils.data import DataLoader
 
-from nanobrain.eval.models.base import Model, Transform
+from nanobrain.eval.models.base import Model
 from nanobrain.eval.scoring import (
     aggregate,
     balanced_accuracy_at_half,
@@ -34,43 +33,20 @@ FitPredict = Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]
 # ---- feature extraction ---------------------------------------------------------------
 
 
-class _TransformDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset: Dataset, transform: Transform, image_col: str):
-        self.dataset = dataset
-        self.transform = transform
-        self.image_col = image_col
-
-    def __len__(self) -> int:
-        return len(self.dataset)
-
-    def __getitem__(self, i: int) -> dict:
-        return self.transform(self.dataset[i][self.image_col])
-
-
 @torch.inference_mode()
 def extract_global_features(
-    model: Model,
-    transform: Transform,
-    dataset: Dataset,
-    image_col: str,
-    device: torch.device,
-    batch_size: int,
-    num_workers: int,
+    model: Model, dataset: Dataset, image_col: str, device: torch.device
 ) -> np.ndarray:
-    loader = DataLoader(
-        _TransformDataset(dataset, transform, image_col),
-        batch_size=batch_size,
-        num_workers=num_workers,
-    )
+    """(N, D) one pooled embedding per subject. The model canonicalizes each nifti internally,
+    so extraction is a plain per-subject loop -- no transform, no batching."""
     start = time.perf_counter()
     features = []
-    for batch in loader:
-        batch = {k: v.to(device) for k, v in batch.items()}
+    for row in dataset:
         with torch.autocast(
             device_type=device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"
         ):
-            features.append(model.global_embed(batch).float().cpu())
-    X = torch.cat(features).numpy()
+            features.append(model.global_embed(row[image_col]).float().cpu())
+    X = torch.stack(features).numpy()
     logger.info(f"features {X.shape} in {time.perf_counter() - start:.1f}s")
     return X
 

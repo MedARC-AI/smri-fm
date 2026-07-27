@@ -1,12 +1,13 @@
 """The model contract every eval backbone implements.
 
-A `Transform` preprocesses a nifti into a sample dict, co-transforming an optional
-segmentation onto the image grid. The backbone exposes three views of that sample:
+Each model takes one nifti and canonicalizes/normalizes it internally, exposing two views:
 - `global_embed`: one pooled vector per volume (classification / regression).
-- `patch_embed`: one token per patch (segmentation).
-- `patchify_labels`: per-patch foreground fraction, on the same grid as `patch_embed`.
+- `dense_embed`: one feature vector per voxel on the RAS-canonical grid (segmentation), on CPU.
 
-Backbones are `nn.Module`s; the harness calls `.to(device)` and `.eval()`.
+Backbones are `nn.Module`s so the harness can `.to(device)` / `.eval()`; each method then moves
+its own inputs onto the module's device. Both views resolve on the RAS-canonical grid, which is
+the shared contract the segmentation probe aligns its labels to. The task owns the sampling grid,
+resampling image + seg to a per-task spacing before the model sees them.
 """
 
 from typing import Protocol
@@ -15,27 +16,11 @@ import nibabel as nib
 from torch import Tensor
 
 
-class Transform(Protocol):
-    def __call__(
-        self, img: nib.Nifti1Image, seg: nib.Nifti1Image | None = None
-    ) -> dict[str, Tensor]:
-        """Preprocess `img`; if `seg` is given, resample it (nearest) onto the image grid
-        and return it under "seg". Batch-collatable sample dict."""
-        ...
-
-
 class Model(Protocol):
-    def global_embed(self, batch: dict[str, Tensor]) -> Tensor:
-        """(B, D) one pooled embedding per volume."""
+    def global_embed(self, img: nib.Nifti1Image) -> Tensor:
+        """(D,) one pooled embedding for the whole volume."""
         ...
 
-    def patch_embed(self, batch: dict[str, Tensor]) -> Tensor:
-        """(B, N, D) one embedding per patch."""
+    def dense_embed(self, img: nib.Nifti1Image) -> Tensor:
+        """(X, Y, Z, D) one embedding per voxel on the RAS-canonical grid, on CPU."""
         ...
-
-    def patchify_labels(self, seg: Tensor) -> Tensor:
-        """(N,) per-patch foreground fraction for an on-grid seg tensor from the transform."""
-        ...
-
-
-ModelTransform = tuple[Model, Transform]

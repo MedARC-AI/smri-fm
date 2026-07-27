@@ -31,6 +31,9 @@ class SegmentationTask:
     dataset_fn: DatasetFn
     seg_col: str
     image_col: str = "image"
+    # One name per foreground class, ordered by integer label (label 1 is class_names[0], ...);
+    # 0 is always background. Drives the multiclass probe's per-class metrics.
+    class_names: tuple[str, ...] = ("foreground",)
 
 
 Task = RegressionTask | ClassificationTask | SegmentationTask

@@ -14,9 +14,6 @@ n_repeats: 5
 # Subject-level percentile bootstrap for a CI on each metric (honest sampling spread).
 n_boot: 2000
 
-# Feature extraction.
-batch_size: 4
-num_workers: 8
 device: cuda
 
 seed: 4466

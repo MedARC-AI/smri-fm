@@ -1,12 +1,11 @@
 """Random-projection baseline: a fixed, untrained backbone.
 
-Resamples every volume to a cube, then projects flattened voxels (global) or flattened
-patches (dense) through frozen random matrices. A sanity floor for real backbones and a
-cheap way to smoke-test the whole harness end to end.
+A sanity floor for real backbones and a smoke test for the harness. `global_embed` resizes
+the volume to a cube and projects the flattened voxels; `dense_embed` projects each `patch^3`
+block on the RAS-canonical grid and broadcasts its embedding to that block's voxels.
 """
 
 import nibabel as nib
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,30 +13,12 @@ from einops import rearrange
 from torch import Tensor
 
 from nanobrain.eval.models import register_model
-from nanobrain.eval.models.base import ModelTransform
-
-
-class RandomFeaturesTransform:
-    def __init__(self, size: int):
-        self.size = size
-
-    def __call__(
-        self, img: nib.Nifti1Image, seg: nib.Nifti1Image | None = None
-    ) -> dict[str, Tensor]:
-        data = resize(canonical_fdata(img), self.size)
-        brain = data > data.mean()
-        mean = data[brain].mean()
-        std = data[brain].std().clamp_min(1e-6)
-        sample = {"image": torch.where(brain, (data - mean) / std, 0.0).unsqueeze(0)}
-        if seg is not None:
-            sample["seg"] = resize(canonical_fdata(seg), self.size, nearest=True).unsqueeze(0)
-        return sample  # image, seg: (1, S, S, S)
+from nanobrain.eval.nifti import brain_mask, canonical
 
 
 class RandomFeatures(nn.Module):
     def __init__(self, size: int = 64, patch: int = 16, dim: int = 1024, seed: int = 0):
         super().__init__()
-        assert size % patch == 0, f"size {size} must be divisible by patch {patch}"
         self.size = size
         self.patch = patch
         generator = torch.Generator().manual_seed(seed)
@@ -45,39 +26,33 @@ class RandomFeatures(nn.Module):
         self.patch_proj = nn.Parameter(_projection(patch**3, dim, generator), requires_grad=False)
 
     @torch.inference_mode()
-    def global_embed(self, batch: dict[str, Tensor]) -> Tensor:
-        voxels = batch["image"].flatten(1)  # (B, S^3)
-        return voxels @ self.global_proj
+    def global_embed(self, img: nib.Nifti1Image) -> Tensor:
+        data = _normalize(resize(canonical(img), self.size))  # (S, S, S)
+        return data.flatten().to(self.global_proj.device) @ self.global_proj  # (D,)
 
     @torch.inference_mode()
-    def patch_embed(self, batch: dict[str, Tensor]) -> Tensor:
-        patches = self._to_patches(batch["image"])  # (B, N, patch^3)
-        return patches @ self.patch_proj
-
-    @torch.inference_mode()
-    def patchify_labels(self, seg: Tensor) -> Tensor:
-        patches = self._to_patches(seg.unsqueeze(0))  # (1, S, S, S) -> (1, N, patch^3)
-        return (patches > 0).float().mean(dim=-1).squeeze(0)  # (N,)
-
-    def _to_patches(self, volume: Tensor) -> Tensor:
+    def dense_embed(self, img: nib.Nifti1Image) -> Tensor:
+        data = _normalize(canonical(img))  # (X, Y, Z)
+        shape = data.shape
         p = self.patch
-        return rearrange(
-            volume, "b c (x px) (y py) (z pz) -> b (x y z) (c px py pz)", px=p, py=p, pz=p
-        )
+        pad = [(p - s % p) % p for s in shape]  # pad each axis up to a multiple of patch
+        data = F.pad(data, (0, pad[2], 0, pad[1], 0, pad[0]))
+        blocks = rearrange(data, "(x px) (y py) (z pz) -> x y z (px py pz)", px=p, py=p, pz=p)
+        emb = blocks.to(self.patch_proj.device) @ self.patch_proj  # (nx, ny, nz, D)
+        emb = emb.repeat_interleave(p, 0).repeat_interleave(p, 1).repeat_interleave(p, 2)
+        return emb[: shape[0], : shape[1], : shape[2]].contiguous().cpu()  # (X, Y, Z, D)
 
 
 def _projection(in_dim: int, out_dim: int, generator: torch.Generator) -> Tensor:
     return torch.randn(in_dim, out_dim, generator=generator) / in_dim**0.5
 
 
-def canonical_fdata(img: nib.Nifti1Image) -> Tensor:
-    # HF decodes to a Nifti1ImageWrapper whose reorientation is broken, so rebuild a plain
-    # image before going to RAS -- otherwise non-RAS volumes (e.g. DLBS) crash on load.
-    # ascontiguousarray drops the negative strides an axis flip leaves behind (torch rejects
-    # them); it is a no-op for already-RAS volumes.
-    plain = nib.Nifti1Image(img.dataobj, img.affine, img.header)
-    data = nib.as_closest_canonical(plain).get_fdata(dtype=np.float32)
-    return torch.from_numpy(np.ascontiguousarray(data))
+def _normalize(data: Tensor) -> Tensor:
+    """Brain-masked z-score: standardize within a mean-threshold mask, zero the background."""
+    brain = brain_mask(data)
+    mean = data[brain].mean()
+    std = data[brain].std().clamp_min(1e-6)
+    return torch.where(brain, (data - mean) / std, 0.0)
 
 
 def resize(volume: Tensor, size: int, nearest: bool = False) -> Tensor:
@@ -90,7 +65,5 @@ def resize(volume: Tensor, size: int, nearest: bool = False) -> Tensor:
 @register_model
 def random_features(
     size: int = 64, patch: int = 16, dim: int = 1024, seed: int = 0
-) -> ModelTransform:
-    model = RandomFeatures(size=size, patch=patch, dim=dim, seed=seed)
-    transform = RandomFeaturesTransform(size=size)
-    return model, transform
+) -> RandomFeatures:
+    return RandomFeatures(size=size, patch=patch, dim=dim, seed=seed)

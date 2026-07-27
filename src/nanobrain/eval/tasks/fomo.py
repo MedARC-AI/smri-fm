@@ -16,11 +16,18 @@ import fsspec
 import nibabel as nib
 import numpy as np
 from datasets import Dataset, Features, Nifti, Value
+from nibabel.processing import resample_to_output
 
 from nanobrain.eval.tasks import register_task
 from nanobrain.eval.tasks.base import ClassificationTask, RegressionTask, SegmentationTask
 
 BASE_URL = "https://sid.erda.dk/share_redirect/fmeuvo1EdF"
+
+Spacing = tuple[float, float, float]
+
+MIN_SPACING: Spacing = (1.0, 1.0, 1.0)
+TASK4_SPACING: Spacing = (0.5, 0.5, 0.5)
+TASK4_FOV_MM = 100.0
 
 
 @contextmanager
@@ -51,17 +58,43 @@ def _zero_seg_like(image_gz: bytes) -> bytes:
     return gzip.compress(zeros.to_bytes())
 
 
-def _from_generator(generator, features: Features, url: str) -> Dataset:
+def _center_crop(img: nib.Nifti1Image, fov_mm: float) -> nib.Nifti1Image:
+    """Center-crop to an fov_mm cube."""
+    spacing = np.sqrt((img.affine[:3, :3] ** 2).sum(axis=0))
+    size = np.round(fov_mm / spacing).astype(int)
+    start = (np.array(img.shape) - size) // 2
+    assert (start >= 0).all(), f"fov {fov_mm}mm exceeds volume {img.shape}"
+    return img.slicer[
+        start[0] : start[0] + size[0],
+        start[1] : start[1] + size[1],
+        start[2] : start[2] + size[2],
+    ]
+
+
+def _preprocess_bytes(
+    nii_gz: bytes, min_spacing: Spacing, order: int, fov_mm: float | None = None
+) -> bytes:
+    """Resample a .nii.gz and center-crop."""
+    img = nib.Nifti1Image.from_bytes(gzip.decompress(nii_gz))
+    native = np.sqrt((img.affine[:3, :3] ** 2).sum(axis=0))
+    target = np.maximum(native, min_spacing)
+    out = resample_to_output(img, voxel_sizes=tuple(target), order=order)
+    if fov_mm is not None:
+        out = _center_crop(out, fov_mm)
+    return gzip.compress(out.to_bytes())
+
+
+def _from_generator(generator, features: Features, **gen_kwargs) -> Dataset:
     # Small batches keep each Arrow binary chunk under the 2 GB offset limit for raw niftis.
     return Dataset.from_generator(
-        generator, features=features, gen_kwargs={"url": url}, writer_batch_size=16
+        generator, features=features, gen_kwargs=gen_kwargs, writer_batch_size=16
     )
 
 
 # ---- Task 1: acute infarct (classification; positives also carry a lesion mask) --------
 
 
-def _generate_task1(url: str) -> Iterator[dict]:
+def _generate_task1(url: str, min_spacing: Spacing | None) -> Iterator[dict]:
     with _open_zip(url) as zf:
         names = set(zf.namelist())
         for sub in _subjects(zf, "dwi_b1000.nii.gz"):
@@ -70,14 +103,17 @@ def _generate_task1(url: str) -> Iterator[dict]:
             image = zf.read(stem.format("preprocessed") + "/dwi_b1000.nii.gz")
             seg_name = stem.format("labels") + "/seg.nii.gz"
             seg = zf.read(seg_name) if seg_name in names else _zero_seg_like(image)
+            if min_spacing is not None:
+                image = _preprocess_bytes(image, min_spacing, order=1)
+                seg = _preprocess_bytes(seg, min_spacing, order=0)
             yield {"subject": sub, "label": label, "image": _nifti(image), "seg": _nifti(seg)}
 
 
-def load_task1(url: str) -> Dataset:
+def load_task1(url: str, min_spacing: Spacing | None = None) -> Dataset:
     features = Features(
         {"subject": Value("string"), "label": Value("int32"), "image": Nifti(), "seg": Nifti()}
     )
-    return _from_generator(_generate_task1, features, url)
+    return _from_generator(_generate_task1, features, url=url, min_spacing=min_spacing)
 
 
 @register_task
@@ -90,31 +126,39 @@ def fomo_task1_infarct(url: str = f"{BASE_URL}/Task_1.zip") -> ClassificationTas
 @register_task
 def fomo_task1_infarct_seg(url: str = f"{BASE_URL}/Task_1.zip") -> SegmentationTask:
     return SegmentationTask(
-        name="fomo_task1_infarct_seg", dataset_fn=lambda: load_task1(url), seg_col="seg"
+        name="fomo_task1_infarct_seg",
+        dataset_fn=lambda: load_task1(url, MIN_SPACING),
+        seg_col="seg",
+        class_names=("infarct",),
     )
 
 
 # ---- Task 2: meningioma segmentation ---------------------------------------------------
 
 
-def _generate_task2(url: str) -> Iterator[dict]:
+def _generate_task2(url: str, min_spacing: Spacing) -> Iterator[dict]:
     with _open_zip(url) as zf:
         for sub in _subjects(zf, "seg.nii.gz"):
             stem = f"Task_2/{{}}/{sub}/ses-01"
-            image = zf.read(stem.format("preprocessed") + "/flair.nii.gz")
-            seg = zf.read(stem.format("labels") + "/seg.nii.gz")
+            image = _preprocess_bytes(
+                zf.read(stem.format("preprocessed") + "/flair.nii.gz"), min_spacing, 1
+            )
+            seg = _preprocess_bytes(zf.read(stem.format("labels") + "/seg.nii.gz"), min_spacing, 0)
             yield {"subject": sub, "image": _nifti(image), "seg": _nifti(seg)}
 
 
-def load_task2(url: str) -> Dataset:
+def load_task2(url: str, min_spacing: Spacing = MIN_SPACING) -> Dataset:
     features = Features({"subject": Value("string"), "image": Nifti(), "seg": Nifti()})
-    return _from_generator(_generate_task2, features, url)
+    return _from_generator(_generate_task2, features, url=url, min_spacing=min_spacing)
 
 
 @register_task
 def fomo_task2_meningioma(url: str = f"{BASE_URL}/Task_2.zip") -> SegmentationTask:
     return SegmentationTask(
-        name="fomo_task2_meningioma", dataset_fn=lambda: load_task2(url), seg_col="seg"
+        name="fomo_task2_meningioma",
+        dataset_fn=lambda: load_task2(url),
+        seg_col="seg",
+        class_names=("meningioma",),
     )
 
 
@@ -131,7 +175,7 @@ def _generate_task3(url: str) -> Iterator[dict]:
 
 def load_task3(url: str) -> Dataset:
     features = Features({"subject": Value("string"), "age": Value("int32"), "image": Nifti()})
-    return _from_generator(_generate_task3, features, url)
+    return _from_generator(_generate_task3, features, url=url)
 
 
 @register_task
@@ -144,24 +188,36 @@ def fomo_task3_age(url: str = f"{BASE_URL}/Task_3.zip") -> RegressionTask:
 # ---- Task 4: trigeminal nerve/vessel segmentation --------------------------------------
 
 
-def _generate_task4(url: str) -> Iterator[dict]:
+def _generate_task4(url: str, min_spacing: Spacing, fov_mm: float) -> Iterator[dict]:
     with _open_zip(url) as zf:
         for sub in _subjects(zf, "seg.nii.gz"):
             stem = f"Task_4/{{}}/{sub}/ses-01"
-            image = zf.read(stem.format("preprocessed") + "/t2w.nii.gz")
-            seg = zf.read(stem.format("labels") + "/seg.nii.gz")
+            image = _preprocess_bytes(
+                zf.read(stem.format("preprocessed") + "/t2w.nii.gz"), min_spacing, 1, fov_mm
+            )
+            seg = _preprocess_bytes(
+                zf.read(stem.format("labels") + "/seg.nii.gz"), min_spacing, 0, fov_mm
+            )
             yield {"subject": sub, "image": _nifti(image), "seg": _nifti(seg)}
 
 
-def load_task4(url: str) -> Dataset:
+def load_task4(
+    url: str, min_spacing: Spacing = TASK4_SPACING, fov_mm: float = TASK4_FOV_MM
+) -> Dataset:
     features = Features({"subject": Value("string"), "image": Nifti(), "seg": Nifti()})
-    return _from_generator(_generate_task4, features, url)
+    return _from_generator(
+        _generate_task4, features, url=url, min_spacing=min_spacing, fov_mm=fov_mm
+    )
 
 
 @register_task
 def fomo_task4_trigeminal(url: str = f"{BASE_URL}/Task_4.zip") -> SegmentationTask:
     return SegmentationTask(
-        name="fomo_task4_trigeminal", dataset_fn=lambda: load_task4(url), seg_col="seg"
+        name="fomo_task4_trigeminal",
+        dataset_fn=lambda: load_task4(url),
+        seg_col="seg",
+        # TODO: confirm label order in the challenge data (label 1 -> nerve, label 2 -> vessel).
+        class_names=("nerve", "vessel"),
     )
 
 

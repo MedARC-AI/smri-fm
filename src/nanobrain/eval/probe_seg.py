@@ -1,117 +1,220 @@
-"""Segmentation probe: patch-level lesion detection from dense patch features.
+"""Segmentation probe: per-voxel features -> voxel-level structure detection.
 
-Feature extraction (GPU) is separated from scoring (sklearn/CPU). A patch is foreground if it
-holds any lesion voxel; subject-level CV, metrics pooled over held-out patches.
+The model emits one feature vector per voxel on the RAS-canonical grid. We train
+classifiers on subsampled voxels, and then evaluate on full predictions with Dice / AP.
 """
 
 import logging
 import time
+import warnings
 
 import numpy as np
 import torch
 from datasets import Dataset
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import average_precision_score, roc_auc_score
+from sklearn.metrics import average_precision_score
 from sklearn.model_selection import KFold
-from sklearn.pipeline import make_pipeline
+from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from nanobrain.eval.models.base import Model, Transform
-from nanobrain.eval.scoring import aggregate, bootstrap_ci
+from nanobrain.eval.models.base import Model
+from nanobrain.eval.nifti import brain_mask, canonical
+from nanobrain.eval.scoring import aggregate
+from nanobrain.eval.tasks.base import SegmentationTask
 
 logger = logging.getLogger("nanobrain.eval")
 
-# A patch is foreground if its lesion fraction exceeds this; background patches are subsampled
-# to this many per positive when fitting.
-FG_THRESHOLD = 0.0
-BG_PER_POS = 50
+# Foreground voxels are all kept; background is capped per subject with a fixed cap
+NEG_PER_SUBJECT = 10_000
+
+
+# ---- embed / subsample ----------------------------------------------------------------
 
 
 @torch.inference_mode()
-def extract_patch_features(
-    model: Model,
-    transform: Transform,
-    dataset: Dataset,
-    image_col: str,
-    seg_col: str,
-    device: torch.device,
-) -> tuple[list[np.ndarray], list[np.ndarray]]:
-    """Per subject: (patch features (N, D), per-patch foreground fraction (N,)).
-
-    One subject at a time (n is tiny for the seg tasks); the model owns the patch grid,
-    so features[i] and fractions[i] are index-aligned by construction.
-    """
-    start = time.perf_counter()
-    features, fractions = [], []
-    for row in dataset:
-        sample = transform(row[image_col], row[seg_col])
-        seg_grid = sample.pop("seg")
-        batch = {k: v.unsqueeze(0).to(device) for k, v in sample.items()}
-        with torch.autocast(
-            device_type=device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"
-        ):
-            feat = model.patch_embed(batch)[0].float().cpu().numpy()
-        frac = model.patchify_labels(seg_grid).cpu().numpy()
-        # The alignment invariant: patch tokens and patch labels share one grid.
-        assert len(feat) == len(frac), f"patch/label grid mismatch: {len(feat)} vs {len(frac)}"
-        features.append(feat)
-        fractions.append(frac)
-    n_patches = sum(len(f) for f in features)
-    logger.info(
-        f"patches {n_patches} over {len(features)} subjects in {time.perf_counter() - start:.1f}s"
+def _embed(
+    model: Model, img, seg, device: torch.device
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Flat (features (V, D), labels (V,), brain mask (V,)) on the shared canonical grid."""
+    with torch.autocast(
+        device_type=device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"
+    ):
+        emb = model.dense_embed(img).float()
+    image = canonical(img)
+    labels = canonical(seg).round().long()
+    mask = brain_mask(image)
+    assert emb.shape[:3] == image.shape == labels.shape, "features, image and seg grids disagree"
+    return (
+        emb.reshape(-1, emb.shape[-1]).numpy(),
+        labels.reshape(-1).numpy(),
+        mask.reshape(-1).numpy(),
     )
-    return features, fractions
+
+
+def _subsample(
+    feats: np.ndarray, labels: np.ndarray, mask: np.ndarray, rng: np.random.Generator
+) -> tuple[np.ndarray, np.ndarray]:
+    """Every foreground voxel plus a capped draw of in-brain background voxels."""
+    foreground = np.flatnonzero(labels > 0)
+    background = np.flatnonzero((labels == 0) & mask)
+    keep_bg = rng.choice(background, min(len(background), NEG_PER_SUBJECT), replace=False)
+    keep = np.concatenate([foreground, keep_bg])
+    return feats[keep], labels[keep]
+
+
+def _training_subsamples(
+    model: Model, dataset: Dataset, task: SegmentationTask, device: torch.device, seed: int
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    rng = np.random.default_rng(seed)
+    subsamples = []
+    for row in dataset:
+        feats, labels, mask = _embed(model, row[task.image_col], row[task.seg_col], device)
+        subsamples.append(_subsample(feats, labels, mask, rng))
+    present = {int(c) for _, y in subsamples for c in np.unique(y)}
+    missing = [name for c, name in enumerate(task.class_names, 1) if c not in present]
+    assert not missing, f"foreground classes absent from all segs: {missing}"
+    return subsamples
+
+
+# ---- fit / predict --------------------------------------------------------------------
+
+
+def _fit(x: np.ndarray, y: np.ndarray) -> Pipeline:
+    clf = LogisticRegression(class_weight="balanced", max_iter=1000)
+    return make_pipeline(StandardScaler(), clf).fit(x, y)
+
+
+def _fit_folds(
+    subsamples: list[tuple[np.ndarray, np.ndarray]], n_splits: int, n_repeats: int, seed: int
+) -> tuple[list[list[Pipeline]], np.ndarray]:
+    """Repeated K-fold over subjects, decoupled: `heads[r][f]` is the head fit on repeat r's
+    fold f, and `folds[r, i]` is the fold subject i is held out in."""
+    n = len(subsamples)
+    heads, folds = [], np.empty((n_repeats, n), dtype=int)
+    for repeat in range(n_repeats):
+        splitter = KFold(n_splits, shuffle=True, random_state=seed + repeat)
+        fold_heads = []
+        for fold, (train, test) in enumerate(splitter.split(range(n))):
+            x = np.concatenate([subsamples[i][0] for i in train])
+            y = np.concatenate([subsamples[i][1] for i in train])
+            fold_heads.append(_fit(x, y))
+            folds[repeat, test] = fold
+        heads.append(fold_heads)
+    return heads, folds
+
+
+def _predict(head: Pipeline, x: np.ndarray, n_classes: int) -> np.ndarray:
+    """(V, K+1) probabilities. A fold that never saw a class emits no column for it, so that
+    column stays zero and the class is simply never predicted."""
+    probs = np.zeros((len(x), n_classes + 1), dtype=np.float32)
+    probs[:, head.classes_] = head.predict_proba(x)
+    return probs
+
+
+# ---- score ----------------------------------------------------------------------------
+
+
+def _dice(pred: np.ndarray, truth: np.ndarray) -> float:
+    denom = int(pred.sum()) + int(truth.sum())
+    return 2 * int(np.logical_and(pred, truth).sum()) / denom if denom else 1.0
+
+
+def _score(y_true: np.ndarray, probs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Per foreground class, (dice, ap) for one prediction. A class with no ground-truth voxels
+    scores specificity in Dice (1 iff no false positive) and NaN for AP."""
+    n_classes = probs.shape[1] - 1
+    pred = probs.argmax(axis=1)
+    dice, ap = np.full(n_classes, np.nan), np.full(n_classes, np.nan)
+    for c in range(1, n_classes + 1):
+        truth = y_true == c
+        if truth.any():
+            dice[c - 1] = _dice(pred == c, truth)
+            ap[c - 1] = average_precision_score(truth, probs[:, c])
+        else:
+            dice[c - 1] = float(not (pred == c).any())
+    return dice, ap
+
+
+def _score_dataset(
+    model: Model,
+    dataset: Dataset,
+    task: SegmentationTask,
+    heads: list[list[Pipeline]],
+    folds: np.ndarray,
+    device: torch.device,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Embed each subject once, predict under the heads that held it out, and score per class."""
+    n_classes = len(task.class_names)
+    n_repeats = len(heads)
+    dice = np.full((n_classes, len(dataset), n_repeats), np.nan)
+    ap = np.full((n_classes, len(dataset), n_repeats), np.nan)
+    for i, row in enumerate(dataset):
+        feats, labels, mask = _embed(model, row[task.image_col], row[task.seg_col], device)
+        brain = np.flatnonzero(mask)
+        x, y_true = feats[brain], labels[brain]
+        for r in range(n_repeats):
+            probs = _predict(heads[r][folds[r, i]], x, n_classes)
+            dice[:, i, r], ap[:, i, r] = _score(y_true, probs)
+    return dice, ap
+
+
+# ---- probe ----------------------------------------------------------------------------
 
 
 def seg_probe(
-    features: list[np.ndarray],
-    fractions: list[np.ndarray],
+    model: Model,
+    task: SegmentationTask,
+    dataset: Dataset,
     n_splits: int,
     n_repeats: int,
     seed: int,
+    device: torch.device,
     n_boot: int = 2000,
 ) -> dict:
-    """Patch-level lesion detection. Subject-level CV; metrics pooled over held-out patches."""
-    labels = [(frac > FG_THRESHOLD).astype(int) for frac in fractions]
-    y_true = np.concatenate(labels)
-    # No positive patches means every mask vanished (e.g. resized below the patch grid).
-    assert set(np.unique(y_true)) == {0, 1}, "seg labels have no foreground patches"
-    n_subjects = len(features)
-    metrics = {"detection_ap": average_precision_score, "patch_auroc": roc_auc_score}
+    """Voxel-level detection over K foreground classes: subject-level repeated CV, scored by
+    per-subject Dice and average precision."""
+    start = time.perf_counter()
+    subsamples = _training_subsamples(model, dataset, task, device, seed)
+    heads, folds = _fit_folds(subsamples, n_splits, n_repeats, seed)
+    dice, ap = _score_dataset(model, dataset, task, heads, folds, device)
+    logger.info(f"seg probe over {len(dataset)} subjects in {time.perf_counter() - start:.1f}s")
+    return _summarize(dice, ap, task.class_names, n_boot, seed)
 
-    score_sum = [np.zeros(len(feat)) for feat in features]
-    per_repeat = []
-    for repeat in range(n_repeats):
-        rng = np.random.default_rng(seed + repeat)
-        splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed + repeat)
-        oof_scores: list[np.ndarray | None] = [None] * n_subjects
-        for train_idx, test_idx in splitter.split(np.arange(n_subjects)):
-            X_train = np.concatenate([features[i] for i in train_idx])
-            y_train = np.concatenate([labels[i] for i in train_idx])
-            X_train, y_train = _subsample_background(X_train, y_train, rng)
-            clf = make_pipeline(
-                StandardScaler(), LogisticRegression(class_weight="balanced", max_iter=1000)
-            ).fit(X_train, y_train)
-            positive = list(clf.classes_).index(1)
-            for i in test_idx:
-                oof_scores[i] = clf.predict_proba(features[i])[:, positive]
-        for i in range(n_subjects):
-            score_sum[i] = score_sum[i] + oof_scores[i]
-        scores = np.concatenate(oof_scores)
-        per_repeat.append({key: metric(y_true, scores) for key, metric in metrics.items()})
+
+def _summarize(
+    dice: np.ndarray, ap: np.ndarray, class_names: tuple[str, ...], n_boot: int, seed: int
+) -> dict:
+    """Per-class and macro Dice / voxel-AP: point estimate over repeats plus a subject bootstrap."""
+    _, _, n_repeats = dice.shape
+    metrics: dict[str, np.ndarray] = {}
+    for family, arr in (("dice", dice), ("voxel_ap", ap)):
+        for c, name in enumerate(class_names):
+            metrics[f"{family}_{name}"] = arr[c]
+        metrics[family] = _nanmean(arr, axis=0)  # macro over classes
+
+    per_repeat = [
+        {key: float(_nanmean(mat[:, r])) for key, mat in metrics.items()} for r in range(n_repeats)
+    ]
     summary = aggregate(per_repeat)
-
-    y_score = np.concatenate([total / n_repeats for total in score_sum])
-    groups = np.concatenate([np.full(len(feat), i) for i, feat in enumerate(features)])
-    summary.update(bootstrap_ci(y_true, y_score, metrics, n_boot, seed, groups=groups))
+    for key, mat in metrics.items():
+        low, high = _bootstrap_subject(_nanmean(mat, axis=1), n_boot, seed)
+        summary[f"{key}_ci_low"], summary[f"{key}_ci_high"] = low, high
     return summary
 
 
-def _subsample_background(
-    X: np.ndarray, y: np.ndarray, rng: np.random.Generator
-) -> tuple[np.ndarray, np.ndarray]:
-    positive = np.flatnonzero(y == 1)
-    negative = np.flatnonzero(y == 0)
-    n_keep = min(len(negative), max(len(positive) * BG_PER_POS, 1))
-    keep = np.concatenate([positive, rng.choice(negative, size=n_keep, replace=False)])
-    return X[keep], y[keep]
+def _bootstrap_subject(
+    per_subject: np.ndarray, n_boot: int, seed: int, alpha: float = 0.05
+) -> tuple[float, float]:
+    """Percentile CI on the subject-mean, resampling subjects with replacement."""
+    rng = np.random.default_rng(seed)
+    n = len(per_subject)
+    samples = [_nanmean(per_subject[rng.integers(0, n, size=n)]) for _ in range(n_boot)]
+    low, high = np.nanpercentile(samples, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+    return float(low), float(high)
+
+
+def _nanmean(values: np.ndarray, axis: int | None = None) -> np.ndarray:
+    # Subjects with no ground-truth voxels of a class have no AP, so some slices are all-NaN.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", "Mean of empty slice", RuntimeWarning)
+        return np.nanmean(values, axis=axis)

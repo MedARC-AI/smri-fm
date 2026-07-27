@@ -86,10 +86,8 @@ def test_extract_global_features():
     dataset = Dataset.from_dict(
         {"image": [make_nifti(i) for i in range(6)]}, features=Features({"image": Nifti()})
     )
-    model, transform = create_model("random_features", size=32, patch=8, dim=64)
-    X = extract_global_features(
-        model, transform, dataset, "image", torch.device("cpu"), batch_size=4, num_workers=0
-    )
+    model = create_model("random_features", size=32, patch=8, dim=64)
+    X = extract_global_features(model, dataset, "image", torch.device("cpu"))
     assert X.shape == (6, 64)
     assert np.isfinite(X).all()
 

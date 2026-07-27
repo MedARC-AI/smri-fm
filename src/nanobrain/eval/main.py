@@ -18,28 +18,23 @@ DEFAULT_CONFIG = Path(__file__).parent / "config.yaml"
 logger = logging.getLogger("nanobrain.eval")
 
 
-def run_probe(cfg, task, model, transform, device) -> dict:
+def run_probe(cfg, task, model, device) -> dict:
     dataset = task.dataset_fn()
     logger.info(f"dataset: {len(dataset)} samples")
     cv = (cfg.n_splits, cfg.n_repeats, cfg.seed, cfg.n_boot)
 
     if isinstance(task, RegressionTask):
-        X = probe_global.extract_global_features(
-            model, transform, dataset, task.image_col, device, cfg.batch_size, cfg.num_workers
-        )
+        X = probe_global.extract_global_features(model, dataset, task.image_col, device)
         y = probe_global.read_targets(dataset, task.target_col)
         return probe_global.reg_probe(X, y, *cv)
     if isinstance(task, ClassificationTask):
-        X = probe_global.extract_global_features(
-            model, transform, dataset, task.image_col, device, cfg.batch_size, cfg.num_workers
-        )
+        X = probe_global.extract_global_features(model, dataset, task.image_col, device)
         y = probe_global.read_targets(dataset, task.target_col, task.target_map)
         return probe_global.cls_probe(X, y, *cv)
     if isinstance(task, SegmentationTask):
-        features, fractions = probe_seg.extract_patch_features(
-            model, transform, dataset, task.image_col, task.seg_col, device
+        return probe_seg.seg_probe(
+            model, task, dataset, cfg.n_splits, cfg.n_repeats, cfg.seed, device, cfg.n_boot
         )
-        return probe_seg.seg_probe(features, fractions, *cv)
     raise TypeError(f"unknown task type {type(task)}")
 
 
@@ -66,13 +61,11 @@ def main(
 
     device = torch.device(cfg.device)
     task = create_task(task_name, **OmegaConf.to_container(cfg.task_kwargs, resolve=True))
-    model, transform = create_model(
-        model_name, **OmegaConf.to_container(cfg.model_kwargs, resolve=True)
-    )
+    model = create_model(model_name, **OmegaConf.to_container(cfg.model_kwargs, resolve=True))
     model.to(device)
     model.eval()  # freeze BatchNorm/dropout so features are deterministic
 
-    summary = run_probe(cfg, task, model, transform, device)
+    summary = run_probe(cfg, task, model, device)
     record = {"model": model_name, "task": task_name, "git": sha, **summary}
     (run_dir / "metrics.jsonl").write_text(json.dumps(record) + "\n")
     logger.info("results: " + "  ".join(f"{k}={v:.4f}" for k, v in summary.items()))
