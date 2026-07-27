@@ -209,12 +209,22 @@ def build(loni_root: Path, scans: pd.DataFrame) -> pd.DataFrame:
             how="left",
         )
 
-    # Polygenic risk score: a negative control. PRS is fixed at conception, so
-    # T1w morphology should carry essentially none of it; a non-trivial
-    # correlation means something is leaking rather than that MRI reads genotype.
+    # PD polygenic risk scores. Brain morphology is heritable, so a small true
+    # genotype -> structure association is plausible and this is NOT a clean
+    # null. The two variants are shipped together on purpose: PPMI enriches its
+    # genetic cohort for LRRK2/GBA carriers, recruited at particular sites, so
+    # comparing the full score against the LRRK2/GBA-excluded one separates
+    # cohort-enrichment effects from the rest of the polygenic signal.
     prs = pd.read_csv(_find(subj, "Polygenic_Risk_Scores_*.csv"), low_memory=False)
-    prs = prs.drop_duplicates("PATNO")[["PATNO", "META5_PGS"]]
-    out = out.merge(prs.rename(columns={"META5_PGS": "prs_meta5"}), on="PATNO", how="left")
+    prs = prs.drop_duplicates("PATNO")[
+        ["PATNO", "META5_PGS", "META5_excl_LRRK2_GBA_PGS"]
+    ].rename(
+        columns={
+            "META5_PGS": "prs_meta5",
+            "META5_excl_LRRK2_GBA_PGS": "prs_meta5_excl_lrrk2_gba",
+        }
+    )
+    out = out.merge(prs, on="PATNO", how="left")
 
     # UPSIT: 40 scratch-and-sniff items, TOTAL_CORRECT is 0-40, lower = worse
     # smell. Hyposmia is one of the strongest prodromal markers of PD.

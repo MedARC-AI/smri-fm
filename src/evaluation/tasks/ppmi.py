@@ -406,11 +406,14 @@ def ppmi_schwab_england_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTas
 
 @register_task
 def ppmi_prs(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """PD polygenic risk score (META5). Negative control.
+    """PD polygenic risk score (META5).
 
-    PRS is fixed at conception and cannot be caused by brain morphology, so the
-    honest result is ~0. A non-trivial correlation means something is leaking
-    (population structure, site, or age) rather than that MRI reads genotype.
+    Brain morphology is heritable, so genotype -> structure is a real causal
+    route and a small association here would not be surprising. What is
+    surprising is the size: ViT-B reaches r ~ 0.17 and ViT-L ~ 0.21 on n=827,
+    far above what the PRS/imaging literature reports at this sample size.
+
+    Run alongside ppmi_prs_excl_lrrk2_gba to separate the two explanations.
     """
     return ColumnTask(
         name="ppmi_prs",
@@ -418,6 +421,29 @@ def ppmi_prs(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         data=load_ppmi_clinical(),
         image_column=IMAGE_COLUMN,
         target_column="prs_meta5",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, spearman_r, r2),
+    )
+
+
+@register_task
+def ppmi_prs_excl_lrrk2_gba(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """Same score with the LRRK2 and GBA loci removed.
+
+    PPMI enriches its genetic cohort for LRRK2/GBA carriers, who are recruited
+    at particular sites and are disproportionately of Ashkenazi ancestry. If the
+    signal is cohort structure rather than polygenic biology, dropping those
+    loci should cost most of it. Measured: 0.168 -> 0.099 for ViT-B, a 41% drop,
+    while the two scores still correlate at 0.65 with each other. So much of the
+    association travels with cohort enrichment, but not all of it.
+    """
+    return ColumnTask(
+        name="ppmi_prs_excl_lrrk2_gba",
+        kind="regression",
+        data=load_ppmi_clinical(),
+        image_column=IMAGE_COLUMN,
+        target_column="prs_meta5_excl_lrrk2_gba",
         n_splits=n_splits,
         seed=seed,
         metric_fns=(pearson_r, spearman_r, r2),
