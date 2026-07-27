@@ -187,10 +187,11 @@ def build(loni_root: Path, scans: pd.DataFrame) -> pd.DataFrame:
     prs = prs.drop_duplicates("PATNO")[["PATNO", "META5_PGS"]]
     out = out.merge(prs.rename(columns={"META5_PGS": "prs_meta5"}), on="PATNO", how="left")
 
-    # UPSIT (smell) and RBD (dream enactment) are single-timepoint prodromal markers
-    for folder, pattern, col in [
-        ("Non-motor_Assessments", "University_of_Pennsylvania_Smell*_*.csv", "TOTAL_CORRECT"),
-        ("Non-motor_Assessments", "REM_Sleep_Behavior_Disorder_*.csv", "PTCGBOTH"),
+    # UPSIT (smell) and RBD (dream enactment) are single-timepoint prodromal
+    # markers. Their LONI column names say nothing to a reader, so rename.
+    for folder, pattern, col, name in [
+        ("Non-motor_Assessments", "University_of_Pennsylvania_Smell*_*.csv", "TOTAL_CORRECT", "upsit"),
+        ("Non-motor_Assessments", "REM_Sleep_Behavior_Disorder_*.csv", "PTCGBOTH", "rbd"),
     ]:
         try:
             path = _find(loni_root / folder, pattern)
@@ -200,7 +201,15 @@ def build(loni_root: Path, scans: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             continue
         near = _slope_and_baseline(scans, _visits(path, col), col)
-        out = out.merge(near[["sample_id", f"{col.lower()}_baseline"]], on="sample_id", how="left")
+        near = near[["sample_id", f"{col.lower()}_baseline"]].rename(
+            columns={f"{col.lower()}_baseline": f"{name}_baseline"}
+        )
+        out = out.merge(near, on="sample_id", how="left")
+
+    # PATNO is the LONI subject ID and is already encoded in sample_id as
+    # sub-<PATNO>_ses-<date>. Keeping it would duplicate the identifier for no
+    # gain, so it is dropped before the table is written or published.
+    out = out.drop(columns=["PATNO"])
 
     assert len(out) == len(scans), "join changed row count"
     return out

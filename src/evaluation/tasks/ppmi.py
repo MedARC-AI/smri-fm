@@ -19,13 +19,11 @@ from evaluation.tasks.registry import register_task
 PPMI_EVAL_REPO_ID = "medarc/ppmi-mini"
 IMAGE_COLUMN = "nifti"
 
-# Clinical targets are joined in at load time from a local parquet built by
-# datasets/ppmi/build_slopes.py. They are NOT in the published dataset: the PPMI
-# DUA forbids redistributing subject-level data to unregistered parties.
-CLINICAL_PARQUET = os.environ.get(
-    "PPMI_CLINICAL_PARQUET",
-    "/mnt/data/medarc/datasets/ppmi/derived/ppmi_mini_clinical.parquet",
-)
+# Clinical targets live in the gated dataset repo alongside the imaging. Set
+# PPMI_CLINICAL_PARQUET to override with a locally built file, which is what you
+# want when iterating on datasets/ppmi/build_slopes.py.
+CLINICAL_IN_REPO = "clinical/ppmi_mini_clinical.parquet"
+CLINICAL_PARQUET = os.environ.get("PPMI_CLINICAL_PARQUET")
 
 
 @lru_cache(maxsize=1)
@@ -43,18 +41,30 @@ def load_ppmi_eval() -> Dataset:
 def load_ppmi_clinical() -> Dataset:
     """ppmi-mini + clinical target columns, aligned on sample_id."""
     import pandas as pd
+    from huggingface_hub import hf_hub_download
+    from huggingface_hub.errors import EntryNotFoundError
 
+    if CLINICAL_PARQUET:
+        source = CLINICAL_PARQUET
+    else:
+        try:
+            source = hf_hub_download(
+                PPMI_EVAL_REPO_ID, CLINICAL_IN_REPO, repo_type="dataset"
+            )
+        except EntryNotFoundError as exc:
+            raise FileNotFoundError(
+                f"{CLINICAL_IN_REPO} is not in {PPMI_EVAL_REPO_ID} yet. Build it "
+                "locally with datasets/ppmi/build_slopes.py and point "
+                "PPMI_CLINICAL_PARQUET at the result."
+            ) from exc
     data = load_ppmi_eval()
-    clinical = pd.read_parquet(CLINICAL_PARQUET).set_index("sample_id")
+    clinical = pd.read_parquet(source).set_index("sample_id")
     missing = set(data["sample_id"]) - set(clinical.index)
     if missing:
-        raise ValueError(
-            f"{len(missing)} samples absent from {CLINICAL_PARQUET}; rebuild it"
-        )
+        raise ValueError(f"{len(missing)} samples absent from {source}; rebuild it")
     clinical = clinical.loc[list(data["sample_id"])]
     for col in clinical.columns:
-        if col != "PATNO":
-            data = data.add_column(col, clinical[col].tolist())
+        data = data.add_column(col, clinical[col].tolist())
     return data
 
 
