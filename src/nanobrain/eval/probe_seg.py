@@ -8,6 +8,7 @@ import logging
 import time
 import warnings
 
+import nibabel as nib
 import numpy as np
 import torch
 from datasets import Dataset
@@ -33,7 +34,7 @@ NEG_PER_SUBJECT = 10_000
 
 @torch.inference_mode()
 def _embed(
-    model: Model, img, seg, device: torch.device
+    model: Model, img: nib.Nifti1Image, seg: nib.Nifti1Image, device: torch.device
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Flat (features (V, D), labels (V,), brain mask (V,)) on the shared canonical grid."""
     with torch.autocast(
@@ -124,7 +125,7 @@ def _score(y_true: np.ndarray, probs: np.ndarray) -> tuple[np.ndarray, np.ndarra
     scores specificity in Dice (1 iff no false positive) and NaN for AP."""
     n_classes = probs.shape[1] - 1
     pred = probs.argmax(axis=1)
-    dice, ap = np.full(n_classes, np.nan), np.full(n_classes, np.nan)
+    dice, ap = np.empty(n_classes), np.full(n_classes, np.nan)
     for c in range(1, n_classes + 1):
         truth = y_true == c
         if truth.any():
@@ -165,10 +166,10 @@ def seg_probe(
     model: Model,
     task: SegmentationTask,
     dataset: Dataset,
+    device: torch.device,
     n_splits: int,
     n_repeats: int,
     seed: int,
-    device: torch.device,
     n_boot: int = 2000,
 ) -> dict:
     """Voxel-level detection over K foreground classes: subject-level repeated CV, scored by

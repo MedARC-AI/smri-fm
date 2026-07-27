@@ -1,5 +1,6 @@
 import nibabel as nib
 import numpy as np
+import pytest
 import torch
 from datasets import Dataset, Features, Nifti
 
@@ -110,11 +111,8 @@ def test_seg_probe_multiclass():
 
 def test_seg_probe_requires_present_class():
     dataset = make_dataset([make_subject(i, {}) for i in range(4)])  # no foreground anywhere
-    try:
+    with pytest.raises(AssertionError, match="absent"):
         seg_probe(
             FakeSegModel(), make_task(dataset, ("lesion",)), dataset,
             n_splits=2, n_repeats=1, seed=0, device=CPU, n_boot=50,
         )  # fmt: skip
-        raise AssertionError("expected a missing-class assertion")
-    except AssertionError as err:
-        assert "absent" in str(err)

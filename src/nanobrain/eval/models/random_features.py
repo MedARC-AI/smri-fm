@@ -27,7 +27,7 @@ class RandomFeatures(nn.Module):
 
     @torch.inference_mode()
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
-        data = _normalize(resize(canonical(img), self.size))  # (S, S, S)
+        data = _normalize(_resize(canonical(img), self.size))  # (S, S, S)
         return data.flatten().to(self.global_proj.device) @ self.global_proj  # (D,)
 
     @torch.inference_mode()
@@ -55,10 +55,10 @@ def _normalize(data: Tensor) -> Tensor:
     return torch.where(brain, (data - mean) / std, 0.0)
 
 
-def resize(volume: Tensor, size: int, nearest: bool = False) -> Tensor:
-    mode = "nearest" if nearest else "trilinear"
-    kwargs = {} if nearest else {"align_corners": False}
-    resized = F.interpolate(volume[None, None], size=(size, size, size), mode=mode, **kwargs)
+def _resize(volume: Tensor, size: int) -> Tensor:
+    resized = F.interpolate(
+        volume[None, None], size=(size, size, size), mode="trilinear", align_corners=False
+    )
     return resized[0, 0]
 
 

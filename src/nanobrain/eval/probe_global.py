@@ -24,17 +24,21 @@ from nanobrain.eval.scoring import (
     bootstrap_ci,
     pearson_r,
 )
+from nanobrain.eval.tasks.base import ClassificationTask, RegressionTask
 
 logger = logging.getLogger("nanobrain.eval")
 
 FitPredict = Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]
 
+REG_METRICS = {"mae": mean_absolute_error, "pearson_r": pearson_r}
+CLS_METRICS = {"auroc": roc_auc_score, "balanced_accuracy": balanced_accuracy_at_half}
 
-# ---- feature extraction ---------------------------------------------------------------
+
+# ---- embed / targets ------------------------------------------------------------------
 
 
 @torch.inference_mode()
-def extract_global_features(
+def _extract_features(
     model: Model, dataset: Dataset, image_col: str, device: torch.device
 ) -> np.ndarray:
     """(N, D) one pooled embedding per subject. The model canonicalizes each nifti internally,
@@ -51,17 +55,33 @@ def extract_global_features(
     return X
 
 
-def read_targets(dataset: Dataset, target_col: str, target_map: dict | None = None) -> np.ndarray:
+def _read_targets(dataset: Dataset, target_col: str, target_map: dict | None = None) -> np.ndarray:
     values = dataset[target_col]
     if target_map is not None:
         values = [target_map[v] for v in values]
     return np.asarray(values)
 
 
-# ---- cross-validation -----------------------------------------------------------------
+# ---- fit / predict --------------------------------------------------------------------
 
 
-def repeated_oof(
+def _fit_ridge(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray) -> np.ndarray:
+    head = make_pipeline(StandardScaler(), RidgeCV(alphas=np.logspace(-3, 3, 13)))
+    return head.fit(X_train, y_train).predict(X_test)
+
+
+def _fit_logistic(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray) -> np.ndarray:
+    """Positive-class probability. Indexes `classes_` rather than assuming column 1, which would
+    silently score the wrong class when the label order differs."""
+    clf = LogisticRegressionCV(
+        Cs=10, class_weight="balanced", scoring="balanced_accuracy", max_iter=1000
+    )
+    head = make_pipeline(StandardScaler(), clf).fit(X_train, y_train)
+    positive = list(head.classes_).index(1)
+    return head.predict_proba(X_test)[:, positive]
+
+
+def _repeated_oof(
     X: np.ndarray,
     y: np.ndarray,
     fit_predict: FitPredict,
@@ -82,44 +102,58 @@ def repeated_oof(
     return oofs
 
 
+# ---- score ----------------------------------------------------------------------------
+
+
+def _summarize(
+    y: np.ndarray, oofs: list[np.ndarray], metrics: dict, n_boot: int, seed: int
+) -> dict:
+    """Point estimate over repeats plus a bootstrap CI on the repeat-averaged predictions."""
+    per_repeat = [{key: metric(y, oof) for key, metric in metrics.items()} for oof in oofs]
+    summary = aggregate(per_repeat)
+    summary.update(bootstrap_ci(y, np.mean(oofs, axis=0), metrics, n_boot, seed))
+    return summary
+
+
 # ---- probes ---------------------------------------------------------------------------
 
 
 def reg_probe(
-    X: np.ndarray, y: np.ndarray, n_splits: int, n_repeats: int, seed: int, n_boot: int = 2000
+    model: Model,
+    task: RegressionTask,
+    dataset: Dataset,
+    device: torch.device,
+    n_splits: int,
+    n_repeats: int,
+    seed: int,
+    n_boot: int = 2000,
 ) -> dict:
-    metrics = {"mae": mean_absolute_error, "pearson_r": pearson_r}
-
-    def fit_predict(X_train, y_train, X_test):
-        model = make_pipeline(StandardScaler(), RidgeCV(alphas=np.logspace(-3, 3, 13)))
-        return model.fit(X_train, y_train).predict(X_test)
-
-    y = y.astype(float)
-    oofs = repeated_oof(X, y, fit_predict, n_splits, n_repeats, seed, stratified=False)
-    per_repeat = [{key: metric(y, oof) for key, metric in metrics.items()} for oof in oofs]
-    summary = aggregate(per_repeat)
-    summary.update(bootstrap_ci(y, np.mean(oofs, axis=0), metrics, n_boot, seed))
-    return summary
+    """Scalar regression off the pooled embedding, scored by MAE and Pearson r."""
+    start = time.perf_counter()
+    X = _extract_features(model, dataset, task.image_col, device)
+    y = _read_targets(dataset, task.target_col).astype(float)
+    oofs = _repeated_oof(X, y, _fit_ridge, n_splits, n_repeats, seed, stratified=False)
+    logger.info(f"reg probe over {len(dataset)} subjects in {time.perf_counter() - start:.1f}s")
+    return _summarize(y, oofs, REG_METRICS, n_boot, seed)
 
 
 def cls_probe(
-    X: np.ndarray, y: np.ndarray, n_splits: int, n_repeats: int, seed: int, n_boot: int = 2000
+    model: Model,
+    task: ClassificationTask,
+    dataset: Dataset,
+    device: torch.device,
+    n_splits: int,
+    n_repeats: int,
+    seed: int,
+    n_boot: int = 2000,
 ) -> dict:
+    """Binary classification off the pooled embedding, scored by AUROC and balanced accuracy."""
+    start = time.perf_counter()
+    y = _read_targets(dataset, task.target_col, task.target_map)
     assert set(np.unique(y)) == {0, 1}, (
         f"cls probe expects binary 0/1 labels, got {set(np.unique(y))}"
     )
-    metrics = {"auroc": roc_auc_score, "balanced_accuracy": balanced_accuracy_at_half}
-
-    def fit_predict(X_train, y_train, X_test):
-        clf = LogisticRegressionCV(
-            Cs=10, class_weight="balanced", scoring="balanced_accuracy", max_iter=1000
-        )
-        model = make_pipeline(StandardScaler(), clf).fit(X_train, y_train)
-        positive = list(model.classes_).index(1)
-        return model.predict_proba(X_test)[:, positive]
-
-    oofs = repeated_oof(X, y, fit_predict, n_splits, n_repeats, seed, stratified=True)
-    per_repeat = [{key: metric(y, oof) for key, metric in metrics.items()} for oof in oofs]
-    summary = aggregate(per_repeat)
-    summary.update(bootstrap_ci(y, np.mean(oofs, axis=0), metrics, n_boot, seed))
-    return summary
+    X = _extract_features(model, dataset, task.image_col, device)
+    oofs = _repeated_oof(X, y, _fit_logistic, n_splits, n_repeats, seed, stratified=True)
+    logger.info(f"cls probe over {len(dataset)} subjects in {time.perf_counter() - start:.1f}s")
+    return _summarize(y, oofs, CLS_METRICS, n_boot, seed)

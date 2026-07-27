@@ -21,20 +21,14 @@ logger = logging.getLogger("nanobrain.eval")
 def run_probe(cfg, task, model, device) -> dict:
     dataset = task.dataset_fn()
     logger.info(f"dataset: {len(dataset)} samples")
-    cv = (cfg.n_splits, cfg.n_repeats, cfg.seed, cfg.n_boot)
+    args = (model, task, dataset, device, cfg.n_splits, cfg.n_repeats, cfg.seed, cfg.n_boot)
 
     if isinstance(task, RegressionTask):
-        X = probe_global.extract_global_features(model, dataset, task.image_col, device)
-        y = probe_global.read_targets(dataset, task.target_col)
-        return probe_global.reg_probe(X, y, *cv)
+        return probe_global.reg_probe(*args)
     if isinstance(task, ClassificationTask):
-        X = probe_global.extract_global_features(model, dataset, task.image_col, device)
-        y = probe_global.read_targets(dataset, task.target_col, task.target_map)
-        return probe_global.cls_probe(X, y, *cv)
+        return probe_global.cls_probe(*args)
     if isinstance(task, SegmentationTask):
-        return probe_seg.seg_probe(
-            model, task, dataset, cfg.n_splits, cfg.n_repeats, cfg.seed, device, cfg.n_boot
-        )
+        return probe_seg.seg_probe(*args)
     raise TypeError(f"unknown task type {type(task)}")
 
 
