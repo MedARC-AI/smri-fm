@@ -1,8 +1,12 @@
-"""The RAS-canonical grid: the shared frame that dense_embed and the seg probe align to."""
+"""The RAS-canonical grid: the shared frame that dense_embed and the seg probe align to.
+
+Also the intensity/geometry preprocessing the models share, so backbones stay comparable.
+"""
 
 import nibabel as nib
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 
 
@@ -21,3 +25,19 @@ def canonical(img: nib.Nifti1Image) -> Tensor:
 def brain_mask(image: Tensor) -> Tensor:
     """Mean-threshold foreground mask, matching the intensity normalization the models use."""
     return image > image.mean()
+
+
+def normalize(image: Tensor) -> Tensor:
+    """Brain-masked z-score: standardize within a mean-threshold mask, zero the background."""
+    brain = brain_mask(image)
+    mean = image[brain].mean()
+    std = image[brain].std().clamp_min(1e-6)
+    return torch.where(brain, (image - mean) / std, 0.0)
+
+
+def resize(volume: Tensor, size: int) -> Tensor:
+    """Trilinear resample of an (X, Y, Z) volume onto a `size` cube."""
+    resized = F.interpolate(
+        volume[None, None], size=(size, size, size), mode="trilinear", align_corners=False
+    )
+    return resized[0, 0]

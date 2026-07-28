@@ -14,7 +14,7 @@ from einops import rearrange
 from torch import Tensor
 
 from nanobrain.eval.models import register_model
-from nanobrain.eval.nifti import brain_mask, canonical
+from nanobrain.eval.nifti import canonical, normalize, resize
 
 
 class RandomFeatures(nn.Module):
@@ -27,12 +27,12 @@ class RandomFeatures(nn.Module):
 
     @torch.inference_mode()
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
-        data = _normalize(_resize(canonical(img), self.size))  # (S, S, S)
+        data = normalize(resize(canonical(img), self.size))  # (S, S, S)
         return data.flatten().to(self.global_proj.device) @ self.global_proj  # (D,)
 
     @torch.inference_mode()
     def dense_embed(self, img: nib.Nifti1Image) -> Tensor:
-        data = _normalize(canonical(img))  # (X, Y, Z)
+        data = normalize(canonical(img))  # (X, Y, Z)
         shape = data.shape
         p = self.patch
         pad = [(p - s % p) % p for s in shape]  # pad each axis up to a multiple of patch
@@ -45,21 +45,6 @@ class RandomFeatures(nn.Module):
 
 def _projection(in_dim: int, out_dim: int) -> Tensor:
     return torch.randn(in_dim, out_dim) / in_dim**0.5
-
-
-def _normalize(data: Tensor) -> Tensor:
-    """Brain-masked z-score: standardize within a mean-threshold mask, zero the background."""
-    brain = brain_mask(data)
-    mean = data[brain].mean()
-    std = data[brain].std().clamp_min(1e-6)
-    return torch.where(brain, (data - mean) / std, 0.0)
-
-
-def _resize(volume: Tensor, size: int) -> Tensor:
-    resized = F.interpolate(
-        volume[None, None], size=(size, size, size), mode="trilinear", align_corners=False
-    )
-    return resized[0, 0]
 
 
 @register_model

@@ -24,11 +24,11 @@ Chosen by task type; each fixes its own metrics.
 |---|---|---|---|
 | `RegressionTask` | global embedding | `RidgeCV` | MAE, Pearson r |
 | `ClassificationTask` | global embedding | `LogisticRegressionCV` | AUROC, balanced accuracy |
-| `SegmentationTask` | patch embeddings | `LogisticRegression` (balanced) | detection-AP, patch-AUROC |
+| `SegmentationTask` | dense embeddings | `LogisticRegression` (balanced) | Dice, voxel-AP |
 
-Segmentation is patch-level lesion **detection**: each patch is labelled foreground if it
-contains any lesion voxel (`patchify_labels`), and scored by AP over held-out patches —
-resolution-honest, so it never depends on voxel-level Dice.
+Segmentation is voxel-level: the head is fit on subsampled voxels (every foreground voxel plus a
+capped draw of in-brain background) and scored over every in-brain voxel of held-out subjects,
+per foreground class. Cross-validation splits subjects, not voxels.
 
 Cross-validation is `n_splits`-fold repeated `n_repeats` times. Metrics pool out-of-fold
 predictions over all samples within a repeat, then average across repeats — so rank metrics
@@ -37,10 +37,11 @@ signal, not a confidence interval (it understates true sampling variance).
 
 ## Adding things
 
-- **Model**: a `(model, transform)` pair where the model implements the contract in
-  [models/base.py](models/base.py) (`global_embed`, `patch_embed`, `patchify_labels`) and
-  the transform maps a nifti to a sample dict. Decorate a builder with `@register_model`.
-  See [models/random_features.py](models/random_features.py).
+- **Model**: an `nn.Module` implementing the nifti-in contract in
+  [models/base.py](models/base.py) (`global_embed`, `dense_embed`), canonicalizing and
+  normalizing each volume itself with the helpers in [nifti.py](nifti.py). Decorate a builder
+  with `@register_model`. See [models/random_features.py](models/random_features.py) and
+  [models/unet.py](models/unet.py).
 - **Task**: a dataclass from [tasks/base.py](tasks/base.py) wrapping a lazy `dataset_fn`
   (an HF dataset of niftis + labels) and column names. Decorate a builder with
   `@register_task`. See [tasks/fomo.py](tasks/fomo.py).
