@@ -12,8 +12,7 @@ uv run python -m nanobrain.eval.main random_features fomo_task3_age
 ```
 
 `model` and `task` are registered names. Run settings come from
-[config.yaml](config.yaml), overridden by `--config` then dot-list `--overrides`. Point a
-task at a local zip for offline testing: `--overrides task_kwargs.url=data/fomo_eval/Task_3.zip`.
+[config.yaml](config.yaml), overridden by `--config` then dot-list `--overrides`.
 
 Outputs land in `<output_root>/<model>__<task>/`: `metrics.jsonl`, `config.yaml`, `log.txt`.
 
