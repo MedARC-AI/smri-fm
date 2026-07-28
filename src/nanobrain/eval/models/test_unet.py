@@ -9,9 +9,9 @@ SMALL = {"size": 16, "base": 4, "levels": 3, "pool": 2}
 GLOBAL_DIM = (4 + 8 + 16) * 2**3  # every stage's width times pool^3
 
 
-def _image(shape: tuple[int, int, int], affine: np.ndarray | None = None) -> nib.Nifti1Image:
+def _image(shape: tuple[int, int, int], affine: np.ndarray = np.eye(4)) -> nib.Nifti1Image:
     data = np.random.default_rng(0).random(shape, dtype=np.float32)
-    return nib.Nifti1Image(data, np.eye(4) if affine is None else affine)
+    return nib.Nifti1Image(data, affine)
 
 
 def test_unet_handles_non_ras():
@@ -49,6 +49,6 @@ def test_unet_dense_grid_not_multiple_of_stride():
     assert model.dense_embed(_image((13, 17, 11))).shape == (13, 17, 11, 4)
 
 
-def test_unet_default_size_is_shallow_and_small():
+def test_unet_param_budget():
     model = create_model("random_unet")
     assert sum(p.numel() for p in model.parameters()) < 20e6

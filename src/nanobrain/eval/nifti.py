@@ -1,7 +1,4 @@
-"""The RAS-canonical grid: the shared frame that dense_embed and the seg probe align to.
-
-Also the intensity/geometry preprocessing the models share, so backbones stay comparable.
-"""
+"""The RAS-canonical grid the seg probe aligns to, plus the preprocessing every model shares."""
 
 import nibabel as nib
 import numpy as np

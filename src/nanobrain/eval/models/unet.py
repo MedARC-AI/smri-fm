@@ -1,18 +1,4 @@
-"""Random-weight 3D U-Net: a fixed, untrained convolutional backbone.
-
-A second dumb baseline alongside `random_features`: same frozen-feature protocol, but the fixed
-projection is a shallow encoder-decoder CNN, so features are local, multi-scale and
-translation-equivariant. `global_embed` runs the encoder on a resized cube; `dense_embed` runs the
-full U-Net at native resolution, upsampling onto each skip's grid so the features land back on the
-input grid exactly.
-
-Weights are torch's default init, frozen. InstanceNorm after every conv keeps activations in scale
-without training, but it also fixes each channel's volume-wide mean, so a plain global average
-pool is near-constant across subjects. `global_embed` instead average-pools every encoder stage
-onto a coarse `pool^3` grid and concatenates: keeping regional structure and the shallow stages'
-texture is worth a lot (300 ADNI subjects, brain-age Pearson r: 0.04 pooled to a single vector,
-0.12 bottleneck on a 2^3 grid, 0.30 all stages on a 2^3 grid).
-"""
+"""Random-weight 3D U-Net: a fixed, untrained convolutional baseline next to `random_features`."""
 
 import nibabel as nib
 import torch
@@ -41,23 +27,27 @@ class RandomUNet(nn.Module):
         )
         self.requires_grad_(False)
 
+    @property
+    def device(self) -> torch.device:
+        return next(self.parameters()).device
+
     @torch.inference_mode()
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
-        volume = resize(canonical(img), self.size)
-        stages = self._encode(normalize(volume))
+        data = normalize(resize(canonical(img), self.size))  # (S, S, S)
+        stages = self._encode(data.to(self.device))
         pooled = [F.adaptive_avg_pool3d(stage, self.pool).flatten() for stage in stages]
         return torch.cat(pooled)  # (sum(widths) * pool^3,)
 
     @torch.inference_mode()
     def dense_embed(self, img: nib.Nifti1Image) -> Tensor:
-        stages = self._encode(normalize(canonical(img)))
+        data = normalize(canonical(img))  # (X, Y, Z)
+        stages = self._encode(data.to(self.device))
         dense = self._decode(stages)[0]  # (base, X, Y, Z)
         return dense.permute(1, 2, 3, 0).contiguous().cpu()  # (X, Y, Z, base)
 
     def _encode(self, volume: Tensor) -> list[Tensor]:
         """One (1, C, X, Y, Z) feature map per stage, coarsest last."""
-        device = next(self.parameters()).device
-        x = volume[None, None].to(device)
+        x = volume[None, None]
         stages = []
         for block in self.encoder:
             x = block(x)
