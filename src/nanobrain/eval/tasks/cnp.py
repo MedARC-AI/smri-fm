@@ -17,6 +17,7 @@ from datasets import Dataset, Features, Nifti, Value
 
 from nanobrain.eval.tasks import register_task
 from nanobrain.eval.tasks.base import ClassificationTask
+from nanobrain.eval.tasks.utils import matched_indices
 
 ROOT = "openneuro.org/ds000030"
 SEX_MAP = {"F": 0, "M": 1}
@@ -75,27 +76,12 @@ def _cohort(diagnoses: tuple[str, ...]) -> Dataset:
     return dataset.select(keep)
 
 
-def _match_on_confounds(cohort: Dataset, labels: list[int]) -> Dataset:
-    """Equalize the (scanner, ghost, age decade) makeup of the two classes, cell by cell."""
-    rng = np.random.default_rng(MATCH_SEED)
-    decades = np.digitize(cohort["age"], AGE_BINS)
-    cells = list(zip(cohort["scanner"], cohort["ghost"], decades.tolist()))
-    keep: list[int] = []
-    for cell in sorted(set(cells)):
-        in_cell = {
-            label: [i for i, (c, y) in enumerate(zip(cells, labels)) if c == cell and y == label]
-            for label in (0, 1)
-        }
-        size = min(len(in_cell[0]), len(in_cell[1]))
-        for indices in in_cell.values():
-            keep.extend(rng.choice(indices, size=size, replace=False).tolist())
-    return cohort.select(sorted(keep))
-
-
 def _matched_cohort(diagnoses: tuple[str, ...], target_col: str, target_map: dict) -> Dataset:
     cohort = _cohort(diagnoses)
     labels = [target_map[value] for value in cohort[target_col]]
-    return _match_on_confounds(cohort, labels)
+    decades = np.digitize(cohort["age"], AGE_BINS).tolist()
+    cells = list(zip(cohort["scanner"], cohort["ghost"], decades))
+    return cohort.select(matched_indices(cells, labels, seed=MATCH_SEED))
 
 
 @register_task
