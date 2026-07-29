@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-task=$1 ckpt=$(realpath "$2") cfg=$(realpath "$3") sif=$(realpath -m "$4")
+task=$1 cfg=$(realpath "$2") ckpt=$(realpath "$3") sif=$(realpath -m "$4")
 repo=$(realpath "$(dirname "$0")/..")
 
 # create temporary build dir, and remove it after script run
