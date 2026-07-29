@@ -7,15 +7,23 @@ import torch.nn.functional as F
 from torch import Tensor
 
 
+def canonical_img(img: nib.Nifti1Image) -> nib.Nifti1Image:
+    """The RAS-canonical image, affine included, for models that preprocess in world space.
+
+    Rebuilds a plain image first because HF's Nifti1ImageWrapper reorients incorrectly.
+    """
+    plain = nib.Nifti1Image(img.dataobj, img.affine, img.header)
+    return nib.as_closest_canonical(plain)
+
+
 def canonical(img: nib.Nifti1Image) -> Tensor:
     """(X, Y, Z) float32 volume on the RAS-canonical grid.
 
-    Rebuilds a plain image first because HF's Nifti1ImageWrapper reorients incorrectly; the axis
-    flips leave negative strides that torch rejects, hence ascontiguousarray. Reorientation is a
-    pure axis permutation, so integer label maps survive it exactly (round to int at the call site).
+    The axis flips leave negative strides that torch rejects, hence ascontiguousarray.
+    Reorientation is a pure axis permutation, so integer label maps survive it exactly
+    (round to int at the call site).
     """
-    plain = nib.Nifti1Image(img.dataobj, img.affine, img.header)
-    data = nib.as_closest_canonical(plain).get_fdata(dtype=np.float32)
+    data = canonical_img(img).get_fdata(dtype=np.float32)
     return torch.from_numpy(np.ascontiguousarray(data))
 
 

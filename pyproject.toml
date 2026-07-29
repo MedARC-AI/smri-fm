@@ -38,6 +38,12 @@ dependencies = [
     "webdataset",
 ]
 
+[project.optional-dependencies]
+neurojepa = ["neurojepa"]
+
+[tool.uv.sources]
+neurojepa = { git = "https://github.com/clane9/Neuro-JEPA", rev = "e9dff69446f643b6cab8213c15a44523301e51da" }
+
 [tool.setuptools_scm]
 version_file = "src/nanobrain/_version.py"
 
