@@ -77,7 +77,12 @@ def _fit_logistic(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray) 
     """Positive-class probability. Indexes `classes_` rather than assuming column 1, which would
     silently score the wrong class when the label order differs."""
     clf = LogisticRegressionCV(
-        Cs=10, class_weight="balanced", scoring="balanced_accuracy", max_iter=1000
+        Cs=10,
+        class_weight="balanced",
+        scoring="balanced_accuracy",
+        max_iter=1000,
+        l1_ratios=(0,),
+        use_legacy_attributes=False,
     )
     head = make_pipeline(StandardScaler(), clf).fit(X_train, y_train)
     positive = list(head.classes_).index(1)
