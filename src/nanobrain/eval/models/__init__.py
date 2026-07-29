@@ -6,5 +6,6 @@ from nanobrain.eval.models import (  # noqa: E402,F401  (register on import)
     neurojepa,
     neurovfm,
     random_features,
+    synthseg,
     unet,
 )
