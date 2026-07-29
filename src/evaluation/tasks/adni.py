@@ -12,7 +12,7 @@ from evaluation.tasks.metrics import (
 )
 from evaluation.tasks.registry import register_task
 
-ADNI_EVAL_REPO_ID = "medarc/adni-mini-v1-3"
+ADNI_EVAL_REPO_ID = "medarc/adni-mini"
 IMAGE_COLUMN = "nifti"
 
 
