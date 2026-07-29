@@ -1,7 +1,7 @@
 """ADNI-mini eval tasks: predict a clinical column from frozen T1 features.
 
-One HF dataset (medarc/adni-mini, 1000 scans) carries per-scan labels; each task picks a
-target column and drops scans missing that label (many PET/CSF measures are absent).
+One HF dataset carries per-scan labels; each task picks a target column and drops scans
+missing that label (many PET/CSF measures are absent).
 """
 
 import numpy as np
@@ -11,11 +11,13 @@ from nanobrain.eval.tasks import register_task
 from nanobrain.eval.tasks.base import ClassificationTask, RegressionTask
 
 ADNI_REPO_ID = "medarc/adni-mini"
+ADNI_FILES = f"hf://datasets/{ADNI_REPO_ID}/data/eval-*.parquet"
 IMAGE_COL = "nifti"
 
 
 def load_adni() -> Dataset:
-    return load_dataset(ADNI_REPO_ID)["test"]
+    # TODO: revert back to the usual load_dataset approach once the dataset is fixed
+    return load_dataset("parquet", data_files={"eval": ADNI_FILES}, split="eval")
 
 
 def drop_missing(dataset: Dataset, target_col: str) -> Dataset:
