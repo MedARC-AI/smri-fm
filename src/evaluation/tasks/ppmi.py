@@ -145,6 +145,28 @@ def ppmi_diagnosis(n_splits: int = 5, seed: int = 0) -> ColumnTask:
 
 
 @register_task
+def ppmi_diagnosis_3way(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """3-way CN / Prodromal / PD, the clinically meaningful ordering.
+
+    SWEDD is dropped. Those participants carry a PD diagnosis but a normal DAT
+    scan, so the label is contested by construction and a known noise source in
+    PD imaging studies. Chance is 33% balanced accuracy.
+    """
+    data = _filter_diagnoses(load_ppmi_eval(), {"CN", "Prodromal", "PD"})
+    return ColumnTask(
+        name="ppmi_diagnosis_3way",
+        kind="classification",
+        data=data,
+        image_column=IMAGE_COLUMN,
+        target_column="diagnosis",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(bacc,),
+        positive_label=data.features["diagnosis"].names.index("PD"),
+    )
+
+
+@register_task
 def ppmi_pd_cn_bag() -> BrainAgeGapTask:
     """Brain-age gap association (PD cases vs CN-trained age residual)."""
     data = load_ppmi_eval()
