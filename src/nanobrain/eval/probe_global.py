@@ -45,11 +45,14 @@ def _extract_features(
     so extraction is a plain per-subject loop -- no transform, no batching."""
     start = time.perf_counter()
     features = []
-    for row in dataset:
+    for ii, row in enumerate(dataset):
         with torch.autocast(
             device_type=device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"
         ):
             features.append(model.global_embed(row[image_col]).float().cpu())
+        if (ii + 1) % 10 == 0:
+            rate = (time.perf_counter() - start) / (ii + 1)
+            logger.info(f"embedded {ii + 1}/{len(dataset)} at {rate:.2f}s/volume")
     X = torch.stack(features).numpy()
     logger.info(f"features {X.shape} in {time.perf_counter() - start:.1f}s")
     return X

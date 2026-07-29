@@ -11,9 +11,13 @@ from nanobrain.eval.nifti import canonical, normalize, resize
 
 
 class RandomUNet(nn.Module):
-    """`levels` stages, channels doubling with depth from `base`, halving resolution each stage."""
+    """`levels` stages, channels doubling with depth from `base`, halving resolution each stage.
 
-    def __init__(self, size: int = 96, base: int = 32, levels: int = 4, pool: int = 2):
+    `global_embed` takes the centre cell of a `pool`-cubed pooling of the deepest stage only, so
+    the probe sees a few hundred features rather than a few thousand.
+    """
+
+    def __init__(self, size: int = 96, base: int = 32, levels: int = 4, pool: int = 3):
         super().__init__()
         widths = [base * 2**level for level in range(levels)]
         self.size = size
@@ -34,9 +38,10 @@ class RandomUNet(nn.Module):
     @torch.inference_mode()
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
         data = normalize(resize(canonical(img), self.size))  # (S, S, S)
-        stages = self._encode(data.to(self.device))
-        pooled = [F.adaptive_avg_pool3d(stage, self.pool).flatten() for stage in stages]
-        return torch.cat(pooled)  # (sum(widths) * pool^3,)
+        deepest = self._encode(data.to(self.device))[-1]
+        pooled = F.adaptive_avg_pool3d(deepest, self.pool)  # (1, C, P, P, P)
+        centre = self.pool // 2
+        return pooled[0, :, centre, centre, centre]  # (base * 2^(levels-1),)
 
     @torch.inference_mode()
     def dense_embed(self, img: nib.Nifti1Image) -> Tensor:
@@ -76,5 +81,5 @@ def _block(in_ch: int, out_ch: int, stride: int = 1) -> nn.Sequential:
 
 
 @register_model
-def random_unet(size: int = 96, base: int = 32, levels: int = 4, pool: int = 2) -> RandomUNet:
+def random_unet(size: int = 96, base: int = 32, levels: int = 4, pool: int = 3) -> RandomUNet:
     return RandomUNet(size=size, base=base, levels=levels, pool=pool)

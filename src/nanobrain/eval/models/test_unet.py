@@ -5,8 +5,8 @@ from datasets import Dataset, Features, Nifti
 
 from nanobrain.eval.models import create_model
 
-SMALL = {"size": 16, "base": 4, "levels": 3, "pool": 2}
-GLOBAL_DIM = (4 + 8 + 16) * 2**3  # every stage's width times pool^3
+SMALL = {"size": 16, "base": 4, "levels": 3, "pool": 3}
+GLOBAL_DIM = 16  # the deepest stage's width, one centre cell
 
 
 def _image(shape: tuple[int, int, int], affine: np.ndarray = np.eye(4)) -> nib.Nifti1Image:
