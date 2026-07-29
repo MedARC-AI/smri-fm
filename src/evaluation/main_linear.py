@@ -29,13 +29,13 @@ logger = logging.getLogger(__name__)
 
 # Estimators, keyed by task kind. Hyperparameters are selected by inner CV.
 def fit_ridge(X: np.ndarray, y: np.ndarray, seed: int) -> Pipeline:
-    ridge = RidgeCV(alphas=np.logspace(-3, 3, 13))
+    ridge = RidgeCV(alphas=np.logspace(-4, 6, 33))
     model = Pipeline([("scaler", StandardScaler()), ("ridge", ridge)])
     return model.fit(X, y)
 
 
 def fit_logistic(X: np.ndarray, y: np.ndarray, seed: int) -> Pipeline:
-    clf = LogisticRegressionCV(Cs=10, scoring="balanced_accuracy", max_iter=1000, random_state=seed)
+    clf = LogisticRegressionCV(Cs=np.logspace(-5, 5, 33), scoring="balanced_accuracy", max_iter=1000, random_state=seed)
     model = Pipeline([("scaler", StandardScaler()), ("clf", clf)])
     return model.fit(X, y)
 
