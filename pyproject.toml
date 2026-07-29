@@ -39,7 +39,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-neurojepa = ["neurojepa"]
+# cupy gives MONAI a GPU bspline resample; on CPU it is ~37x slower and dominates extraction.
+neurojepa = ["neurojepa", "cupy-cuda12x"]
 
 [tool.uv.sources]
 neurojepa = { git = "https://github.com/clane9/Neuro-JEPA", rev = "e9dff69446f643b6cab8213c15a44523301e51da" }

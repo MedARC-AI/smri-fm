@@ -21,11 +21,11 @@ IMG_SIZE = (96, 108, 96)
 class NeuroJEPA(nn.Module):
     """`out_layers` picks which blocks to pool, concatenated; None means the last one only."""
 
-    def __init__(self, repo_id: str = REPO_ID, out_layers: tuple[int, ...] | None = None):
+    def __init__(self, out_layers: tuple[int, ...] | None = None):
         super().__init__()
         from neurojepa.utils.init_utils import load_backbone_from_hf
 
-        self.backbone = load_backbone_from_hf(repo_id, device="cpu")
+        self.backbone = load_backbone_from_hf(REPO_ID, device="cpu")
         self.backbone.out_layers = list(out_layers) if out_layers else None
         self.transform = _static_transform()
         self.requires_grad_(False)
@@ -36,7 +36,7 @@ class NeuroJEPA(nn.Module):
 
     @torch.inference_mode()
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
-        volume = _preprocess(self.transform, img).to(self.device)  # (1, 1, 96, 108, 96)
+        volume = _preprocess(self.transform, img, self.device)  # (1, 1, 96, 108, 96)
         tokens, _moe_scores = self.backbone(volume)
         layers = tokens if isinstance(tokens, list) else [tokens]
         return torch.cat([layer[0].mean(0) for layer in layers])  # (L * 768,)
@@ -48,17 +48,18 @@ class NeuroJEPA(nn.Module):
         )
 
 
-def _preprocess(transform, img: nib.Nifti1Image) -> Tensor:
+def _preprocess(transform, img: nib.Nifti1Image, device: torch.device) -> Tensor:
     """Neuro-JEPA's static pipeline, from a nifti to a (1, 1, X, Y, Z) batch of one.
 
     The affine rides along on a MetaTensor: without it the resample to 1mm silently no-ops.
+    Runs on `device` because the bspline resample dominates: 7.0s on CPU, 0.19s on GPU.
     """
     from monai.data import MetaTensor
 
     canon = canonical_img(img)
     data = np.nan_to_num(canon.get_fdata(dtype=np.float32))
-    volume = torch.from_numpy(np.ascontiguousarray(data))[None]  # (1, X, Y, Z)
-    volume = MetaTensor(volume, affine=torch.as_tensor(canon.affine))
+    volume = torch.from_numpy(np.ascontiguousarray(data))[None].to(device)  # (1, X, Y, Z)
+    volume = MetaTensor(volume, affine=torch.as_tensor(canon.affine).to(device))
     return transform(volume).as_tensor()[None]
 
 
@@ -87,5 +88,5 @@ def _static_transform():
 
 
 @register_model
-def neurojepa(repo_id: str = REPO_ID, out_layers: tuple[int, ...] | None = None) -> NeuroJEPA:
-    return NeuroJEPA(repo_id=repo_id, out_layers=out_layers)
+def neurojepa(out_layers: tuple[int, ...] | None = None) -> NeuroJEPA:
+    return NeuroJEPA(out_layers=out_layers)

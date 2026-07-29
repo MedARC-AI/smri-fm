@@ -48,6 +48,21 @@ def test_preprocess_matches_upstream(tmp_path, shape, affine):
     path = str(tmp_path / "image.nii.gz")
     nib.save(_image(shape, affine), path)
 
-    ours = _preprocess(_static_transform(), nib.load(path))
+    ours = _preprocess(_static_transform(), nib.load(path), torch.device("cpu"))
     assert ours.shape == (1, 1, *IMG_SIZE)
     assert torch.allclose(ours[0], _upstream(path).as_tensor(), atol=1e-4)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a GPU")
+def test_preprocess_on_gpu_matches_cpu(tmp_path):
+    # The resample runs on GPU via cupy rather than scipy, so pin that it agrees with the CPU
+    # chain the equivalence test above anchors.
+    path = str(tmp_path / "image.nii.gz")
+    nib.save(_image((150, 180, 150), np.diag([1.33, 1.0, 1.0, 1.0])), path)
+    img = nib.load(path)
+
+    transform = _static_transform()
+    on_cpu = _preprocess(transform, img, torch.device("cpu"))
+    on_gpu = _preprocess(transform, img, torch.device("cuda")).cpu()
+
+    assert torch.allclose(on_cpu, on_gpu, atol=1e-3)
