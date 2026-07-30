@@ -21,8 +21,8 @@ tasks = AttrDict({
     3: AttrDict(kind='reg', inp=['t1'],                            out_ch=1),
     4: AttrDict(kind='seg', inp=['t2'],                            out_ch=3),
     5: AttrDict(kind='cls', inp=['t1'],                            out_ch=2),
-    6: AttrDict(kind='emb', inp=['input'],                         out_ch=0),
-    7: AttrDict(kind='emb', inp=['input'],                         out_ch=0)})
+    6: AttrDict(kind='emb', inp=['input'],                         out_ch=2),
+    7: AttrDict(kind='emb', inp=['input'],                         out_ch=2)})
 
 def strip_prefix(sd, pre='model.'): return {k[len(pre):]:v for k,v in sd.items() if k.startswith(pre)}
 def local_path(path): return Path(__file__).parent/path
@@ -40,7 +40,7 @@ def main(
     swi   :str=None, # path to SWI image
     t1    :str=None, # path to T1 image
     t2    :str=None, # path to T2 image
-    input :str=None, # arbitrary MR (tasks 6/7) # todo check
+    input :str=None, # generic input (tasks 6/7)
 ):
     t = tasks[int(os.environ['FOMO_TASK'])]
     device,cuda = ('cuda',True) if torch.cuda.is_available() else ('cpu',False)
@@ -68,7 +68,7 @@ def main(
             Path(output).write_text(f'{pred:.3f}')
         elif t.kind=='seg':
             mask = model(x)[0].argmax(0).cpu().numpy().astype(np.uint8)
-            nib.save(nib.Nifti1Image(mask, img.affine), output)
+            nib.save(nib.Nifti1Image(mask, img.affine, img.header), output)
         elif t.kind=='emb':
             emb = model._encode(x)[0].flatten().cpu().numpy()
             np.save(output, emb)
