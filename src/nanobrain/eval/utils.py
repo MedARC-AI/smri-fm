@@ -18,7 +18,8 @@ def make_registry() -> tuple[Callable, Callable, Callable]:
     registry: dict[str, Callable] = {}
 
     def register(builder: Callable) -> Callable:
-        assert builder.__name__ not in registry, f"duplicate registration: {builder.__name__!r}"
+        if builder.__name__ in registry:
+            logger.warning("overwriting the registered builder for %r", builder.__name__)
         registry[builder.__name__] = builder
         return builder
 
