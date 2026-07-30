@@ -1,10 +1,6 @@
 # inference script for fomo26 tasks
 # `build_fomo26_submission.sh` copies this file into the submission image file
 
-# todo:
-# - deal w/ multiple inputs
-# - add task to container.run
-
 from pathlib import Path
 import os, numpy as np, torch, nibabel as nib
 from omegaconf import OmegaConf as OC
@@ -13,8 +9,11 @@ from fastcore.script import call_parse
 from asparagus_bridge.models_smri_mae import SmriMaeClsRegBackbone, SmriMaeSegBackbone
 from evaluation.models.smri_mae import SmriMaeTransform
 
+# Note:
+# - For tasks 6/7 we load the task 1 model and just use the encoder. That's why we have out_ch=2 like in task 1.
+# - For regression asparagus uses _cls_net and not _reg_net. That's why task 3 uses the _cls_net key.
 nets = dict(cls=SmriMaeClsRegBackbone, reg=SmriMaeClsRegBackbone, seg=SmriMaeSegBackbone, emb=SmriMaeClsRegBackbone)
-keys = dict(cls='_cls_net',            reg='_reg_net',            seg='_seg_net',         emb='_cls_net')
+keys = dict(cls='_cls_net',            reg='_cls_net',            seg='_seg_net',         emb='_cls_net')
 tasks = AttrDict({
     1: AttrDict(kind='cls', inp=['flair','adc','dwi','t2s','swi'], out_ch=2),
     2: AttrDict(kind='seg', inp=['flair','dwi','t2s','swi'],       out_ch=2),
@@ -54,21 +53,24 @@ def main(
     # load and prepare input
     tfm = SmriMaeTransform(img_size=cfg.get('img_size', (160,160,160)))
     paths = dict(flair=flair, adc=adc, dwi=dwi, t2s=t2s, swi=swi, t1=t1, t2=t2, input=input)
-    img = nib.load(paths[t.inp[0]]) # todo: currently taking only 1st file
-    x = tfm(img)['image'][None].to(device)
+    imgs = [nib.load(paths[k]) for k in t.inp if paths.get(k)]
+    x = torch.stack([tfm(im)['image'] for im in imgs]).to(device)
     x = x.half() if cuda else x.float()
     # run model and write prediction
     Path(output).parent.mkdir(parents=True, exist_ok=True)
     with torch.no_grad():
         if t.kind=='cls':
-            pred = model(x).softmax(-1)[0,1].item()
+            pred = model(x).softmax(1)[:,1].mean().item()
             Path(output).write_text(f'{pred:.3f}')
         elif t.kind=='reg':
-            pred = model(x)[0,0].item()
+            # no need to aggregate, as reg tasks (3) only get a single input
+            pred = model(x)[0,0].item()                       
             Path(output).write_text(f'{pred:.3f}')
         elif t.kind=='seg':
+            # todo: seg tasks receive multiple inputs. imo that doesnt make sense for seg tasks?
             mask = model(x)[0].argmax(0).cpu().numpy().astype(np.uint8)
-            nib.save(nib.Nifti1Image(mask, img.affine, img.header), output)
+            nib.save(nib.Nifti1Image(mask, imgs[0].affine, imgs[0].header), output)
         elif t.kind=='emb':
-            emb = model._encode(x)[0].flatten().cpu().numpy()
+            # no need to aggregate, as emb tasks (6,7) only get a single input
+            emb = model._encode(x)[0].flatten().cpu().numpy() 
             np.save(output, emb)
