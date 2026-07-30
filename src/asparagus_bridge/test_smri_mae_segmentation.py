@@ -1,27 +1,39 @@
+import pytest
 import torch
 
 from asparagus.modules.lightning_modules.segmentation_module import SegmentationModule
 from asparagus_preprocessing.datasets_segmentation import SEG009_FOMO26_Meningioma_CUSTOM
 from asparagus_bridge.models_smri_mae import SmriMaeSegBackbone
 
+# MaskedViT runs attention over nested tensors, and torch has no nested-tensor
+# SDPA backend on CPU — and on CUDA it requires head_dim to be a multiple of 8.
+# The former fixture (embed_dim=24, num_heads=4) gives head_dim=6, so every test
+# that reaches the encoder failed everywhere once jagged attention landed.
+requires_cuda = pytest.mark.skipif(
+    not torch.cuda.is_available(),
+    reason="nested-tensor scaled_dot_product_attention has no CPU backend",
+)
+
 
 def _tiny_seg_model(input_channels: int, output_channels: int, img_size=(64, 64, 64)):
-    return SmriMaeSegBackbone(
+    model = SmriMaeSegBackbone(
         input_channels=input_channels,
         output_channels=output_channels,
         img_size=img_size,
         patch_size=16,
         depth=1,
-        embed_dim=24,
-        num_heads=4,
+        embed_dim=64,
+        num_heads=8,
     )
+    return model.cuda() if torch.cuda.is_available() else model
 
 
+@requires_cuda
 def test_smri_mae_seg_backbone_one_channel_shape():
     # Verifies that the smri-mae segmentation backbone preserves spatial shape
     # and emits one logit channel per segmentation class.
     model = _tiny_seg_model(input_channels=1, output_channels=3)
-    x = torch.randn(1, 1, 64, 64, 64)
+    x = torch.randn(1, 1, 64, 64, 64, device=next(model.parameters()).device)
 
     with torch.no_grad():
         y = model(x)
@@ -29,11 +41,12 @@ def test_smri_mae_seg_backbone_one_channel_shape():
     assert y.shape == (1, 3, 64, 64, 64)
 
 
+@requires_cuda
 def test_smri_mae_seg_backbone_sliding_window_predict_shape():
     # Verifies that BaseNet sliding-window inference stitches patch logits back
     # into the full input geometry for normal, non-shallow volumes.
     model = _tiny_seg_model(input_channels=1, output_channels=3)
-    x = torch.randn(1, 1, 80, 80, 80)
+    x = torch.randn(1, 1, 80, 80, 80, device=next(model.parameters()).device)
 
     with torch.no_grad():
         y = model.sliding_window_predict(x, patch_size=(64, 64, 64), overlap=0.5)
@@ -111,6 +124,7 @@ def test_segmentation_module_keeps_non_shallow_inference_volume_geometry():
     assert cropped.shape == (1, 3, 80, 80, 80)
 
 
+@requires_cuda
 def test_segmentation_module_test_step_handles_shallow_inference_volume():
     # Verifies the full segmentation test_step no longer creates a zero-sized
     # sliding-window patch for shallow volumes before reverse preprocessing.
@@ -120,15 +134,16 @@ def test_segmentation_module_test_step_handles_shallow_inference_volume():
         compile_mode=None,
     )
     module.on_test_epoch_start()
+    device = next(module.model.parameters()).device
     batch = {
-        "image": torch.randn(1, 1, 64, 64, 21),
+        "image": torch.randn(1, 1, 64, 64, 21, device=device),
         "properties": {
             "pad_box": [],
             "crop_box": [],
             "original_size": (64, 64, 21),
             "size_before_resample": (64, 64, 21),
         },
-        "src_label": torch.zeros(1, 1, 64, 64, 21, dtype=torch.long),
+        "src_label": torch.zeros(1, 1, 64, 64, 21, dtype=torch.long, device=device),
         "file_path": "task2_shallow.pt",
     }
 
