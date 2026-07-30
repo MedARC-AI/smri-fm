@@ -9,4 +9,5 @@ from nanobrain.eval.tasks import (  # noqa: E402,F401  (register on import)
     cnp,
     dlbs,
     fomo,
+    ppmi,
 )
