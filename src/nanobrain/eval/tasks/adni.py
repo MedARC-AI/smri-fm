@@ -11,13 +11,12 @@ from nanobrain.eval.tasks import register_task
 from nanobrain.eval.tasks.base import ClassificationTask, RegressionTask
 
 ADNI_REPO_ID = "medarc/adni-mini"
-ADNI_FILES = f"hf://datasets/{ADNI_REPO_ID}/data/eval-*.parquet"
+ADNI_REVISION = "3fdea48626c0918ee225b9bb4e29fee6077c6aad"
 IMAGE_COL = "nifti"
 
 
 def load_adni() -> Dataset:
-    # TODO: revert back to the usual load_dataset approach once the dataset is fixed
-    return load_dataset("parquet", data_files={"eval": ADNI_FILES}, split="eval")
+    return load_dataset(ADNI_REPO_ID, revision=ADNI_REVISION, split="eval")
 
 
 def drop_missing(dataset: Dataset, target_col: str) -> Dataset:
