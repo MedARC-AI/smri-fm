@@ -432,14 +432,19 @@ def ppmi_schwab_england_slope_48m(n_splits: int = 5, seed: int = 0) -> ColumnTas
 
 @register_task
 def ppmi_prs(n_splits: int = 5, seed: int = 0) -> ColumnTask:
-    """PD polygenic risk score (META5).
+    """PD polygenic risk score (META5). Confounded by cohort recruitment.
 
-    Brain morphology is heritable, so genotype -> structure is a real causal
-    route and a small association here would not be surprising. What is
-    surprising is the size: ViT-B reaches r ~ 0.17 and ViT-L ~ 0.21 on n=827,
-    far above what the PRS/imaging literature reports at this sample size.
+    ViT-B reaches r ~ 0.17 and ViT-L ~ 0.21 here, which is far above what the
+    PRS/imaging literature reports at n=827. It is not polygenic biology. PPMI
+    recruits LRRK2/GBA/SNCA carriers into a dedicated genetic cohort (149 of the
+    1000 scans), those carriers have high PD PRS by construction (r=0.58 between
+    PRS and cohort membership), and the encoder can partly identify them from the
+    MRI (r=0.33). Holding enrollment pathway fixed takes the partial correlation
+    to 0.000.
 
-    Run alongside ppmi_prs_excl_lrrk2_gba to separate the two explanations.
+    Genotype -> brain structure is a real and documented route, so a small true
+    association is plausible, but none of the signal here is it. Treat this task
+    as a confound detector rather than a biological readout.
     """
     return ColumnTask(
         name="ppmi_prs",
@@ -457,12 +462,10 @@ def ppmi_prs(n_splits: int = 5, seed: int = 0) -> ColumnTask:
 def ppmi_prs_excl_lrrk2_gba(n_splits: int = 5, seed: int = 0) -> ColumnTask:
     """Same score with the LRRK2 and GBA loci removed.
 
-    PPMI enriches its genetic cohort for LRRK2/GBA carriers, who are recruited
-    at particular sites and are disproportionately of Ashkenazi ancestry. If the
-    signal is cohort structure rather than polygenic biology, dropping those
-    loci should cost most of it. Measured: 0.168 -> 0.099 for ViT-B, a 41% drop,
-    while the two scores still correlate at 0.65 with each other. So much of the
-    association travels with cohort enrichment, but not all of it.
+    Dropping those loci takes ViT-B from 0.168 to 0.099 while the two scores
+    still correlate at 0.65 with each other, which was the first clue that the
+    association tracked cohort enrichment. The enrollment-flag test settled it:
+    see ppmi_prs. Kept as the paired half of that comparison.
     """
     return ColumnTask(
         name="ppmi_prs_excl_lrrk2_gba",
@@ -505,9 +508,15 @@ def ppmi_sbr_striatum(n_splits: int = 5, seed: int = 0) -> ColumnTask:
     matter, so this asks whether a T1w MRI carries information about presynaptic
     dopaminergic terminal density. Direct analog of the ADNI amyloid/tau tasks.
 
-    Expected to be near zero: nigrostriatal degeneration is a loss of
-    presynaptic terminals, which is why DAT-SPECT rather than MRI is the PD
-    imaging biomarker in the first place.
+    I expected near zero, since nigrostriatal degeneration is a loss of
+    presynaptic terminals and that is why DAT-SPECT rather than MRI is the PD
+    imaging biomarker. That prediction was wrong. Caudate SBR reaches r=0.475
+    (ViT-B) and 0.494 (ViT-L) raw, and 0.285/0.309 after partialling out age,
+    sex and diagnosis. Enrollment pathway explains none of it (r=0.006 with the
+    genetic-cohort flag), and partialling diagnosis alone raises rather than
+    lowers it, so this is not diagnosis leaking through. Caveat: baseline takes
+    the DAT scan nearest the MRI within a -0.25 to 4.0 year window, so the two
+    modalities are not tightly time-locked.
     """
     return _sbr_task(
         "ppmi_sbr_striatum", "sbr_striatum_baseline", ppmi_sbr_striatum.__doc__, n_splits, seed

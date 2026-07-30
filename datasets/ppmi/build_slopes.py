@@ -300,6 +300,25 @@ def build(loni_root: Path, scans: pd.DataFrame) -> pd.DataFrame:
         how="left",
     )
 
+    # Enrollment pathway. Not a target: a confound covariate. PPMI recruits
+    # LRRK2/GBA/SNCA carriers into a dedicated genetic cohort, and that
+    # membership correlates with PD polygenic risk at r=0.58 by construction. Any
+    # target that varies with recruitment needs to be checked against this, which
+    # is how the apparent PRS signal turned out to be cohort structure.
+    status = pd.read_csv(_find(subj, "Participant_Status_*.csv"), low_memory=False)
+    genetic = ["ENRLLRRK2", "ENRLGBA", "ENRLSNCA", "ENRLPINK1", "ENRLPRKN"]
+    status = status.drop_duplicates("PATNO")
+    status["enrolled_genetic_cohort"] = (
+        status[genetic].fillna(0).sum(axis=1) > 0
+    ).astype(float)
+    for flag, name in (("ENRLHPSM", "enrolled_hyposmia"), ("ENRLRBD", "enrolled_rbd")):
+        status[name] = status[flag].fillna(0).astype(float)
+    out = out.merge(
+        status[["PATNO", "enrolled_genetic_cohort", "enrolled_hyposmia", "enrolled_rbd"]],
+        on="PATNO",
+        how="left",
+    )
+
     # PATNO is the LONI subject ID and is already encoded in sample_id as
     # sub-<PATNO>_ses-<date>. Keeping it would duplicate the identifier for no
     # gain, so it is dropped before the table is written or published.
