@@ -64,6 +64,10 @@ def load_ppmi_clinical() -> Dataset:
         raise ValueError(f"{len(missing)} samples absent from {source}; rebuild it")
     clinical = clinical.loc[list(data["sample_id"])]
     for col in clinical.columns:
+        # the sidecar repeats participant_id as a grouping key; the split already
+        # has it, and add_column rejects duplicates
+        if col in data.column_names:
+            continue
         data = data.add_column(col, clinical[col].tolist())
     return data
 
@@ -469,4 +473,73 @@ def ppmi_prs_excl_lrrk2_gba(n_splits: int = 5, seed: int = 0) -> ColumnTask:
         n_splits=n_splits,
         seed=seed,
         metric_fns=(pearson_r, spearman_r, r2),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Molecular and dopaminergic targets: predicted from T1w, measured elsewhere
+# ---------------------------------------------------------------------------
+
+
+def _sbr_task(name: str, column: str, doc: str, n_splits: int, seed: int) -> ColumnTask:
+    task = ColumnTask(
+        name=name,
+        kind="regression",
+        data=load_ppmi_clinical(),
+        image_column=IMAGE_COLUMN,
+        target_column=column,
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(pearson_r, spearman_r, r2),
+    )
+    task.__doc__ = doc
+    return task
+
+
+@register_task
+def ppmi_sbr_striatum(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """DAT-SPECT striatal binding ratio, whole striatum. Lower = more loss.
+
+    The SPECT image never reaches the model. SBR is a scalar the imaging core
+    derives from it by referencing striatal counts against occipital white
+    matter, so this asks whether a T1w MRI carries information about presynaptic
+    dopaminergic terminal density. Direct analog of the ADNI amyloid/tau tasks.
+
+    Expected to be near zero: nigrostriatal degeneration is a loss of
+    presynaptic terminals, which is why DAT-SPECT rather than MRI is the PD
+    imaging biomarker in the first place.
+    """
+    return _sbr_task(
+        "ppmi_sbr_striatum", "sbr_striatum_baseline", ppmi_sbr_striatum.__doc__, n_splits, seed
+    )
+
+
+@register_task
+def ppmi_sbr_putamen(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """SBR in the putamen, where dopaminergic loss appears earliest in PD."""
+    return _sbr_task(
+        "ppmi_sbr_putamen", "sbr_putamen_baseline", ppmi_sbr_putamen.__doc__, n_splits, seed
+    )
+
+
+@register_task
+def ppmi_saa(n_splits: int = 5, seed: int = 0) -> ColumnTask:
+    """CSF alpha-synuclein seed amplification assay status, positive vs negative.
+
+    SAA detects misfolded alpha-synuclein itself rather than its downstream
+    consequences, which makes it the strongest molecular diagnostic in PD. It is
+    also near-binary and near-collinear with diagnosis, so read this against
+    ppmi_pd_cn rather than in isolation: a score close to that one means the
+    model is recovering diagnosis, not the molecular state.
+    """
+    return ColumnTask(
+        name="ppmi_saa",
+        kind="classification",
+        data=load_ppmi_clinical(),
+        image_column=IMAGE_COLUMN,
+        target_column="saa_positive",
+        n_splits=n_splits,
+        seed=seed,
+        metric_fns=(bacc, auroc, auprc),
+        positive_label=1.0,
     )

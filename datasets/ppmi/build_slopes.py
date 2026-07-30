@@ -77,6 +77,41 @@ def _updrs3(path: Path, *, off_only: bool) -> pd.DataFrame:
     return df.drop_duplicates(["PATNO", "dt"])[["PATNO", "dt", "NP3TOT", "NHY"]]
 
 
+# DAT-SPECT striatal binding ratios, referenced to occipital white matter.
+# Bilateral means only; the file also carries L/R and sub-regional splits.
+SBR_REGIONS = {
+    "STRIATUM_REF_CWM": "sbr_striatum",
+    "PUTAMEN_REF_CWM": "sbr_putamen",
+    "CAUDATE_REF_CWM": "sbr_caudate",
+}
+
+
+def _sbr(path: Path) -> pd.DataFrame:
+    """One DAT-SPECT per person-scan-date, with the bilateral region SBRs."""
+    df = pd.read_csv(path, low_memory=False)
+    df["dt"] = pd.to_datetime(df["DATSCAN_DATE"], format="%m/%Y", errors="coerce")
+    df = df.dropna(subset=["dt"])
+    return df.drop_duplicates(["PATNO", "dt"])[["PATNO", "dt", *SBR_REGIONS]]
+
+
+def _saa(path: Path) -> pd.DataFrame:
+    """CSF alpha-synuclein seed amplification assay status, one row per subject.
+
+    The file has no specimen collection date, only a visit code and the assay
+    run date, so a nearest-to-scan match is not possible. SAA status is a
+    disease-state marker that rarely reverts, so one value per subject is taken:
+    the baseline visit where present, else the earliest visit code available.
+    Inconclusive results are dropped rather than coerced either way.
+    """
+    df = pd.read_csv(path, low_memory=False)
+    df = df[df["SAA_Status"].isin(["Positive", "Negative"])]
+    df["is_bl"] = (df["CLINICAL_EVENT"] == "BL").astype(int)
+    df = df.sort_values(["PATNO", "is_bl", "CLINICAL_EVENT"], ascending=[True, False, True])
+    df = df.drop_duplicates("PATNO")
+    df["saa_positive"] = (df["SAA_Status"] == "Positive").astype(float)
+    return df[["PATNO", "saa_positive"]]
+
+
 # RBDSQ items 1-12, one binary symptom each.
 RBD_ITEMS = [
     "DRMVIVID", "DRMAGRAC", "DRMNOCTB", "SLPLMBMV", "SLPINJUR", "DRMVERBL",
@@ -242,6 +277,27 @@ def build(loni_root: Path, scans: pd.DataFrame) -> pd.DataFrame:
     near = _slope_and_baseline(scans, _rbdsq(rbd), "RBDSQ")
     out = out.merge(
         near[["sample_id", "rbdsq_baseline"]], on="sample_id", how="left"
+    )
+
+    # DAT-SPECT SBR. The image itself never reaches the model: these are scalars
+    # the imaging core derived from it, so the task is predicting a molecular
+    # readout from structural MRI. Same role amyloid/tau play in the ADNI eval.
+    sbr = _sbr(_find(loni_root / "Imaging", "Xing_Core_Lab_-_Quant_SBR_*.csv"))
+    for col, name in SBR_REGIONS.items():
+        sub = sbr[sbr[col].notna()][["PATNO", "dt", col]]
+        got = _slope_and_baseline(scans, sub, col)
+        got.columns = [
+            c if c == "sample_id" else c.replace(col.lower(), name) for c in got.columns
+        ]
+        out = out.merge(got, on="sample_id", how="left")
+
+    # CSF alpha-synuclein SAA: detects the pathological protein itself rather
+    # than its downstream consequences. Near-binary, so expect it to behave like
+    # a diagnosis label.
+    out = out.merge(
+        _saa(_find(loni_root / "Biospecimen", "SAA_Biospecimen_Analysis_Results_*.csv")),
+        on="PATNO",
+        how="left",
     )
 
     # PATNO is the LONI subject ID and is already encoded in sample_id as
