@@ -70,11 +70,8 @@ class SmriMaeTransform:
         if max(abs(s - s_) for s, s_ in zip(spacing, self.spacing)) > 0.05:
             data = rescale(data, spacing, target_spacing=self.spacing)
 
-        # tranpose (X, Y, Z) F-order -> (Z, Y, X) C-order
-        # TODO: this shape issue is a footgun. need to be consistent and obvious about
-        # whether we are doing (X, Y, Z) or (Z, Y, X) for image as well as img_size,
-        # spacing.
-        data = data.permute(2, 1, 0).contiguous()
+        # Preserve the canonical NIfTI (X, Y, Z) axis order used in pretraining.
+        data = data.contiguous()
         data = pad_to_shape(data, self.img_size)
 
         # cheap mask
