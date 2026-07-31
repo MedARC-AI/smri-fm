@@ -7,7 +7,8 @@
 #SBATCH --partition=main
 #SBATCH --output=slurms/slurm-%A_%a.out
 #SBATCH --account=sophont
-#SBATCH --array=0-14
+# #SBATCH --array=0-14
+#SBATCH --array=15-17
 
 set -euo pipefail
 
@@ -21,6 +22,8 @@ models=(
     random_features
     random_unet
     neurojepa
+    neurovfm
+    synthseg
 )
 
 # One array element per task, models looped inside: two models on the same task would
@@ -41,6 +44,9 @@ tasks=(
     fomo_task1_infarct
     fomo_task3_age
     fomo_task5_polymicrogyria
+    ppmi_age
+    ppmi_pd_cn
+    ppmi_pd_prodromal
 )
 
 task=${tasks[$SLURM_ARRAY_TASK_ID]}
