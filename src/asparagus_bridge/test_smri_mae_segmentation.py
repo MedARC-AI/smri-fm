@@ -5,13 +5,19 @@ from asparagus.modules.lightning_modules.segmentation_module import Segmentation
 from asparagus_preprocessing.datasets_segmentation import SEG009_FOMO26_Meningioma_CUSTOM
 from asparagus_bridge.models_smri_mae import SmriMaeSegBackbone
 
-# MaskedViT runs attention over nested tensors, and torch has no nested-tensor
-# SDPA backend on CPU — and on CUDA it requires head_dim to be a multiple of 8.
-# The former fixture (embed_dim=24, num_heads=4) gives head_dim=6, so every test
-# that reaches the encoder failed everywhere once jagged attention landed.
+# MaskedViT runs attention over jagged nested tensors, and torch's jagged SDPA
+# dispatcher has four backends: flash, mem-efficient and cuDNN are CUDA kernels,
+# and math is the only CPU-capable one. Attention.forward builds q/k/v with
+# `qkv.unbind(1)` (smri_mae/modules.py), which yields non-contiguous views, and
+# math rejects those ("if inputs are nested tensors they must be contiguous
+# after transposing"). So CPU has no viable backend at any size — hence the skip
+# rather than a smaller fixture. On CUDA flash accepts that layout but requires
+# head_dim to be a multiple of 8; the former fixture (embed_dim=24, num_heads=4)
+# gives head_dim=6, so flash declined, math declined, and these failed on GPU
+# too. embed_dim=64 / num_heads=8 gives head_dim=8 and flash takes it.
 requires_cuda = pytest.mark.skipif(
     not torch.cuda.is_available(),
-    reason="nested-tensor scaled_dot_product_attention has no CPU backend",
+    reason="jagged SDPA math backend rejects the non-contiguous q/k/v views",
 )
 
 

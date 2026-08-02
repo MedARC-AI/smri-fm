@@ -19,24 +19,58 @@ from torch import Tensor
 from smri_mae.model_mae import MaskedViT
 
 
+def _separable_window(patch_size: tuple[int, ...], axis_profile) -> Tensor:
+    """Outer product of a 1-D profile along each axis, peak-normalized to 1.
+
+    Floored at a small positive value because a zero weight divides by zero
+    wherever that voxel is covered by only one window. Hann is exactly 0.0 at
+    its endpoints, so the floor is load-bearing rather than defensive.
+    """
+    window = axis_profile(patch_size[0])
+    for size in patch_size[1:]:
+        window = window[..., None] * axis_profile(size)
+    return torch.clamp(window / window.max(), min=1e-4)
+
+
 def gaussian_window(patch_size: tuple[int, ...], sigma_scale: float = 0.125) -> Tensor:
     """Separable Gaussian weight map over a sliding-window patch.
 
     Peaks at the patch centre and decays toward the borders, so a voxel is
     scored mainly by the windows that saw it with the most spatial context.
-    Same construction (and default sigma) nnU-Net uses for its window blending.
+    Same construction and default sigma as nnU-Net's `compute_gaussian`
+    (nnunetv2/inference/sliding_window_prediction.py), which builds it by
+    blurring a centre impulse rather than evaluating the closed form; the two
+    agree to floating-point noise.
     """
-    axes = []
-    for size in patch_size:
-        coords = torch.arange(size, dtype=torch.float32) - (size - 1) / 2
-        axes.append(torch.exp(-0.5 * (coords / (size * sigma_scale)) ** 2))
 
-    window = axes[0]
-    for axis in axes[1:]:
-        window = window[..., None] * axis
-    # Floor at a small positive value: a zero-weight voxel would divide by zero
-    # wherever it is the only window covering that voxel.
-    return torch.clamp(window / window.max(), min=1e-4)
+    def profile(size: int) -> Tensor:
+        coords = torch.arange(size, dtype=torch.float32) - (size - 1) / 2
+        return torch.exp(-0.5 * (coords / (size * sigma_scale)) ** 2)
+
+    return _separable_window(tuple(patch_size), profile)
+
+
+def hann_window(patch_size: tuple[int, ...]) -> Tensor:
+    """Separable Hann weight map over a sliding-window patch.
+
+    Reaches 0 at the patch border instead of merely decaying toward it, so
+    neighbouring windows cross-fade with no discontinuity in the first
+    derivative. That is the classic partition-of-unity choice for tiled
+    reconstruction; the Gaussian's fatter centre keeps more of the confident
+    interior instead. Named as a follow-up in this package's README alongside
+    Gaussian, so both are offered.
+    """
+    return _separable_window(
+        tuple(patch_size),
+        lambda size: torch.hann_window(size, periodic=False, dtype=torch.float32),
+    )
+
+
+WINDOWS = {
+    "gaussian": gaussian_window,
+    "hann": hann_window,
+    "uniform": lambda patch_size: torch.ones(tuple(patch_size)),
+}
 
 
 class SmriMaeClsRegBackbone(nn.Module):
@@ -148,6 +182,12 @@ class SmriMaeSegBackbone(BaseNet):
         super().__init__()
         assert dimensions == "3D", f"only 3D supported, got dimensions={dimensions}"
 
+        if window_blending not in WINDOWS:
+            raise ValueError(
+                f"window_blending must be one of {sorted(WINDOWS)}, got "
+                f"{window_blending!r}"
+            )
+
         self.num_classes = output_channels
         self.stem_weight_name = "encoder.patch_embed.weight"
         self.window_blending = window_blending
@@ -211,11 +251,15 @@ class SmriMaeSegBackbone(BaseNet):
         geometry alone.
 
         The counts are not close to uniform. For a 251x214x198 volume at
-        patch=64, overlap=0.5 they span 1 to 27, because
-        `get_steps_for_sliding_window` appends a final step at `shape - patch`
-        regardless of stride, leaving a ragged tail window.
+        patch=64, overlap=0.5 they span 1 to 27. That range is inherent to
+        overlap=0.5, not to this stepping function: a voxel one step in from the
+        border is covered twice per axis (2**3 = 8) while the outermost shell is
+        covered once (1**3 = 1), and wherever rounding puts consecutive starts
+        less than half a patch apart three windows overlap (3**3 = 27).
+        nnU-Net's evenly-spaced `compute_steps_for_sliding_window` spans the same
+        1 to 27 on this volume; it only shifts how much mass sits at each count.
         """
-        weight = self._window_weight(patch_size, data.device, data.dtype)
+        weight = self._window_weight(patch_size, data.device)
 
         logits = torch.zeros(
             (data.shape[0], self.num_classes, *data.shape[2:]),
@@ -243,14 +287,10 @@ class SmriMaeSegBackbone(BaseNet):
         # positive and the divide is safe.
         return logits / coverage
 
-    def _window_weight(self, patch_size, device, dtype) -> Tensor:
-        if self.window_blending == "gaussian":
-            weight = gaussian_window(tuple(patch_size)).to(device=device)
-        elif self.window_blending == "uniform":
-            weight = torch.ones(tuple(patch_size), device=device)
-        else:
+    def _window_weight(self, patch_size, device) -> Tensor:
+        if self.window_blending not in WINDOWS:
             raise ValueError(
-                "window_blending must be 'gaussian' or 'uniform', got "
+                f"window_blending must be one of {sorted(WINDOWS)}, got "
                 f"{self.window_blending!r}"
             )
-        return weight
+        return WINDOWS[self.window_blending](tuple(patch_size)).to(device=device)

@@ -13,6 +13,7 @@ from asparagus_bridge.models_smri_mae import (
     LinearPatchDecode,
     SmriMaeSegBackbone,
     gaussian_window,
+    hann_window,
 )
 
 PATCH = (64, 64, 64)
@@ -60,13 +61,17 @@ def _coverage_counts(shape, patch_size=PATCH, overlap=0.5):
 
 def test_overlap_counts_are_non_uniform():
     # The premise of the fix: window coverage varies a lot across one volume,
-    # so an unnormalized sum carries a spatially varying scale factor. The
-    # ragged values come from get_steps_for_sliding_window appending a final
-    # step at shape - patch regardless of stride.
+    # so an unnormalized sum carries a spatially varying scale factor. At
+    # overlap=0.5 the outer shell is seen by one window per axis and the
+    # interior by two (2**3 = 8), and where rounding puts consecutive starts
+    # under half a patch apart, three (3**3 = 27).
     counts = _coverage_counts((251, 214, 198))
 
     assert counts.min() == 1
     assert counts.max() == 27
+    # An 8x interior is the common case, not a rare corner: it is a third of
+    # the volume, so this is not a thin-border effect that cropping would hide.
+    assert (counts == 8).mean() > 0.3
 
 
 def test_uniform_blending_recovers_constant_logits():
@@ -114,19 +119,46 @@ def test_unnormalized_accumulation_would_scale_by_coverage():
     assert torch.allclose(fixed, torch.ones_like(fixed), atol=1e-5)
 
 
-def test_gaussian_window_peaks_at_centre_and_stays_positive():
-    window = gaussian_window((8, 8, 8))
+def test_hann_blending_recovers_constant_logits():
+    model = _stub_model(blending="hann", const=4.0)
+    x = torch.randn(1, 1, 200, 200, 160)
+
+    with torch.no_grad():
+        out = model._sliding_window_predict3D(x, PATCH, overlap=0.5)
+
+    assert torch.allclose(out, torch.full_like(out, 4.0), atol=1e-4)
+
+
+@pytest.mark.parametrize("build", [gaussian_window, hann_window])
+def test_windows_peak_at_centre_and_stay_positive(build):
+    window = build((8, 8, 8))
 
     assert window.shape == (8, 8, 8)
-    assert window.min() > 0  # a zero weight would divide by zero at edge voxels
+    # A zero weight divides by zero at any voxel only one window covers. Hann
+    # is exactly 0.0 at its endpoints, so the floor in _separable_window is
+    # what keeps this true rather than an unused safety net.
+    assert window.min() > 0
     assert window.max() == pytest.approx(1.0)
     assert window[4, 4, 4] > window[0, 0, 0]
 
 
+def test_hann_reaches_the_floor_but_gaussian_does_not():
+    # The two windows differ in how hard they discount the patch border, which
+    # is the whole reason both are offered rather than one. Compare at the
+    # centre of a face: border on one axis, centre on the other two. Hann is
+    # exactly 0 there and lands on the floor; the Gaussian only decays to
+    # ~4.3e-4 and stays above it.
+    assert hann_window((64, 64, 64))[0, 32, 32] == pytest.approx(1e-4)
+    assert gaussian_window((64, 64, 64))[0, 32, 32] > 1e-4
+
+    # At a corner the 1-D profiles multiply, so both land on the floor —
+    # the floor is not a Hann-only concern.
+    assert gaussian_window((64, 64, 64))[0, 0, 0] == pytest.approx(1e-4)
+
+
 def test_rejects_unknown_blending_mode():
-    model = _stub_model(blending="bilinear")
     with pytest.raises(ValueError, match="window_blending"):
-        model._window_weight(PATCH, torch.device("cpu"), torch.float32)
+        _stub_model(blending="bilinear")
 
 
 def test_linear_head_maps_tokens_to_their_own_patch():

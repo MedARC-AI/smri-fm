@@ -196,10 +196,27 @@ uv run asp_finetune_seg --config-name finetuning/smoke_test_seg_task_4.yaml
 ```
 
 ##### Notes on segmentation
-`SmriMaeSegBackbone` currently inherits asparagus/gardening-tools sliding-window
-inference. That path is compatible with asparagus eval, but it sums overlapping
-logits without overlap-count normalization or Gaussian/Hann weighting. Treat
-that as a known follow-up if segmentation quality near patch borders matters.
+`SmriMaeSegBackbone` overrides gardening-tools' `_sliding_window_predict3D`.
+The inherited version sums overlapping window logits into a canvas without
+dividing by how many windows covered each voxel, so a voxel's logits carry a
+spatially varying scale factor — on a 251x214x198 volume at patch 64 and
+overlap 0.5 the coverage counts span 1 to 27. Argmax at inference resolution is
+invariant to that, but asparagus' `reverse_preprocessing` trilinearly
+interpolates the raw logits back to source geometry, and interpolation averages
+*across* neighbouring voxels, so differently-scaled neighbours vote with
+weights set by window geometry rather than by the image.
+
+The override accumulates `logits * weight` and `weight` in parallel and returns
+their ratio. Select the weight with `model.window_blending`:
+
+| Value | Weight map | Behaviour |
+|:---|:---|:---|
+| `gaussian` (default) | separable Gaussian, `sigma = patch/8` | same construction and sigma as nnU-Net's `compute_gaussian`; keeps a broad confident centre |
+| `hann` | separable Hann | reaches the patch border at zero, so windows cross-fade smoothly |
+| `uniform` | all ones | plain overlap-count averaging; the reference case |
+
+All three are floored at `1e-4` — Hann is exactly zero at its endpoints, and a
+zero weight divides by zero wherever a voxel is covered by only one window.
 
 Future segmentation variants worth testing:
 
@@ -207,8 +224,6 @@ Future segmentation variants worth testing:
   multi-channel checkpoint stem adaptation.
 - MAE reconstruction decoder reuse instead of the current Primus-like patch
   segmentation decoder.
-- Normalized sliding-window blending with overlap-count averaging, Gaussian
-  weighting, or Hann weighting.
 
 #### Linear probing
 
