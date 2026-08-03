@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 import torch
 
+from evaluation.models import smri_mae
 from evaluation.models.smri_mae import (
     SmriMaeTransform,
     pad_widths,
@@ -130,8 +131,28 @@ def test_logits_keep_their_channel_axis_and_land_last():
 def test_rejects_a_prediction_of_the_wrong_rank():
     img = _source()
     out = SmriMaeTransform(img_size=(16, 16, 16), return_properties=True)(img)
-    with pytest.raises(ValueError, match=r"\(Z, Y, X\)"):
+    with pytest.raises(ValueError, match="3 spatial dims"):
         reverse_smri_mae_transform(torch.zeros(2, 3, 16, 16, 16), out["properties"])
+
+
+@pytest.mark.parametrize("axis_order", [(2, 1, 0), (0, 1, 2), (1, 2, 0)])
+def test_round_trip_survives_a_change_of_axis_order(monkeypatch, axis_order):
+    # The transform's transpose is contested — #33 drops it to keep canonical
+    # (X, Y, Z). The inverse reads the order out of `properties` rather than
+    # assuming one, so whichever way that lands, this keeps working. (1, 2, 0)
+    # is in here because a self-inverse permutation would hide an argsort bug.
+    monkeypatch.setattr(smri_mae, "AXIS_ORDER", axis_order)
+    img = _source()
+    out = SmriMaeTransform(img_size=(16, 16, 16), return_properties=True)(img)
+
+    assert tuple(out["properties"]["axis_order"]) == axis_order
+
+    pred = _onehot_at_brightest(out["image"][0].float())
+    got = np.asarray(reverse_smri_mae_transform(pred, out["properties"], mode="nearest").dataobj)
+
+    assert got.shape == img.shape
+    assert got.sum() == 1
+    assert tuple(int(i) for i in np.argwhere(got)[0]) == MARKER
 
 
 def test_properties_are_opt_in():

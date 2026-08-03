@@ -12,6 +12,14 @@ from evaluation.models.registry import register_model
 import smri_mae.model_mae as models_mae
 
 
+# Which source axes the transform hands to the model, applied as
+# `data.permute(*AXIS_ORDER)`. `(2, 1, 0)` is the historical (X, Y, Z) -> (Z, Y, X)
+# transpose; `(0, 1, 2)` keeps canonical NIfTI order. `SmriMaeTransform` records
+# whichever is in force and `reverse_smri_mae_transform` inverts what was recorded,
+# so changing this constant does not require touching the inverse.
+AXIS_ORDER = (2, 1, 0)
+
+
 class SmriMaeBackbone(nn.Module):
     def __init__(
         self,
@@ -83,11 +91,11 @@ class SmriMaeTransform:
             data = rescale(data, spacing, target_spacing=self.spacing)
         rescaled_shape = tuple(data.shape)
 
-        # tranpose (X, Y, Z) F-order -> (Z, Y, X) C-order
+        # permute the spatial axes, by default (X, Y, Z) F-order -> (Z, Y, X) C-order
         # TODO: this shape issue is a footgun. need to be consistent and obvious about
         # whether we are doing (X, Y, Z) or (Z, Y, X) for image as well as img_size,
-        # spacing.
-        data = data.permute(2, 1, 0).contiguous()
+        # spacing. AXIS_ORDER at least puts the choice in one place and records it.
+        data = data.permute(*AXIS_ORDER).contiguous()
         widths = pad_widths(tuple(data.shape), self.img_size)
         data = F.pad(data, widths)
 
@@ -114,6 +122,7 @@ class SmriMaeTransform:
                 "source_shape": source_shape,
                 "canonical_shape": canonical_shape,
                 "rescaled_shape": rescaled_shape,
+                "axis_order": AXIS_ORDER,
                 "pad_widths": widths,
             }
         return sample
@@ -158,14 +167,18 @@ def reverse_smri_mae_transform(
     """Map a prediction on the transformed grid back onto the source image's grid.
 
     The inverse of `SmriMaeTransform`, which reorients to RAS, resamples to
-    `spacing`, transposes (X, Y, Z) -> (Z, Y, X) and then pads-or-crops to
-    `img_size`. Without this, a prediction saved against the source affine is
+    `spacing`, permutes the spatial axes by `AXIS_ORDER` and then pads-or-crops
+    to `img_size`. Without this, a prediction saved against the source affine is
     silently misaligned: it is the wrong shape and, for any scan not already
     stored in RAS, the wrong orientation as well.
 
-    `pred` is the model output on the transformed grid, either (Z, Y, X) for a
-    label map or (C, Z, Y, X) for logits. `properties` is the dict produced by
-    `SmriMaeTransform(..., return_properties=True)`.
+    Each of those four steps is undone from what `properties` recorded rather
+    than from an assumption, so `AXIS_ORDER` can change without this function
+    changing with it.
+
+    `pred` is the model output on the transformed grid, spatial dims in
+    `AXIS_ORDER`, with an optional leading channel dim for logits. `properties`
+    is the dict produced by `SmriMaeTransform(..., return_properties=True)`.
 
     Reverse logits with `trilinear` and take the argmax afterwards, which is the
     order asparagus' `reverse_preprocessing` uses. A label map must use
@@ -181,13 +194,20 @@ def reverse_smri_mae_transform(
     elif pred.ndim == 4:
         squeeze = False
     else:
-        raise ValueError(f"pred must be (Z, Y, X) or (C, Z, Y, X), got shape {tuple(pred.shape)}")
+        raise ValueError(
+            "pred must be 3 spatial dims, optionally with a leading channel dim, "
+            f"got shape {tuple(pred.shape)}"
+        )
 
     # undo the pad/crop: same widths, negated
     pred = F.pad(pred, [-w for w in properties["pad_widths"]])
 
-    # (C, Z, Y, X) -> (C, X, Y, Z)
-    pred = pred.permute(0, 3, 2, 1)
+    # undo whichever axis order the forward pass recorded, rather than assuming
+    # one. Inverting a permutation means asking, for each source axis, where it
+    # ended up; the +1 skips the channel dim we prepended above.
+    axis_order = tuple(properties["axis_order"])
+    inverse_order = sorted(range(len(axis_order)), key=axis_order.__getitem__)
+    pred = pred.permute(0, *(a + 1 for a in inverse_order))
 
     canonical_shape = tuple(properties["canonical_shape"])
     if tuple(pred.shape[1:]) != canonical_shape:
