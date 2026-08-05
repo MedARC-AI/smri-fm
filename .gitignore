@@ -38,11 +38,7 @@ wandb/
 tmp
 .tmp*
 /ref_code/
-
-# AI assistants
-.claude/
-.codex
-CLAUDE.md
+/third_party/
 
 # Misc
 .DS_Store

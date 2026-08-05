@@ -41,3 +41,15 @@ interval.
 - **Task**: a dataclass from [tasks/base.py](tasks/base.py) wrapping a lazy `dataset_fn` (an HF
   dataset of niftis + labels) and column names. Decorate a builder with `@register_task`. See
   [tasks/fomo.py](tasks/fomo.py).
+
+Both have a procedure: `.claude/skills/add-eval-model` and `.claude/skills/add-eval-dataset`.
+
+## Gotchas
+
+- **HF generator caches ignore code changes.** `Dataset.from_generator` keys its cache on
+  `gen_kwargs` only, so editing a generator body or a preprocessing helper under `tasks/` does not
+  invalidate it and a rerun silently loads data built by the old code. Delete the cache dir — find
+  it via `ds.cache_files[0]["filename"]` — before trusting the rerun. Feature *schema* changes are
+  safe.
+- **Use `nifti.canonical_img`**, not HF's `Nifti1ImageWrapper`, which reorients incorrectly.
+- **The `*_sex` tasks are wiring anchors, not results.** Every backbone lands >= 0.96 AUROC.
