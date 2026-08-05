@@ -39,6 +39,7 @@ tmp
 .tmp*
 /ref_code/
 /third_party/
+.claude/scratch/
 
 # Misc
 .DS_Store

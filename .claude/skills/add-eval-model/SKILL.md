@@ -7,7 +7,8 @@ scope: project
 # Adding an eval backbone
 
 Settled over Neuro-JEPA, NeuroVFM, SynthSeg and sMRI MAE. The model-side counterpart to
-`add-eval-dataset`. Per-backbone findings are in `.claude/HISTORY.md` under `[models]`.
+`add-eval-dataset`. Per-backbone findings are in `.claude/memory/` — see `MEMORY.md` under
+"Backbones".
 
 ## 1. Assess before writing anything
 

@@ -60,7 +60,7 @@ the upload is fixed.
 
 - **ADNI numbers from before 2026-07-29 are not comparable.** `medarc/adni-mini` was re-uploaded
   that day, brain-masked and 1000 -> 1200 scans, split renamed `test` -> `eval`. The current sweep
-  is post-update. See HISTORY for details.
+  is post-update. See `.claude/memory/adni-mini-reuploaded-in-place.md` for details.
 - **`adni_sex`, `cnp_sex` and `dlbs_sex` are wiring anchors, not results.** Every backbone lands
   >= 0.96 AUROC, so they are excluded from the table; anything much below means the wiring is
   wrong, not the model.

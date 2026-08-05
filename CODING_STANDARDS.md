@@ -49,13 +49,13 @@ Below are a set of rules (code smells and fix strategies) that we use to diagnos
 
 5. **Non-obvious interface** -> Replace clever bespoke data structures with standard data representations. Use type annotations and self-explanatory names. If an interface is still confusing, then perhaps it is not a coherent concept and should be refactored in some way.
 
-6. **Long and/or lots of comments** -> Delete them and make the code self-explanatory (better names, type annotations, simpler patterns). Comments should be reserved for rare cases when some subtlety could not be avoided. And in these cases they should be ~1 line. Rationale and history go in `HISTORY.md`, not in comments.
+6. **Long and/or lots of comments** -> Delete them and make the code self-explanatory (better names, type annotations, simpler patterns). Comments should be reserved for rare cases when some subtlety could not be avoided. And in these cases they should be ~1 line. Rationale and history go in `.claude/memory/`, not in comments.
 
-7. **Excessive defensiveness** -> Remove defensive error handling and silent fallbacks. Assume the user is us and we know how to use the code. Fail fast and loudly when something unexpected happens.
+7. **Defensiveness** -> Remove defensive error handling and silent fallbacks. Assume the user is us and we know how to use the code. Fail fast and loudly when something unexpected happens.
 
 8. **Dead code** -> Delete anything we don't need. Version control remembers.
 
-9. **Inconsistency within a codebase** -> Match the existing conventions of the surrounding code. Consistency beats personal preference. This applies as well to matching structural patterns, not just style. When implementing a new variant of a concept (e.g. a new model), fork and edit an existing instance. But note that this rule is waived during explicit refactoring to improve adherence to the overall standards.
+9. **Inconsistency** -> Match the existing conventions of the surrounding code. Consistency beats personal preference. This applies as well to matching structural patterns, not just style. When implementing a new variant of a concept (e.g. a new model), fork and edit an existing instance. But note that this rule is waived during explicit refactoring to improve adherence to the overall standards.
 
 ### Non-rules
 
@@ -81,7 +81,7 @@ ML code fails silently. So we need to be very careful, to the point of paranoia,
 
 ## Git
 
-Use concise commit messages. Detailed rationale and history notes go in `HISTORY.md`. For initial development, commit directly to main. Once the codebase is built out, use trunk-based branching off of main. Experimental branches should make minimal additions and *zero* deletions on the stable core. Fixes to the stable core should be rare, and should be made in short-lived branches that are merged quickly to main. The main branch should always run, and should contain the minimal baseline starting point for new experimental branches. Experimental branches are not expected to be merged to main. If an experimental branch is promising, it can be used as a starting point for further experiments.
+Use concise commit messages. Detailed rationale and history notes go in `.claude/memory/`. For initial development, commit directly to main. Once the codebase is built out, use trunk-based branching off of main. Experimental branches should make minimal additions and *zero* deletions on the stable core. Fixes to the stable core should be rare, and should be made in short-lived branches that are merged quickly to main. The main branch should always run, and should contain the minimal baseline starting point for new experimental branches. Experimental branches are not expected to be merged to main. If an experimental branch is promising, it can be used as a starting point for further experiments.
 
 ## Tools
 

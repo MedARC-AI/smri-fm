@@ -1,6 +1,7 @@
 ---
 name: quality-review
 description: Review the changes for how well the code adheres to the repo's documented code quality standards. This is intended to be used only after the code is in a functional state. Use when the user asks specifically for a code quality review. Runs review in a sub-agent.
+scope: general
 ---
 
 The goal is to review the current changes for code quality. Your job is basically to defend the codebase against creeping complexity, debt, and bloat.

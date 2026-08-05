@@ -7,7 +7,7 @@ scope: project
 # Adding an eval dataset
 
 Settled over CNP, ABIDE, ADHD-200 and PPMI-mini. The dataset-side counterpart to `add-eval-model`.
-Per-dataset findings are in `.claude/HISTORY.md` under `[datasets]`.
+Per-dataset findings are in `.claude/memory/` — see `MEMORY.md` under "Datasets and HF".
 
 ## The rule that drives everything
 
@@ -61,7 +61,8 @@ Don't add a fourth task measuring what three existing tasks already measure.
 ## 5. Report
 
 Post-matching floors per confound, plus a `random_features` baseline, alongside the shipped task
-sizes. Then register with `@register_task` and note the rejected splits in `.claude/HISTORY.md`.
+sizes. Then register with `@register_task` and write the rejected splits, with their floors, to a
+memory file under `.claude/memory/`.
 
 ## Cache gotcha
 
