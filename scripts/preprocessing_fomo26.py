@@ -71,4 +71,8 @@ class Normalize(Transform):
         return torch.where(self.mask, (x-self.mean)/self.std, 0.)
     # no decode, as we don't want to undo this ever
 
-def preproc_pipe(im_sz): return Pipeline([ Reorient(), Resample(), Unwrap(), ToZXY(), CenterPadCrop(im_sz), Normalize() ])
+class AddChanelDim(Transform):
+    def encodes(self, x:Tensor): return x[None,:]
+    def decodes(self, x:Tensor): return x[0]
+
+def preproc_pipe(im_sz): return Pipeline([ Reorient(), Resample(), Unwrap(), ToZXY(), CenterPadCrop(im_sz), Normalize(), AddChanelDim() ])
