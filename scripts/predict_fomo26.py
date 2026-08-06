@@ -54,7 +54,7 @@ def main(
     tfm = preproc_pipe(im_sz=cfg.get('img_size', (160,160,160)))
     paths = dict(flair=flair, adc=adc, dwi=dwi, t2s=t2s, swi=swi, t1=t1, t2=t2, input=input)
     imgs = [nib.load(paths[k]) for k in t.inp if paths.get(k)]
-    x = torch.stack([tfm(im)['image'] for im in imgs]).to(device)
+    x = torch.stack([tfm(im) for im in imgs]).to(device)
     x = x.half() if cuda else x.float()
     # run model and write prediction
     Path(output).parent.mkdir(parents=True, exist_ok=True)
