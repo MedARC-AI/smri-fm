@@ -73,6 +73,25 @@ trivially serializable; wire it up when prepping a real submission.
 loader picks it up and dies casting to `{'indices': uint64}`. Revert to a plain `load_dataset` when
 the upload is fixed.
 
+**12. First seg-probe numbers are at the floor, and we don't yet know why (2026-08-06).**
+`experiments/eval_seg_0806`, `random_features`, the first time any backbone has run the seg probe on
+real data:
+
+| task | n | Dice | voxel-AP |
+|---|---|---|---|
+| fomo_task1_infarct_seg | 21 | 0.017 | 0.027 |
+| fomo_task2_meningioma | 23 | 0.012 | 0.021 |
+| fomo_task4_trigeminal | 40 | 0.001 | 0.001 |
+
+Two readings and they are not yet distinguishable. **(a) Honest floor:** `random_features` projects
+16-voxel blocks, so for a structure smaller than one block the feature is mostly background, and a
+random baseline pinning at prevalence is what a floor should look like. **(b) The brain mask is
+eating the labels** — thread 10. Training foreground is now restricted to a mean-intensity mask, and
+the trigeminal nerve sits in bright CSF, which is exactly the case where positives would be dropped.
+**Next step: measure the in-mask foreground fraction per seg task** (datasets are cached, so it is
+quick). Near 1 means the numbers are honest; low means the mask is the problem. Worth settling
+before the real backbones' results land on top of it.
+
 ## Caveats on results
 
 - **ADNI numbers from before 2026-07-29 are not comparable.** `medarc/adni-mini` was re-uploaded
