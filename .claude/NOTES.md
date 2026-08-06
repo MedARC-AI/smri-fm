@@ -19,32 +19,13 @@ mean rank in `experiments/eval_global_0728/figures/table.md` are computed over r
 informative tasks and ten noise cells. Either weight or exclude the tasks that no model beats
 chance on, or state the caveat wherever the table is shown.
 
-**3. Win rate uses marginal, not paired, CIs (2026-07-29).** `analysis_table.py` scores a win when
-a model's point estimate clears the opponent's bootstrap CI upper bound. A paired bootstrap
-(resample subjects once, recompute both models, CI the difference) is far more powerful — 34 of 90
-model-pair-task comparisons came back inconclusive under the current rule. Parked deliberately:
-Connor's counter is that the marginal CI measures how a score bounces under random reconstructions
-of the benchmark cohort, which may be the more relevant variance for a benchmark.
-*Blocker:* `probe_global.py` writes only summary metrics to `metrics.jsonl`, so no paired test is
-computable from existing `output/` dirs. Saving `y` and the repeat-averaged out-of-fold vector per
-run is a couple of lines, but needs a re-run of the sweep.
-
 **5. FOMO task-4 class label order is a guess (2026-07-23).** `("nerve", "vessel")`, with a TODO in
 `tasks/fomo.py`. Per-class metric names depend on it. Confirm against the challenge data.
 
-**6. Four backbones still need porting to `patch_embed` (2026-08-06).** The contract rethink is
-done: `dense_embed` is now `patch_embed(nifti) -> PatchFeatures(features (N, D), coords (N, 3))` in
-RAS world mm, and both baselines are on it. Neuro-JEPA, NeuroVFM, SynthSeg and sMRI MAE still raise
-`NotImplementedError`; each stub names the specific missing piece. Verified in passing that MONAI
-carries the affine through Neuro-JEPA's whole transform chain, so its coords are ~5 lines.
-**Port each against an off-centre, axis-asymmetric phantom** — the probe's coverage assert cannot
-see an axis permutation. See `.claude/memory/seg-probe-world-coord-guards.md`.
-
-**7. Seg probe is still untuned, and no real backbone has run it (2026-07-27, updated 2026-08-06).**
-`NEG_PER_SUBJECT=10_000` was deferred on "measure first" and is now clearly oversized: a subject's
-sampled voxels collapse onto at most N patches, so most of those 10k rows are duplicates. Also
-`predict_probs` zero-fills columns for classes a fold never saw — silent degradation, suspect it
-first if task-4 per-class AP looks wrong.
+**7. Seg probe is untuned (2026-07-27, updated 2026-08-06).** `NEG_PER_SUBJECT=10_000` was deferred
+on "measure first" and is now clearly oversized: a subject's sampled voxels collapse onto at most N
+patches, so most of those 10k rows are duplicates. Also `predict_probs` zero-fills columns for
+classes a fold never saw — silent degradation, suspect it first if task-4 per-class AP looks wrong.
 
 **11. The SynthSeg wrapper wants another edit pass (2026-08-06, Connor).** Two things are not
 crisp: the `resample` "verbatim" / "torch" branch, and leaning on upstream helpers for trivial
@@ -55,15 +36,6 @@ reference**, which collapses the branch and drops the helper dependency. `resamp
 `bottleneck_box` are already most of the way there, and `test_synthseg.py` already pins the
 verbatim path bit-for-bit, so equivalence is testable. Worth **upstreaming to the SynthSeg-pytorch
 fork** afterwards, which would give fast SynthSeg inference generally, not just in this wrapper.
-
-**10. Seg training foreground is now brain-masked (2026-08-06).** `voxel_targets` restricts labels
-to the brain mask before sampling, so foreground voxels below `image.mean()` are no longer trained
-on; previously every labelled voxel was kept regardless of the mask. Scoring was always in-brain
-only, so this makes train and test agree — but it can cut the positive count. The mean-threshold
-mask is crude, and for `fomo_task4_trigeminal` a nerve sitting in bright CSF is plausibly sub-mean
-over much of its extent. **Measure the in-mask foreground fraction per seg task before trusting
-task-4 numbers.** If a class falls entirely out of mask across all subjects the "classes absent"
-assert fires, which is loud rather than silent.
 
 **8. Head extraction for submission (2026-07-27).** The fitted StandardScaler + linear head is
 trivially serializable; wire it up when prepping a real submission.
@@ -86,11 +58,15 @@ real data:
 Two readings and they are not yet distinguishable. **(a) Honest floor:** `random_features` projects
 16-voxel blocks, so for a structure smaller than one block the feature is mostly background, and a
 random baseline pinning at prevalence is what a floor should look like. **(b) The brain mask is
-eating the labels** — thread 10. Training foreground is now restricted to a mean-intensity mask, and
-the trigeminal nerve sits in bright CSF, which is exactly the case where positives would be dropped.
+eating the labels:** `voxel_targets` now restricts labels to a mean-intensity brain mask before
+sampling, where previously every labelled voxel was trained on regardless. That makes train and test
+agree — scoring was always in-brain — but it can cut the positive count, and a trigeminal nerve
+sitting in bright CSF is exactly the case that would go sub-mean.
+
 **Next step: measure the in-mask foreground fraction per seg task** (datasets are cached, so it is
 quick). Near 1 means the numbers are honest; low means the mask is the problem. Worth settling
-before the real backbones' results land on top of it.
+before the real backbones' results land on top of it. Note a class falling *entirely* out of mask
+across all subjects trips the "classes absent" assert, so that end of the failure is loud.
 
 ## Caveats on results
 
@@ -107,10 +83,12 @@ before the real backbones' results land on top of it.
 
 ## Parked
 
-- **Where the plot style preference lives.** Internal plots should be plain matplotlib — default
-  colors, no annotations or custom palettes, short readable code — and only get the full treatment
-  when the figure is meant to be published. This was a real correction (2026-07-30) but is not
-  written down anywhere in the harness now. Covered in spirit by "keep it simple"; say if you want
-  it stated explicitly.
-- **`~/.claude/skills/polish` is now duplicated** by `.claude/skills/polish`. Delete the global
-  copy so there is one, unless other projects depend on it.
+**3. Win rate uses marginal, not paired, CIs (2026-07-29).** `analysis_table.py` scores a win when
+a model's point estimate clears the opponent's bootstrap CI upper bound. A paired bootstrap
+(resample subjects once, recompute both models, CI the difference) is far more powerful — 34 of 90
+model-pair-task comparisons came back inconclusive under the current rule. Parked deliberately:
+Connor's counter is that the marginal CI measures how a score bounces under random reconstructions
+of the benchmark cohort, which may be the more relevant variance for a benchmark.
+*Blocker:* `probe_global.py` writes only summary metrics to `metrics.jsonl`, so no paired test is
+computable from existing `output/` dirs. Saving `y` and the repeat-averaged out-of-fold vector per
+run is a couple of lines, but needs a re-run of the sweep.
