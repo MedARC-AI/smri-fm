@@ -36,11 +36,13 @@ def main(
     model_name: str, task_name: str, config_path: str | None, overrides: list[str] | None
 ) -> dict:
     cfg = OmegaConf.load(DEFAULT_CONFIG)
+    OmegaConf.set_struct(cfg, True)
+    OmegaConf.set_struct(cfg.model_kwargs, False)
+    OmegaConf.set_struct(cfg.task_kwargs, False)
     if config_path:
         cfg = OmegaConf.merge(cfg, OmegaConf.load(config_path))
     if overrides:
         cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(overrides))
-    OmegaConf.set_struct(cfg, True)
 
     cfg.name = cfg.name or f"{model_name}__{task_name}"
     run_dir = Path(cfg.output_root) / cfg.name

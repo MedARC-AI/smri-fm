@@ -41,13 +41,10 @@ def set_seed(seed: int) -> None:
 
 
 def git_sha() -> str:
-    out = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"],
-        cwd=Path(__file__).parent,
-        capture_output=True,
-        text=True,
-    )
-    return out.stdout.strip() or "unknown"
+    kwargs = dict(cwd=Path(__file__).parent, capture_output=True, text=True, check=True)
+    sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], **kwargs).stdout.strip()
+    dirty = subprocess.run(["git", "status", "--porcelain", "-uno"], **kwargs).stdout.strip()
+    return f"{sha}-dirty" if dirty else sha
 
 
 def setup_logging(run_dir: Path) -> None:
