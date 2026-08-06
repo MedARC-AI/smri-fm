@@ -34,26 +34,19 @@ def bootstrap_ci(
     metrics: dict[str, Metric],
     n_boot: int,
     seed: int,
-    groups: np.ndarray | None = None,
     alpha: float = 0.05,
 ) -> dict[str, float]:
     """Percentile CI per metric, resampling subjects with replacement.
 
-    `groups` gives a subject id per row so a subject's rows resample together (seg has many
-    patch rows per subject); None means one row per subject. Resamples with a single unique
-    label, where a metric is undefined, are skipped and counted.
+    Resamples with a single unique label, where a metric is undefined, are skipped and counted.
     """
-    if groups is None:
-        groups = np.arange(len(y_true))
-    unique = np.unique(groups)
-    rows_by_group = [np.flatnonzero(groups == g) for g in unique]
+    n_subjects = len(y_true)
     rng = np.random.default_rng(seed)
 
     samples: dict[str, list[float]] = {key: [] for key in metrics}
     n_dropped = 0
     for _ in range(n_boot):
-        pick = rng.integers(0, len(unique), size=len(unique))
-        rows = np.concatenate([rows_by_group[i] for i in pick])
+        rows = rng.integers(0, n_subjects, size=n_subjects)
         yt, ys = y_true[rows], y_score[rows]
         if len(np.unique(yt)) < 2:
             n_dropped += 1

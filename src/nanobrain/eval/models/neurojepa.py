@@ -19,14 +19,12 @@ IMG_SIZE = (96, 108, 96)
 
 
 class NeuroJEPA(nn.Module):
-    """`out_layers` picks which blocks to pool, concatenated; None means the last one only."""
-
-    def __init__(self, out_layers: tuple[int, ...] | None = None):
+    def __init__(self):
         super().__init__()
         from neurojepa.utils.init_utils import load_backbone_from_hf
 
         self.backbone = load_backbone_from_hf(REPO_ID, device="cpu")
-        self.backbone.out_layers = list(out_layers) if out_layers else None
+        self.backbone.out_layers = None  # pool the last block, whatever the hub config says
         self.transform = _static_transform()
         self.requires_grad_(False)
 
@@ -38,8 +36,7 @@ class NeuroJEPA(nn.Module):
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
         volume = _preprocess(self.transform, img, self.device)  # (1, 1, 96, 108, 96)
         tokens, _moe_scores = self.backbone(volume)
-        layers = tokens if isinstance(tokens, list) else [tokens]
-        return torch.cat([layer[0].mean(0) for layer in layers])  # (L * 768,)
+        return tokens[0].mean(0)  # (768,)
 
     def dense_embed(self, img: nib.Nifti1Image) -> Tensor:
         raise NotImplementedError(
@@ -88,5 +85,5 @@ def _static_transform():
 
 
 @register_model
-def neurojepa(out_layers: tuple[int, ...] | None = None) -> NeuroJEPA:
-    return NeuroJEPA(out_layers=out_layers)
+def neurojepa() -> NeuroJEPA:
+    return NeuroJEPA()

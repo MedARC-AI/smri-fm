@@ -13,6 +13,8 @@ from nanobrain.eval.nifti import canonical_img
 import smri_mae.model_mae as models_mae
 from smri_mae.utils import filter_kwargs
 
+PAD_TO_MULTIPLE = 32
+
 
 class SmriMae(nn.Module):
     def __init__(
@@ -20,7 +22,7 @@ class SmriMae(nn.Module):
         encoder: models_mae.MaskedEncoder,
         transform: "SmriMaeTransform",
         global_pool: Literal["cls", "reg", "patch"] = "patch",
-        pad_to_multiple: int | None = 32,
+        pad_to_multiple: int | None = PAD_TO_MULTIPLE,
     ):
         super().__init__()
         self.encoder = encoder
@@ -164,5 +166,5 @@ def smri_mae(ckpt_path: str, global_pool: str = "patch", transpose: bool = False
         model.encoder,
         transform,
         global_pool=global_pool,
-        pad_to_multiple=args.get("pad_to_multiple", 32),
+        pad_to_multiple=args.get("pad_to_multiple", PAD_TO_MULTIPLE),
     )

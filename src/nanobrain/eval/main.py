@@ -38,7 +38,6 @@ def main(
     cfg = OmegaConf.load(DEFAULT_CONFIG)
     OmegaConf.set_struct(cfg, True)
     OmegaConf.set_struct(cfg.model_kwargs, False)
-    OmegaConf.set_struct(cfg.task_kwargs, False)
     if config_path:
         cfg = OmegaConf.merge(cfg, OmegaConf.load(config_path))
     if overrides:
@@ -56,7 +55,7 @@ def main(
     OmegaConf.save(cfg, run_dir / "config.yaml")
 
     device = torch.device(cfg.device)
-    task = create_task(task_name, **OmegaConf.to_container(cfg.task_kwargs, resolve=True))
+    task = create_task(task_name)
     model = create_model(model_name, **OmegaConf.to_container(cfg.model_kwargs, resolve=True))
     model.to(device)
     model.eval()  # freeze BatchNorm/dropout so features are deterministic
