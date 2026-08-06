@@ -46,6 +46,16 @@ sampled voxels collapse onto at most N patches, so most of those 10k rows are du
 `predict_probs` zero-fills columns for classes a fold never saw — silent degradation, suspect it
 first if task-4 per-class AP looks wrong.
 
+**11. The SynthSeg wrapper wants another edit pass (2026-08-06, Connor).** Two things are not
+crisp: the `resample` "verbatim" / "torch" branch, and leaning on upstream helpers for trivial
+preprocessing (`find_closest_number_divisible_by_m`, `pad_volume`, `rescale_volume`,
+`align_volume_to_ref`) — the last of which is also where the `patch_embed` affine has to unpick a
+reorientation. The idea: **one all-in-PyTorch preprocessing pipeline, verified equivalent to the
+reference**, which collapses the branch and drops the helper dependency. `resample_torch` and
+`bottleneck_box` are already most of the way there, and `test_synthseg.py` already pins the
+verbatim path bit-for-bit, so equivalence is testable. Worth **upstreaming to the SynthSeg-pytorch
+fork** afterwards, which would give fast SynthSeg inference generally, not just in this wrapper.
+
 **10. Seg training foreground is now brain-masked (2026-08-06).** `voxel_targets` restricts labels
 to the brain mask before sampling, so foreground voxels below `image.mean()` are no longer trained
 on; previously every labelled voxel was kept regardless of the mask. Scoring was always in-brain

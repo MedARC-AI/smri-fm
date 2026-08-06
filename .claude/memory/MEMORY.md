@@ -19,6 +19,7 @@ is the failure mode that killed the previous `HISTORY.md`. See
 - [eval-interface-is-nifti-in](eval-interface-is-nifti-in.md) — why the per-nifti contract exists; the batching it cost, and why that price is no longer owed.
 - [seg-probe-design](seg-probe-design.md) — patch point cloud in world mm, nearest-patch assignment, one forward pass.
 - [seg-probe-world-coord-guards](seg-probe-world-coord-guards.md) — measured: the coverage assert catches units and origin, never an axis swap.
+- [no-memory-references-in-code](no-memory-references-in-code.md) — state the fact in the source; keep the rationale in memory, uncited.
 - [dice-ceiling-diagnostic-deferred](dice-ceiling-diagnostic-deferred.md) — separating "too coarse" from "uninformative"; deferred, with the exact formula and the ratio trap.
 - [hf-nifti-wrapper-reorients-wrong](hf-nifti-wrapper-reorients-wrong.md) — use `nifti.canonical_img`, never HF's wrapper.
 - [probe-cost-scales-with-embed-width](probe-cost-scales-with-embed-width.md) — 31s at 1024-d vs 605s at 3840-d.
