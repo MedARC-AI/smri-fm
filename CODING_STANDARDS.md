@@ -79,6 +79,18 @@ ML code fails silently. So we need to be very careful, to the point of paranoia,
 
 4. **Too many bells and whistles** -> Prefer standard, battle-tested, easy to understand components. The more bells and whistles, the more we have to understand, the more surface area for problems.
 
+## Experiments
+
+`experiments/<name>/` holds the config, launch scripts, analysis and figures for one study. It is held to a different standard than the package, and the rules above apply to it only loosely.
+
+1. **A finished experiment is a record, not a recipe.** Once it has been run and its results are in play, don't tidy its code and don't update it to track the package. Editing it changes what the committed figures and outputs claim to be. If the code needs to change, that's a new experiment directory.
+
+2. **The code quality rules are advisory here.** Hardcoded paths, straight-line scripts, commented-out alternatives, copy-paste between experiments — all fine. Optimize for writing it once and reading it once. Code reviews should concentrate on the package; flagging experiment code is usually noise.
+
+3. **Correctness is not relaxed.** Reproducibility is the whole reason the directory exists: commit before running, log the git sha and dirty status, save the full config, seed in one place.
+
+4. **Expect experiment code to rot.** The package will move on and old launch scripts will stop running against it. That's acceptable — a stale script is still an accurate record of what was run. Don't repair it; note the breakage if it matters.
+
 ## Git
 
 Use concise commit messages. Detailed rationale and history notes go in `.claude/memory/`. For initial development, commit directly to main. Once the codebase is built out, use trunk-based branching off of main. Experimental branches should make minimal additions and *zero* deletions on the stable core. Fixes to the stable core should be rare, and should be made in short-lived branches that are merged quickly to main. The main branch should always run, and should contain the minimal baseline starting point for new experimental branches. Experimental branches are not expected to be merged to main. If an experimental branch is promising, it can be used as a starting point for further experiments.
