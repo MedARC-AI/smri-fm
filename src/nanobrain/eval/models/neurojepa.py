@@ -1,7 +1,9 @@
 """Neuro-JEPA (NYUMedML): a JEPA-pretrained 3D ViT-B/12 with a sparse MoE, frozen.
 
 Weights are gated on the Hub, so `HF_TOKEN` must be set and access granted. The 576 tokens
-(an 8x9x8 grid of 12-voxel patches over a 96x108x96 crop) are mean-pooled into one vector.
+(an 8x9x8 grid of 12-voxel patches over a 96x108x96 crop) are mean-pooled into one vector for
+`global_embed`, or returned with their world-mm centres for `patch_embed`. A token spans ~21mm of
+the original scan, so expect coarse segmentations.
 The model expects 1mm scans affine-registered to MNI152, which is what it was pretrained on.
 """
 
@@ -9,6 +11,8 @@ import nibabel as nib
 import numpy as np
 import torch
 import torch.nn as nn
+from einops import rearrange
+from nibabel.affines import apply_affine
 from torch import Tensor
 
 from nanobrain.eval.models import register_model
@@ -35,21 +39,30 @@ class NeuroJEPA(nn.Module):
 
     @torch.inference_mode()
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
-        volume = preprocess(self.transform, img, self.device)  # (1, 1, 96, 108, 96)
+        volume, _affine = preprocess(self.transform, img, self.device)  # (1, 1, 96, 108, 96)
         tokens, _moe_scores = self.backbone(volume)
         return tokens[0].mean(0)  # (768,)
 
+    @torch.inference_mode()
     def patch_embed(self, img: nib.Nifti1Image) -> PatchFeatures:
-        raise NotImplementedError(
-            "not yet ported to the patch contract: the token grid maps to world space through the "
-            "transform's MetaTensor affine, but a token spans ~21mm so expect coarse segmentations."
-        )
+        volume, affine = preprocess(self.transform, img, self.device)
+        tokens, _moe_scores = self.backbone(volume)  # (1, 576, 768)
+
+        # PatchEmbed3D flattens the patch grid in C order, so tokens follow "x y z ->" as well
+        patch = np.array(self.backbone.patch_embed.patch_size)
+        grid = np.array(volume.shape[2:]) // patch
+        assert grid.prod() == tokens.shape[1], f"{tokens.shape[1]} tokens over a {grid} patch grid"
+        centres = rearrange(np.indices(tuple(grid)), "c x y z -> (x y z) c") * patch
+        coords = apply_affine(affine, centres + (patch - 1) / 2)
+        return PatchFeatures(tokens[0].float().cpu(), torch.from_numpy(coords).float())
 
 
-def preprocess(transform, img: nib.Nifti1Image, device: torch.device) -> Tensor:
-    """Neuro-JEPA's static pipeline, from a nifti to a (1, 1, X, Y, Z) batch of one.
+def preprocess(transform, img: nib.Nifti1Image, device: torch.device) -> tuple[Tensor, np.ndarray]:
+    """Neuro-JEPA's static pipeline: a nifti to a (1, 1, X, Y, Z) batch of one, and the affine
+    mapping that volume's voxels to RAS world mm.
 
-    The affine rides along on a MetaTensor: without it the resample to 1mm silently no-ops.
+    The affine rides along on a MetaTensor: without it the resample to 1mm silently no-ops, and
+    it is also what places the tokens in world space.
     Runs on `device` because the bspline resample dominates: 7.0s on CPU, 0.19s on GPU.
     """
     from monai.data import MetaTensor
@@ -58,7 +71,8 @@ def preprocess(transform, img: nib.Nifti1Image, device: torch.device) -> Tensor:
     data = np.nan_to_num(canon.get_fdata(dtype=np.float32))
     volume = torch.from_numpy(np.ascontiguousarray(data))[None].to(device)  # (1, X, Y, Z)
     volume = MetaTensor(volume, affine=torch.as_tensor(canon.affine).to(device))
-    return transform(volume).as_tensor()[None]
+    out = transform(volume)
+    return out.as_tensor()[None], np.asarray(out.affine.cpu())
 
 
 def static_transform():
