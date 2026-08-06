@@ -7,7 +7,8 @@
 #SBATCH --partition=main
 #SBATCH --output=slurms/slurm-%A_%a.out
 #SBATCH --account=sophont
-#SBATCH --array=0-17
+# #SBATCH --array=0-14
+#SBATCH --array=15-17
 
 set -euo pipefail
 

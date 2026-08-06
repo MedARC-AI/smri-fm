@@ -21,13 +21,13 @@ OUT_DIR = Path(__file__).parent / "output"
 
 MODELS = [
     "random_features",
+    # "random_unet",
     "synthseg",
     "neurojepa",
     "neurovfm",
     "smri_mae_vitl_fomo300",
 ]
 
-# The *_sex tasks are excluded: wiring anchors, every backbone lands >= 0.96.
 TASKS = [
     # clinical
     "abide_autism_control",
@@ -46,6 +46,10 @@ TASKS = [
     "ppmi_age",
     "dlbs_age",
     "fomo_task3_age",
+    # sex
+    # "adni_sex",
+    # "cnp_sex",
+    # "dlbs_sex",
 ]
 
 # sMRI MAE checkpoints, keyed by the `smri_mae_<suffix>__<task>` output-dir suffix.
@@ -100,6 +104,9 @@ CONFIG_NAMES = {
 # Headline metric per task type.
 METRICS = {"auroc": "AUC", "pearson_r": "r"}
 
+# Append each cell's win rate on that task, to spot check the aggregate.
+SHOW_CELL_WIN_RATE = False
+
 
 def load_runs(out_dir: Path) -> pd.DataFrame:
     """One row per run: model, config, task, n, headline metric and its mean/CI.
@@ -145,6 +152,8 @@ def win_rates(runs: pd.DataFrame, row_col: str) -> pd.Series:
 
 def format_cell(row: pd.Series) -> str:
     text = f"{row['mean']:.2f} [{row['ci_low']:.2f}, {row['ci_high']:.2f}]"
+    if SHOW_CELL_WIN_RATE:
+        text += f" ({row['win_rate']:.2f})"
     return f"**{text}**" if row["best"] else text
 
 
