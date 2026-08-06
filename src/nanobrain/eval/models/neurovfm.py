@@ -1,19 +1,27 @@
 """NeuroVFM (MLNeurosurg): a ViT-B over 4x16x16 patches of a 1x1x4mm volume, frozen.
 
 Tokens are packed varlen with their 3D coordinates and background tokens are dropped, so the
-count varies per scan; they are mean-pooled into one vector. Weights are public and ungated.
+count varies per scan: they are mean-pooled into one vector for `global_embed`, or returned with
+their world-mm centres for `patch_embed`. A token covers a 16mm cube of the scan, and dropping
+the background leaves a brain-shaped point cloud rather than a full grid.
+Weights are public and ungated.
 """
 
 import nibabel as nib
 import numpy as np
 import torch
 import torch.nn as nn
+from nibabel.affines import apply_affine
 from torch import Tensor
 
 from nanobrain.eval.models import register_model
 from nanobrain.eval.models.base import PatchFeatures
 
 REPO_ID = "mlinslab/neurovfm-encoder"
+
+# `transpose_to_dhw` rolls the 4mm axis to the front of SimpleITK's (z, y, x) array, so the
+# resulting [D, H, W] axes are these SimpleITK (x, y, z) index axes, one entry per `view`.
+SITK_AXES = {0: [2, 1, 0], 1: [1, 2, 0], 2: [0, 1, 2]}
 
 
 class NeuroVFM(nn.Module):
@@ -30,9 +38,8 @@ class NeuroVFM(nn.Module):
     def device(self) -> torch.device:
         return next(self.parameters()).device
 
-    @torch.inference_mode()
-    def global_embed(self, img: nib.Nifti1Image) -> Tensor:
-        batch = preprocess(self.preproc, img)
+    def encode(self, batch: dict) -> Tensor:
+        """(N, 768) one embedding per foreground token, in `batch["coords"]` order."""
         tokens = batch["img"].to(self.device)
         coords = batch["coords"].to(self.device)
         cu_seqlens = batch["series_cu_seqlens"].to(self.device)
@@ -40,7 +47,7 @@ class NeuroVFM(nn.Module):
             tokens, batch["mode"], batch["path"], cu_seqlens=cu_seqlens, sizes=batch["size"]
         )
         with torch.autocast(self.device.type, dtype=torch.bfloat16):
-            embs = self.backbone(  # (N, 768); masks=None because background is already dropped
+            embs = self.backbone(  # masks=None because background is already dropped
                 tokens,
                 coords,
                 masks=None,
@@ -48,13 +55,16 @@ class NeuroVFM(nn.Module):
                 max_seqlen=batch["series_max_len"],
                 use_flash_attn=False,
             )
-        return embs.float().mean(0)
+        return embs.float()
 
+    @torch.inference_mode()
+    def global_embed(self, img: nib.Nifti1Image) -> Tensor:
+        return self.encode(preprocess(self.preproc, img)).mean(0)
+
+    @torch.inference_mode()
     def patch_embed(self, img: nib.Nifti1Image) -> PatchFeatures:
-        raise NotImplementedError(
-            "not yet ported to the patch contract: `preprocess` already returns per-token coords, "
-            "which need mapping through the preprocessed sitk image's geometry into RAS world mm."
-        )
+        batch = preprocess(self.preproc, img)
+        return PatchFeatures(self.encode(batch).cpu(), batch["world"])
 
 
 def preprocess(preproc, img: nib.Nifti1Image) -> dict:
@@ -67,22 +77,44 @@ def preprocess(preproc, img: nib.Nifti1Image) -> dict:
     from neurovfm.data.utils import preprocess_image
 
     img_sitk = preprocess_image(to_sitk(img))
-    img_arrs, background_mask, _view = prepare_for_inference(img_sitk, mode="mri")
+    img_arrs, background_mask, view = prepare_for_inference(img_sitk, mode="mri")
     tokens, coords, _filtered = tokenize_volume(
         img_arrs[0],
         background_mask,
         patch_size=preproc.patch_size,
         remove_background=preproc.remove_background,
     )
+    world = patch_centres_mm(img_sitk, view, coords, preproc.patch_size)
     return {
         "img": torch.from_numpy(tokens).float(),
         "coords": torch.from_numpy(coords).long(),
+        "world": torch.from_numpy(world).float(),
         "series_cu_seqlens": torch.tensor([0, len(tokens)], dtype=torch.int32),
         "series_max_len": len(tokens),
         "mode": ["mri"],
         "path": ["<in-memory>"],
         "size": [img_arrs[0].shape],
     }
+
+
+def patch_centres_mm(
+    img_sitk, view: int, coords: np.ndarray, patch_size: tuple[int, int, int]
+) -> np.ndarray:
+    """(N, 3) RAS world mm centre of each token, from its (d, h, w) patch-grid index."""
+    patch = np.array(patch_size)
+    centres = coords * patch + (patch - 1) / 2  # voxel centre of the patch in the [D, H, W] array
+    index = np.empty_like(centres)
+    index[:, SITK_AXES[view]] = centres  # (d, h, w) back onto SimpleITK's (x, y, z) index order
+    return apply_affine(from_sitk_affine(img_sitk), index)
+
+
+def from_sitk_affine(img_sitk) -> np.ndarray:
+    """A SimpleITK image's (x, y, z) index -> RAS world mm affine, inverting `to_sitk`."""
+    direction = np.array(img_sitk.GetDirection()).reshape(3, 3)
+    affine = np.eye(4)
+    affine[:3, :3] = direction * np.array(img_sitk.GetSpacing())
+    affine[:3, 3] = img_sitk.GetOrigin()
+    return np.diag([-1.0, -1.0, 1.0, 1.0]) @ affine
 
 
 def to_sitk(img: nib.Nifti1Image):
