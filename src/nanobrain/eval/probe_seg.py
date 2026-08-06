@@ -37,19 +37,34 @@ NEG_PER_SUBJECT = 10_000
 
 
 @torch.inference_mode()
-def embed_subject(
-    model: Model, img: nib.Nifti1Image, device: torch.device
-) -> tuple[np.ndarray, np.ndarray]:
-    """Patch features (N, D) and their world-mm centres (N, 3)."""
-    with torch.autocast(
-        device_type=device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"
-    ):
-        features, coords = model.patch_embed(img)
-    n_patches, _ = features.shape
-    assert coords.shape == (n_patches, 3), (
-        f"{n_patches} patch features against coords {tuple(coords.shape)}"
-    )
-    return features.float().numpy(), coords.float().numpy()
+def extract_features(
+    model: Model, dataset: Dataset, image_col: str, device: torch.device
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Per subject, patch features (N, D) and their world-mm centres (N, 3).
+
+    A list rather than one stacked array: N varies per subject, since a backbone may return only
+    the patches holding brain. The model canonicalizes each nifti internally, so extraction is a
+    plain per-subject loop -- no transform, no batching.
+    """
+    start = time.perf_counter()
+    patches = []
+    for ii, row in enumerate(dataset):
+        with torch.autocast(
+            device_type=device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"
+        ):
+            features, coords = model.patch_embed(row[image_col])
+        n_patches, _ = features.shape
+        assert coords.shape == (n_patches, 3), (
+            f"{n_patches} patch features against coords {tuple(coords.shape)}"
+        )
+        patches.append((features.float().numpy(), coords.float().numpy()))
+        if (ii + 1) % 10 == 0:
+            rate = (time.perf_counter() - start) / (ii + 1)
+            logger.info(f"embedded {ii + 1}/{len(dataset)} at {rate:.2f}s/volume")
+    total = sum(len(features) for features, _ in patches)
+    dim = patches[0][0].shape[1]
+    logger.info(f"features {total} patches x {dim}d in {time.perf_counter() - start:.1f}s")
+    return patches
 
 
 def voxel_targets(img: nib.Nifti1Image, seg: nib.Nifti1Image) -> tuple[np.ndarray, np.ndarray]:
@@ -243,9 +258,10 @@ def seg_probe(
     start = time.perf_counter()
     dataset = task.dataset_fn()
     logger.info(f"dataset: {len(dataset)} samples")
-    patches = [embed_subject(model, row[task.image_col], device) for row in dataset]
+    patches = extract_features(model, dataset, task.image_col, device)
     subsamples = training_subsamples(patches, dataset, task, seed)
     heads, folds = fit_folds(subsamples, n_splits, n_repeats, seed)
+    logger.info(f"fit {n_repeats} x {n_splits} heads on {len(subsamples)} subjects")
     dice, ap = score_dataset(patches, dataset, task, heads, folds)
     logger.info(f"seg probe over {len(dataset)} subjects in {time.perf_counter() - start:.1f}s")
     return summarize(dice, ap, task.class_names, n_boot, seed)
