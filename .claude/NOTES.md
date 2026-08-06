@@ -29,12 +29,6 @@ of the benchmark cohort, which may be the more relevant variance for a benchmark
 computable from existing `output/` dirs. Saving `y` and the repeat-averaged out-of-fold vector per
 run is a couple of lines, but needs a re-run of the sweep.
 
-**4. sMRI MAE axis order (2026-07-29).** `models/smri_mae.py` has a `transpose` flag and a TODO.
-Evidence says native RAS `(X, Y, Z)` is right: padding the MNI template to 208x240x208 and dicing
-against a stored pretraining brain mask gives 0.89/0.85 for identity vs 0.75 for the `(Z, Y, X)`
-swap. The sweep agrees — `vitl_fomo300_tr` is the worst config in the table. Left in place pending
-Connor's own check.
-
 **5. FOMO task-4 class label order is a guess (2026-07-23).** `("nerve", "vessel")`, with a TODO in
 `tasks/fomo.py`. Per-class metric names depend on it. Confirm against the challenge data.
 

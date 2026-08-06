@@ -9,7 +9,6 @@ a CUDA-built torch but no device.
 
 import nibabel as nib
 import numpy as np
-import pytest
 import torch
 from datasets import Dataset, Features, Nifti
 
@@ -20,7 +19,7 @@ IMG_SIZE = (32, 40, 32)
 EMBED_DIM = 32
 
 
-def make_model(global_pool: str = "patch") -> SmriMae:
+def make_model() -> SmriMae:
     mae = models_mae.MaskedAutoencoderViT(
         img_size=IMG_SIZE,
         patch_size=8,
@@ -32,7 +31,7 @@ def make_model(global_pool: str = "patch") -> SmriMae:
         decoder_num_heads=2,
     )
     transform = SmriMaeTransform(img_size=IMG_SIZE)
-    return SmriMae(mae.encoder, transform, global_pool=global_pool).eval()
+    return SmriMae(mae.encoder, transform).eval()
 
 
 def make_image(shape: tuple[int, int, int], affine: np.ndarray = np.eye(4)) -> nib.Nifti1Image:
@@ -47,9 +46,8 @@ def make_image(shape: tuple[int, int, int], affine: np.ndarray = np.eye(4)) -> n
     return nib.Nifti1Image(data, affine)
 
 
-@pytest.mark.parametrize("global_pool", ["cls", "patch"])
-def test_global_embed_contract(global_pool):
-    embed = make_model(global_pool).global_embed(make_image((28, 36, 30)))
+def test_global_embed_contract():
+    embed = make_model().global_embed(make_image((28, 36, 30)))
     assert embed.shape == (EMBED_DIM,)  # one vector per volume, batch dim dropped
     assert torch.isfinite(embed).all()
 
