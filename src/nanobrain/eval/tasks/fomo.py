@@ -48,17 +48,12 @@ def subject_ids(zf: zipfile.ZipFile, suffix: str) -> list[str]:
     return sorted({name.split("/")[2] for name in zf.namelist() if name.endswith(suffix)})
 
 
-def encode_nifti(img: nib.Nifti1Image | bytes) -> dict:
-    data = img if isinstance(img, bytes) else dump_nifti(img)
-    return {"path": None, "bytes": data}
+def encode_nifti(img: nib.Nifti1Image) -> dict:
+    return {"path": None, "bytes": gzip.compress(img.to_bytes())}
 
 
 def load_nifti(nii_gz: bytes) -> nib.Nifti1Image:
     return nib.Nifti1Image.from_bytes(gzip.decompress(nii_gz))
-
-
-def dump_nifti(img: nib.Nifti1Image) -> bytes:
-    return gzip.compress(img.to_bytes())
 
 
 def zero_seg_like(img: nib.Nifti1Image) -> nib.Nifti1Image:
@@ -87,24 +82,21 @@ def resample(img: nib.Nifti1Image, min_spacing: Spacing, order: int) -> nib.Nift
 
 def preprocess(
     image: nib.Nifti1Image,
-    seg: nib.Nifti1Image | None = None,
-    min_spacing: Spacing | None = MIN_SPACING,
+    seg: nib.Nifti1Image,
+    min_spacing: Spacing,
     fov_mm: float | None = None,
-) -> tuple[nib.Nifti1Image, nib.Nifti1Image | None]:
+) -> tuple[nib.Nifti1Image, nib.Nifti1Image]:
     """Resample an image and land its segmentation on exactly that grid, then center-crop both.
 
     The seg is resampled onto the image's output grid rather than resampled independently:
     some tasks store segs whose affine differs from the image's by float noise, which is
     enough to round to an off-by-one output shape and break the probe's grid contract.
     """
-    if min_spacing is not None:
-        image = resample(image, min_spacing, order=1)
-    if seg is not None:
-        seg = resample_from_to(seg, (image.shape, image.affine), order=0)
+    image = resample(image, min_spacing, order=1)
+    seg = resample_from_to(seg, (image.shape, image.affine), order=0)
     if fov_mm is not None:
         image = center_crop(image, fov_mm)
-        if seg is not None:
-            seg = center_crop(seg, fov_mm)
+        seg = center_crop(seg, fov_mm)
     return image, seg
 
 
@@ -248,7 +240,7 @@ def generate_task5() -> Iterator[dict]:
         for sub in subject_ids(zf, "t1.nii.gz"):
             label = int(zf.read(f"Task_5/labels/{sub}/ses_01/labels.txt").strip())
             image_gz = zf.read(f"Task_5/preprocessed/{sub}/ses_01/t1.nii.gz")
-            yield {"subject": sub, "label": label, "image": encode_nifti(image_gz)}
+            yield {"subject": sub, "label": label, "image": {"path": None, "bytes": image_gz}}
 
 
 def load_task5() -> Dataset:
