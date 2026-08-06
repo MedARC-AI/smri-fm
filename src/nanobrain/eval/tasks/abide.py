@@ -31,14 +31,14 @@ MAX_SUBJECTS = 250
 DX_MAP = {"control": 0, "autism": 1}
 
 
-def _t1w_paths() -> dict[str, str]:
+def t1w_paths() -> dict[str, str]:
     """`<site>/<sub>` -> path, which also pins which subjects actually have a scan."""
     resource = importlib.resources.files("nanobrain.eval.tasks") / "resources"
     lines = (resource / "abide_t1w_images.txt").read_text().strip().splitlines()
     return {"/".join(path.split("/")[:2]): path for path in lines}
 
 
-def _phenotype() -> pd.DataFrame:
+def phenotype() -> pd.DataFrame:
     fs = fsspec.filesystem("s3", anon=True)
     frames = []
     for site in SITES:
@@ -50,9 +50,9 @@ def _phenotype() -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
-def _cohort() -> list[dict]:
-    paths = _t1w_paths()
-    pheno = _phenotype()
+def load_cohort() -> list[dict]:
+    paths = t1w_paths()
+    pheno = phenotype()
     pheno["key"] = pheno["site"] + "/sub-" + pheno["participant_id"].astype(str).str.zfill(7)
     pheno = pheno[pheno["key"].isin(paths)].reset_index(drop=True)
 
@@ -80,7 +80,7 @@ def _cohort() -> list[dict]:
     return rows
 
 
-def _generate_abide(rows: list[dict]):
+def generate_abide(rows: list[dict]):
     fs = fsspec.filesystem("s3", anon=True)
     for row in rows:
         image = fs.cat_file(f"{ROOT}/{row['path']}")
@@ -106,9 +106,9 @@ def load_abide() -> Dataset:
         }
     )
     return Dataset.from_generator(
-        _generate_abide,
+        generate_abide,
         features=features,
-        gen_kwargs={"rows": _cohort()},
+        gen_kwargs={"rows": load_cohort()},
         num_proc=8,
     )
 

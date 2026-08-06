@@ -11,10 +11,10 @@ import torch
 
 pytest.importorskip("neurovfm")
 
-from nanobrain.eval.models.neurovfm import _preprocess, _to_sitk  # noqa: E402
+from nanobrain.eval.models.neurovfm import preprocess, to_sitk  # noqa: E402
 
 
-def _image(shape: tuple[int, int, int], affine: np.ndarray) -> nib.Nifti1Image:
+def make_image(shape: tuple[int, int, int], affine: np.ndarray) -> nib.Nifti1Image:
     data = np.random.default_rng(0).random(shape, dtype=np.float32) * 1000
     return nib.Nifti1Image(data, affine)
 
@@ -30,11 +30,11 @@ def test_preprocess_matches_upstream(tmp_path, shape, affine):
     from neurovfm.pipelines.preprocessor import StudyPreprocessor
 
     path = tmp_path / "image.nii.gz"
-    nib.save(_image(shape, affine), str(path))
+    nib.save(make_image(shape, affine), str(path))
 
     preproc = StudyPreprocessor()
     upstream = preproc.load_study(str(path), modality="mri")
-    ours = _preprocess(preproc, nib.load(str(path)))
+    ours = preprocess(preproc, nib.load(str(path)))
 
     assert ours["img"].shape == upstream["img"].shape
     assert torch.equal(ours["coords"], upstream["coords"])
@@ -48,10 +48,10 @@ def test_to_sitk_roundtrips_geometry(tmp_path):
         [[0.0, -1.2, 0.0, 30.0], [0.9, 0.0, 0.0, -20.0], [0.0, 0.0, 3.0, 5.0], [0.0, 0.0, 0.0, 1.0]]
     )
     path = tmp_path / "image.nii.gz"
-    nib.save(_image((40, 48, 24), affine), str(path))
+    nib.save(make_image((40, 48, 24), affine), str(path))
 
     ref = sitk.ReadImage(str(path))
-    ours = _to_sitk(nib.load(str(path)))
+    ours = to_sitk(nib.load(str(path)))
 
     assert np.allclose(ours.GetSpacing(), ref.GetSpacing())
     assert np.allclose(ours.GetDirection(), ref.GetDirection())

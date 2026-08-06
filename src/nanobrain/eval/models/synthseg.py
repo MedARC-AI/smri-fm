@@ -46,9 +46,9 @@ class SynthSeg(nn.Module):
 
     @torch.inference_mode()
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
-        volume, pad_idx = _preprocess(img, self.device, self.resample)
+        volume, pad_idx = preprocess(img, self.device, self.resample)
         embedding, _skips = self.net.encode(volume[None, None])  # (1, 384, X/16, Y/16, Z/16)
-        return embedding[0][(slice(None), *_bottleneck_box(pad_idx))].mean((1, 2, 3))  # (384,)
+        return embedding[0][(slice(None), *bottleneck_box(pad_idx))].mean((1, 2, 3))  # (384,)
 
     def dense_embed(self, img: nib.Nifti1Image) -> Tensor:
         raise NotImplementedError(
@@ -57,7 +57,7 @@ class SynthSeg(nn.Module):
         )
 
 
-def _preprocess(
+def preprocess(
     img: nib.Nifti1Image, device: torch.device, resample: str
 ) -> tuple[Tensor, np.ndarray]:
     """`SynthSeg.predict_synthseg.preprocess` for an in-memory nifti, on their default path.
@@ -79,7 +79,7 @@ def _preprocess(
 
     if np.any(np.abs(res - TARGET_RES) > 0.05):
         if resample == "torch":
-            volume, affine = _resample_torch(volume, affine, device)
+            volume, affine = resample_torch(volume, affine, device)
         else:
             volume, affine = resample_volume(volume, affine, [TARGET_RES] * n_dims)
 
@@ -93,7 +93,7 @@ def _preprocess(
     return torch.as_tensor(volume, dtype=torch.float32, device=device), pad_idx
 
 
-def _bottleneck_box(pad_idx: np.ndarray) -> tuple[slice, ...]:
+def bottleneck_box(pad_idx: np.ndarray) -> tuple[slice, ...]:
     """The bottleneck cells whose input voxels lie inside the scan, so pooling skips the padding.
 
     Approximate either way: a cell's receptive field reaches beyond the STRIDE voxels it covers.
@@ -105,7 +105,7 @@ def _bottleneck_box(pad_idx: np.ndarray) -> tuple[slice, ...]:
     return tuple(box)
 
 
-def _resample_torch(
+def resample_torch(
     volume: np.ndarray, affine: np.ndarray, device: torch.device
 ) -> tuple[np.ndarray, np.ndarray]:
     """`resample_volume` with the interpolation on `device`.
@@ -125,7 +125,7 @@ def _resample_torch(
         padding[2 * (2 - axis) + 1] = int(np.ceil(1.0 / scale))
 
     resampled = torch.as_tensor(volume, dtype=torch.float32, device=device)[None, None]
-    resampled = _gaussian_blur(resampled, sigmas)
+    resampled = gaussian_blur(resampled, sigmas)
     resampled = F.interpolate(
         F.pad(resampled, padding, mode="replicate"),
         scale_factor=tuple(factor),
@@ -142,7 +142,7 @@ def _resample_torch(
     return resampled[0, 0].cpu().numpy().astype(np.float64), affine
 
 
-def _gaussian_blur(volume: Tensor, sigmas: np.ndarray) -> Tensor:
+def gaussian_blur(volume: Tensor, sigmas: np.ndarray) -> Tensor:
     """Separable gaussian blur of a (1, 1, X, Y, Z) volume, one axis per non-zero sigma."""
     for axis, sigma in enumerate(sigmas):
         if sigma <= 0:

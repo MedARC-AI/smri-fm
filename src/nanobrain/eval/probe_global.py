@@ -38,7 +38,7 @@ CLS_METRICS = {"auroc": roc_auc_score, "balanced_accuracy": balanced_accuracy_at
 
 
 @torch.inference_mode()
-def _extract_features(
+def extract_features(
     model: Model, dataset: Dataset, image_col: str, device: torch.device
 ) -> np.ndarray:
     """(N, D) one pooled embedding per subject. The model canonicalizes each nifti internally,
@@ -58,7 +58,7 @@ def _extract_features(
     return X
 
 
-def _read_targets(dataset: Dataset, target_col: str, target_map: dict | None = None) -> np.ndarray:
+def read_targets(dataset: Dataset, target_col: str, target_map: dict | None = None) -> np.ndarray:
     values = dataset[target_col]
     if target_map is not None:
         values = [target_map[v] for v in values]
@@ -68,12 +68,12 @@ def _read_targets(dataset: Dataset, target_col: str, target_map: dict | None = N
 # ---- fit / predict --------------------------------------------------------------------
 
 
-def _fit_ridge(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray) -> np.ndarray:
+def fit_ridge(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray) -> np.ndarray:
     head = make_pipeline(StandardScaler(), RidgeCV(alphas=np.logspace(-3, 3, 13)))
     return head.fit(X_train, y_train).predict(X_test)
 
 
-def _fit_logistic(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray) -> np.ndarray:
+def fit_logistic(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray) -> np.ndarray:
     """Positive-class probability. Indexes `classes_` rather than assuming column 1, which would
     silently score the wrong class when the label order differs."""
     clf = LogisticRegressionCV(
@@ -89,7 +89,7 @@ def _fit_logistic(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray) 
     return head.predict_proba(X_test)[:, positive]
 
 
-def _repeated_oof(
+def repeated_oof(
     X: np.ndarray,
     y: np.ndarray,
     fit_predict: FitPredict,
@@ -113,9 +113,7 @@ def _repeated_oof(
 # ---- score ----------------------------------------------------------------------------
 
 
-def _summarize(
-    y: np.ndarray, oofs: list[np.ndarray], metrics: dict, n_boot: int, seed: int
-) -> dict:
+def summarize(y: np.ndarray, oofs: list[np.ndarray], metrics: dict, n_boot: int, seed: int) -> dict:
     """Point estimate over repeats plus a bootstrap CI on the repeat-averaged predictions."""
     per_repeat = [{key: metric(y, oof) for key, metric in metrics.items()} for oof in oofs]
     summary = aggregate(per_repeat)
@@ -138,11 +136,11 @@ def reg_probe(
 ) -> dict:
     """Scalar regression off the pooled embedding, scored by MAE and Pearson r."""
     start = time.perf_counter()
-    X = _extract_features(model, dataset, task.image_col, device)
-    y = _read_targets(dataset, task.target_col).astype(float)
-    oofs = _repeated_oof(X, y, _fit_ridge, n_splits, n_repeats, seed, stratified=False)
+    X = extract_features(model, dataset, task.image_col, device)
+    y = read_targets(dataset, task.target_col).astype(float)
+    oofs = repeated_oof(X, y, fit_ridge, n_splits, n_repeats, seed, stratified=False)
     logger.info(f"reg probe over {len(dataset)} subjects in {time.perf_counter() - start:.1f}s")
-    return _summarize(y, oofs, REG_METRICS, n_boot, seed)
+    return summarize(y, oofs, REG_METRICS, n_boot, seed)
 
 
 def cls_probe(
@@ -157,11 +155,11 @@ def cls_probe(
 ) -> dict:
     """Binary classification off the pooled embedding, scored by AUROC and balanced accuracy."""
     start = time.perf_counter()
-    y = _read_targets(dataset, task.target_col, task.target_map)
+    y = read_targets(dataset, task.target_col, task.target_map)
     assert set(np.unique(y)) == {0, 1}, (
         f"cls probe expects binary 0/1 labels, got {set(np.unique(y))}"
     )
-    X = _extract_features(model, dataset, task.image_col, device)
-    oofs = _repeated_oof(X, y, _fit_logistic, n_splits, n_repeats, seed, stratified=True)
+    X = extract_features(model, dataset, task.image_col, device)
+    oofs = repeated_oof(X, y, fit_logistic, n_splits, n_repeats, seed, stratified=True)
     logger.info(f"cls probe over {len(dataset)} subjects in {time.perf_counter() - start:.1f}s")
-    return _summarize(y, oofs, CLS_METRICS, n_boot, seed)
+    return summarize(y, oofs, CLS_METRICS, n_boot, seed)

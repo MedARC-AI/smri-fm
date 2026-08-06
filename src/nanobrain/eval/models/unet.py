@@ -23,11 +23,11 @@ class RandomUNet(nn.Module):
         self.size = size
         self.pool = pool
         self.encoder = nn.ModuleList(
-            [_block(1, widths[0])]
-            + [_block(shallow, deep, stride=2) for shallow, deep in zip(widths, widths[1:])]
+            [conv_block(1, widths[0])]
+            + [conv_block(shallow, deep, stride=2) for shallow, deep in zip(widths, widths[1:])]
         )
         self.decoder = nn.ModuleList(
-            [_block(deep + shallow, shallow) for shallow, deep in zip(widths, widths[1:])]
+            [conv_block(deep + shallow, shallow) for shallow, deep in zip(widths, widths[1:])]
         )
         self.requires_grad_(False)
 
@@ -38,7 +38,7 @@ class RandomUNet(nn.Module):
     @torch.inference_mode()
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
         data = normalize(resize(canonical(img), self.size))  # (S, S, S)
-        deepest = self._encode(data.to(self.device))[-1]
+        deepest = self.encode(data.to(self.device))[-1]
         pooled = F.adaptive_avg_pool3d(deepest, self.pool)  # (1, C, P, P, P)
         centre = self.pool // 2
         return pooled[0, :, centre, centre, centre]  # (base * 2^(levels-1),)
@@ -46,11 +46,11 @@ class RandomUNet(nn.Module):
     @torch.inference_mode()
     def dense_embed(self, img: nib.Nifti1Image) -> Tensor:
         data = normalize(canonical(img))  # (X, Y, Z)
-        stages = self._encode(data.to(self.device))
-        dense = self._decode(stages)[0]  # (base, X, Y, Z)
+        stages = self.encode(data.to(self.device))
+        dense = self.decode(stages)[0]  # (base, X, Y, Z)
         return dense.permute(1, 2, 3, 0).contiguous().cpu()  # (X, Y, Z, base)
 
-    def _encode(self, volume: Tensor) -> list[Tensor]:
+    def encode(self, volume: Tensor) -> list[Tensor]:
         """One (1, C, X, Y, Z) feature map per stage, coarsest last."""
         x = volume[None, None]
         stages = []
@@ -59,7 +59,7 @@ class RandomUNet(nn.Module):
             stages.append(x)
         return stages
 
-    def _decode(self, stages: list[Tensor]) -> Tensor:
+    def decode(self, stages: list[Tensor]) -> Tensor:
         """Upsample to each skip's grid and fuse, back up to the input resolution."""
         x = stages[-1]
         for block, skip in zip(reversed(self.decoder), reversed(stages[:-1])):
@@ -68,7 +68,7 @@ class RandomUNet(nn.Module):
         return x
 
 
-def _block(in_ch: int, out_ch: int, stride: int = 1) -> nn.Sequential:
+def conv_block(in_ch: int, out_ch: int, stride: int = 1) -> nn.Sequential:
     """Two 3x3x3 convs, the first optionally striding down."""
     return nn.Sequential(
         nn.Conv3d(in_ch, out_ch, kernel_size=3, stride=stride, padding=1),

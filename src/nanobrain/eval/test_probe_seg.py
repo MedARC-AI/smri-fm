@@ -6,7 +6,7 @@ from datasets import Dataset, Features, Nifti
 
 from nanobrain.eval import probe_seg
 from nanobrain.eval.nifti import canonical
-from nanobrain.eval.probe_seg import _dice, _score, _subsample, seg_probe
+from nanobrain.eval.probe_seg import dice_score, score_prediction, seg_probe, subsample
 from nanobrain.eval.tasks.base import SegmentationTask
 
 CPU = torch.device("cpu")
@@ -21,7 +21,7 @@ class FakeSegModel:
         return torch.stack([image, torch.zeros_like(image)], dim=-1)  # (X, Y, Z, 2)
 
 
-def _nifti(arr: np.ndarray) -> dict:
+def encode_nifti(arr: np.ndarray) -> dict:
     return {"path": None, "bytes": nib.Nifti1Image(arr, np.eye(4)).to_bytes()}
 
 
@@ -35,7 +35,7 @@ def make_subject(seed: int, blocks: dict[int, float], shape=(16, 16, 16)) -> dic
         cube = (slice(lo, lo + 4),) * 3
         image[cube] = intensity
         seg[cube] = label
-    return {"image": _nifti(image), "seg": _nifti(seg)}
+    return {"image": encode_nifti(image), "seg": encode_nifti(seg)}
 
 
 def make_dataset(rows: list[dict]) -> Dataset:
@@ -57,28 +57,28 @@ def test_subsample_keeps_all_foreground_and_caps_background():
     labels[:6] = 1  # 6 foreground voxels
     mask = np.ones(100, dtype=bool)
     rng = np.random.default_rng(0)
-    _, y = _subsample(feats, labels, mask, rng)
+    _, y = subsample(feats, labels, mask, rng)
     assert (y == 1).sum() == 6  # every foreground voxel kept
     assert (y == 0).sum() == min(94, probe_seg.NEG_PER_SUBJECT)
 
 
 def test_dice_perfect_and_disjoint():
     a = np.array([True, True, False, False])
-    assert _dice(a, a) == 1.0
-    assert _dice(a, ~a) == 0.0
+    assert dice_score(a, a) == 1.0
+    assert dice_score(a, ~a) == 0.0
 
 
 def test_score_present_and_empty_classes():
     # 3 voxels: labels [0, 1, 2]; probs put argmax on the right class for voxels 1 and 2.
     probs = np.array([[0.8, 0.1, 0.1], [0.1, 0.8, 0.1], [0.1, 0.1, 0.8]])
-    dice, ap = _score(np.array([0, 1, 2]), probs)
+    dice, ap = score_prediction(np.array([0, 1, 2]), probs)
     assert dice.tolist() == [1.0, 1.0] and ap.tolist() == [1.0, 1.0]
 
     # class 2 absent from ground truth, and nothing predicted as 2 -> specificity 1, AP undefined.
-    dice, ap = _score(np.array([0, 1, 1]), probs[[0, 1, 1]])
+    dice, ap = score_prediction(np.array([0, 1, 1]), probs[[0, 1, 1]])
     assert dice[1] == 1.0 and np.isnan(ap[1])
     # a false positive for the absent class drops its specificity to 0.
-    dice, _ = _score(np.array([0, 0, 0]), probs)
+    dice, _ = score_prediction(np.array([0, 0, 0]), probs)
     assert dice[1] == 0.0
 
 

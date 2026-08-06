@@ -16,17 +16,17 @@ pytest.importorskip("neurojepa")
 
 from nanobrain.eval.models.neurojepa import (  # noqa: E402
     IMG_SIZE,
-    _preprocess,
-    _static_transform,
+    preprocess,
+    static_transform,
 )
 
 
-def _image(shape: tuple[int, int, int], affine: np.ndarray) -> nib.Nifti1Image:
+def make_image(shape: tuple[int, int, int], affine: np.ndarray) -> nib.Nifti1Image:
     data = np.random.default_rng(0).random(shape, dtype=np.float32) * 1000
     return nib.Nifti1Image(data, affine)
 
 
-def _upstream(path: str) -> torch.Tensor:
+def upstream_volume(path: str) -> torch.Tensor:
     """The fork's own static pipeline, reading from disk as its callers do."""
     from neurojepa.data.transforms import loading_transforms, vit3d_transforms
 
@@ -46,11 +46,11 @@ def _upstream(path: str) -> torch.Tensor:
 )
 def test_preprocess_matches_upstream(tmp_path, shape, affine):
     path = str(tmp_path / "image.nii.gz")
-    nib.save(_image(shape, affine), path)
+    nib.save(make_image(shape, affine), path)
 
-    ours = _preprocess(_static_transform(), nib.load(path), torch.device("cpu"))
+    ours = preprocess(static_transform(), nib.load(path), torch.device("cpu"))
     assert ours.shape == (1, 1, *IMG_SIZE)
-    assert torch.allclose(ours[0], _upstream(path).as_tensor(), atol=1e-4)
+    assert torch.allclose(ours[0], upstream_volume(path).as_tensor(), atol=1e-4)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a GPU")
@@ -58,11 +58,11 @@ def test_preprocess_on_gpu_matches_cpu(tmp_path):
     # The resample runs on GPU via cupy rather than scipy, so pin that it agrees with the CPU
     # chain the equivalence test above anchors.
     path = str(tmp_path / "image.nii.gz")
-    nib.save(_image((150, 180, 150), np.diag([1.33, 1.0, 1.0, 1.0])), path)
+    nib.save(make_image((150, 180, 150), np.diag([1.33, 1.0, 1.0, 1.0])), path)
     img = nib.load(path)
 
-    transform = _static_transform()
-    on_cpu = _preprocess(transform, img, torch.device("cpu"))
-    on_gpu = _preprocess(transform, img, torch.device("cuda")).cpu()
+    transform = static_transform()
+    on_cpu = preprocess(transform, img, torch.device("cpu"))
+    on_gpu = preprocess(transform, img, torch.device("cuda")).cpu()
 
     assert torch.allclose(on_cpu, on_gpu, atol=1e-3)

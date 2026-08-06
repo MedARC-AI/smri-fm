@@ -20,7 +20,7 @@ IMG_SIZE = (32, 40, 32)
 EMBED_DIM = 32
 
 
-def _model(global_pool: str = "patch") -> SmriMae:
+def make_model(global_pool: str = "patch") -> SmriMae:
     mae = models_mae.MaskedAutoencoderViT(
         img_size=IMG_SIZE,
         patch_size=8,
@@ -35,7 +35,7 @@ def _model(global_pool: str = "patch") -> SmriMae:
     return SmriMae(mae.encoder, transform, global_pool=global_pool).eval()
 
 
-def _image(shape: tuple[int, int, int], affine: np.ndarray = np.eye(4)) -> nib.Nifti1Image:
+def make_image(shape: tuple[int, int, int], affine: np.ndarray = np.eye(4)) -> nib.Nifti1Image:
     """A bright box in a noisy background, at raw MRI intensities the transform normalizes away.
 
     The box is half the volume along each axis, so the mean threshold recovers it exactly and
@@ -49,7 +49,7 @@ def _image(shape: tuple[int, int, int], affine: np.ndarray = np.eye(4)) -> nib.N
 
 @pytest.mark.parametrize("global_pool", ["cls", "patch"])
 def test_global_embed_contract(global_pool):
-    embed = _model(global_pool).global_embed(_image((28, 36, 30)))
+    embed = make_model(global_pool).global_embed(make_image((28, 36, 30)))
     assert embed.shape == (EMBED_DIM,)  # one vector per volume, batch dim dropped
     assert torch.isfinite(embed).all()
 
@@ -59,15 +59,15 @@ def test_global_embed_handles_hf_decoded_nifti():
     # still load. Same regression as the DLBS decode crash in test_unet.py.
     affine = np.diag([-1.0, -1.0, 1.0, 1.0])  # axcodes L,P,S -> forces reorientation
     dataset = Dataset.from_dict(
-        {"image": [{"path": None, "bytes": _image((28, 36, 30), affine).to_bytes()}]},
+        {"image": [{"path": None, "bytes": make_image((28, 36, 30), affine).to_bytes()}]},
         features=Features({"image": Nifti()}),
     )
     wrapped = dataset[0]["image"]  # datasets Nifti1ImageWrapper, as the loader would yield
-    assert _model().global_embed(wrapped).shape == (EMBED_DIM,)
+    assert make_model().global_embed(wrapped).shape == (EMBED_DIM,)
 
 
 def test_transform_fits_grid_and_normalizes():
-    sample = SmriMaeTransform(img_size=IMG_SIZE)(_image((28, 36, 30)))
+    sample = SmriMaeTransform(img_size=IMG_SIZE)(make_image((28, 36, 30)))
     image, mask = sample["image"], sample["mask"]
 
     assert image.shape == (1, *IMG_SIZE)  # padded up to the pretraining grid, channel first
@@ -81,14 +81,16 @@ def test_transform_fits_grid_and_normalizes():
 def test_transform_resamples_to_1mm():
     # 2mm in-plane, 3mm through-plane: a 10x12x11-voxel box becomes 20x24x33 at 1mm.
     # Trilinear edges move the mean threshold by a voxel or so.
-    sample = SmriMaeTransform(img_size=(64, 64, 64))(_image((20, 24, 22), np.diag([2, 2, 3, 1])))
+    sample = SmriMaeTransform(img_size=(64, 64, 64))(
+        make_image((20, 24, 22), np.diag([2, 2, 3, 1]))
+    )
     inside = sample["mask"][0].nonzero()
     extent = (inside.max(0).values - inside.min(0).values + 1).tolist()
     assert all(abs(size - target) <= 2 for size, target in zip(extent, (20, 24, 33)))
 
 
 def test_transform_crops_volumes_larger_than_the_grid():
-    sample = SmriMaeTransform(img_size=IMG_SIZE)(_image((48, 60, 40)))
+    sample = SmriMaeTransform(img_size=IMG_SIZE)(make_image((48, 60, 40)))
     assert sample["image"].shape == (1, *IMG_SIZE)
 
 

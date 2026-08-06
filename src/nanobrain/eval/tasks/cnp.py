@@ -25,15 +25,15 @@ MATCH_SEED = 0
 AGE_BINS = (21, 31, 41, 51)
 
 
-def _participants() -> pd.DataFrame:
+def load_participants() -> pd.DataFrame:
     fs = fsspec.filesystem("s3", anon=True)
     table = pd.read_csv(io.BytesIO(fs.cat_file(f"{ROOT}/participants.tsv")), sep="\t")
     return table[table["T1w"] == 1].set_index("participant_id")
 
 
-def _generate_cnp(subject_ids: list[str]):
+def generate_cnp(subject_ids: list[str]):
     fs = fsspec.filesystem("s3", anon=True)
-    participants = _participants()
+    participants = load_participants()
     for sub in subject_ids:
         row = participants.loc[sub]
         image = fs.cat_file(f"{ROOT}/{sub}/anat/{sub}_T1w.nii.gz")
@@ -60,24 +60,24 @@ def load_cnp() -> Dataset:
             "image": Nifti(),
         }
     )
-    subject_ids = sorted(_participants().index)
+    subject_ids = sorted(load_participants().index)
     return Dataset.from_generator(
-        _generate_cnp,
+        generate_cnp,
         features=features,
         gen_kwargs={"subject_ids": subject_ids},
         num_proc=8,
     )
 
 
-def _cohort(diagnoses: tuple[str, ...]) -> Dataset:
+def load_cohort(diagnoses: tuple[str, ...]) -> Dataset:
     """The subjects in the given diagnosis groups. Reading a column does not decode images."""
     dataset = load_cnp()
     keep = [i for i, dx in enumerate(dataset["diagnosis"]) if dx in diagnoses]
     return dataset.select(keep)
 
 
-def _matched_cohort(diagnoses: tuple[str, ...], target_col: str, target_map: dict) -> Dataset:
-    cohort = _cohort(diagnoses)
+def matched_cohort(diagnoses: tuple[str, ...], target_col: str, target_map: dict) -> Dataset:
+    cohort = load_cohort(diagnoses)
     labels = [target_map[value] for value in cohort[target_col]]
     decades = np.digitize(cohort["age"], AGE_BINS).tolist()
     cells = list(zip(cohort["scanner"], cohort["ghost"], decades))
@@ -89,7 +89,7 @@ def cnp_sex() -> ClassificationTask:
     """Sex over controls, matched: 102 subjects, 51 per class."""
     return ClassificationTask(
         name="cnp_sex",
-        dataset_fn=lambda: _matched_cohort(("CONTROL",), "sex", SEX_MAP),
+        dataset_fn=lambda: matched_cohort(("CONTROL",), "sex", SEX_MAP),
         target_col="sex",
         target_map=SEX_MAP,
     )
@@ -101,7 +101,7 @@ def cnp_adhd_control() -> ClassificationTask:
     target_map = {"CONTROL": 0, "ADHD": 1}
     return ClassificationTask(
         name="cnp_adhd_control",
-        dataset_fn=lambda: _matched_cohort(("CONTROL", "ADHD"), "diagnosis", target_map),
+        dataset_fn=lambda: matched_cohort(("CONTROL", "ADHD"), "diagnosis", target_map),
         target_col="diagnosis",
         target_map=target_map,
     )
@@ -113,7 +113,7 @@ def cnp_schz_bipolar_control() -> ClassificationTask:
     target_map = {"CONTROL": 0, "SCHZ": 1, "BIPOLAR": 1}
     return ClassificationTask(
         name="cnp_schz_bipolar_control",
-        dataset_fn=lambda: _matched_cohort(("CONTROL", "SCHZ", "BIPOLAR"), "diagnosis", target_map),
+        dataset_fn=lambda: matched_cohort(("CONTROL", "SCHZ", "BIPOLAR"), "diagnosis", target_map),
         target_col="diagnosis",
         target_map=target_map,
     )

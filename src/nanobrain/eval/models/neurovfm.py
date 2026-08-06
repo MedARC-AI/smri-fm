@@ -31,7 +31,7 @@ class NeuroVFM(nn.Module):
 
     @torch.inference_mode()
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
-        batch = _preprocess(self.preproc, img)
+        batch = preprocess(self.preproc, img)
         tokens = batch["img"].to(self.device)
         coords = batch["coords"].to(self.device)
         cu_seqlens = batch["series_cu_seqlens"].to(self.device)
@@ -56,7 +56,7 @@ class NeuroVFM(nn.Module):
         )
 
 
-def _preprocess(preproc, img: nib.Nifti1Image) -> dict:
+def preprocess(preproc, img: nib.Nifti1Image) -> dict:
     """NeuroVFM's `StudyPreprocessor.load_study` for a single in-memory volume.
 
     That method globs a directory and reads with SimpleITK, so it cannot take the nifti the
@@ -65,7 +65,7 @@ def _preprocess(preproc, img: nib.Nifti1Image) -> dict:
     from neurovfm.data.preprocess import prepare_for_inference, tokenize_volume
     from neurovfm.data.utils import preprocess_image
 
-    img_sitk = preprocess_image(_to_sitk(img))
+    img_sitk = preprocess_image(to_sitk(img))
     img_arrs, background_mask, _view = prepare_for_inference(img_sitk, mode="mri")
     tokens, coords, _filtered = tokenize_volume(
         img_arrs[0],
@@ -84,7 +84,7 @@ def _preprocess(preproc, img: nib.Nifti1Image) -> dict:
     }
 
 
-def _to_sitk(img: nib.Nifti1Image):
+def to_sitk(img: nib.Nifti1Image):
     """A nifti as a SimpleITK image, converting the RAS affine to SimpleITK's LPS origin/direction."""
     import SimpleITK as sitk
 

@@ -25,7 +25,7 @@ class NeuroJEPA(nn.Module):
 
         self.backbone = load_backbone_from_hf(REPO_ID, device="cpu")
         self.backbone.out_layers = None  # pool the last block, whatever the hub config says
-        self.transform = _static_transform()
+        self.transform = static_transform()
         self.requires_grad_(False)
 
     @property
@@ -34,7 +34,7 @@ class NeuroJEPA(nn.Module):
 
     @torch.inference_mode()
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
-        volume = _preprocess(self.transform, img, self.device)  # (1, 1, 96, 108, 96)
+        volume = preprocess(self.transform, img, self.device)  # (1, 1, 96, 108, 96)
         tokens, _moe_scores = self.backbone(volume)
         return tokens[0].mean(0)  # (768,)
 
@@ -45,7 +45,7 @@ class NeuroJEPA(nn.Module):
         )
 
 
-def _preprocess(transform, img: nib.Nifti1Image, device: torch.device) -> Tensor:
+def preprocess(transform, img: nib.Nifti1Image, device: torch.device) -> Tensor:
     """Neuro-JEPA's static pipeline, from a nifti to a (1, 1, X, Y, Z) batch of one.
 
     The affine rides along on a MetaTensor: without it the resample to 1mm silently no-ops.
@@ -60,7 +60,7 @@ def _preprocess(transform, img: nib.Nifti1Image, device: torch.device) -> Tensor
     return transform(volume).as_tensor()[None]
 
 
-def _static_transform():
+def static_transform():
     """Mirrors `loading_transforms` + test-mode `vit3d_transforms` in the neurojepa package.
 
     Those are dict transforms over a path, so they cannot take the in-memory nifti the eval

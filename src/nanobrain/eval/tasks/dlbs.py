@@ -18,12 +18,12 @@ ROOT = "openneuro.org/ds004856"
 SEX_MAP = {"f": 0, "m": 1}
 
 
-def _t1w_paths() -> list[str]:
+def t1w_paths() -> list[str]:
     resource = importlib.resources.files("nanobrain.eval.tasks") / "resources"
     return (resource / "dlbs_wave1_t1w_images.txt").read_text().strip().splitlines()
 
 
-def _generate_dlbs(paths: list[str]):
+def generate_dlbs(paths: list[str]):
     fs = fsspec.filesystem("s3", anon=True)
     participants = pd.read_csv(
         io.BytesIO(fs.cat_file(f"{ROOT}/participants.tsv")), sep="\t"
@@ -50,7 +50,7 @@ def load_dlbs() -> Dataset:
         }
     )
     return Dataset.from_generator(
-        _generate_dlbs, features=features, gen_kwargs={"paths": _t1w_paths()}, num_proc=8
+        generate_dlbs, features=features, gen_kwargs={"paths": t1w_paths()}, num_proc=8
     )
 
 

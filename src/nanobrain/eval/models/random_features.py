@@ -22,8 +22,8 @@ class RandomFeatures(nn.Module):
         super().__init__()
         self.size = size
         self.patch = patch
-        self.global_proj = nn.Parameter(_projection(size**3, dim), requires_grad=False)
-        self.patch_proj = nn.Parameter(_projection(patch**3, patch_dim), requires_grad=False)
+        self.global_proj = nn.Parameter(projection(size**3, dim), requires_grad=False)
+        self.patch_proj = nn.Parameter(projection(patch**3, patch_dim), requires_grad=False)
 
     @torch.inference_mode()
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
@@ -43,7 +43,7 @@ class RandomFeatures(nn.Module):
         return emb[: shape[0], : shape[1], : shape[2]].contiguous().cpu()  # (X, Y, Z, D)
 
 
-def _projection(in_dim: int, out_dim: int) -> Tensor:
+def projection(in_dim: int, out_dim: int) -> Tensor:
     return torch.randn(in_dim, out_dim) / in_dim**0.5
 
 

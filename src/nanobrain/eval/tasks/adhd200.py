@@ -36,14 +36,14 @@ MAX_SUBJECTS = 250
 DX_MAP = {"control": 0, "adhd": 1}
 
 
-def _t1w_paths() -> dict[str, str]:
+def t1w_paths() -> dict[str, str]:
     """`<site>/<sub>` -> path. Session and acq entities vary, so the paths are listed, not built."""
     resource = importlib.resources.files("nanobrain.eval.tasks") / "resources"
     lines = (resource / "adhd200_t1w_images.txt").read_text().strip().splitlines()
     return {"/".join(path.split("/")[:2]): path for path in lines}
 
 
-def _phenotype() -> pd.DataFrame:
+def phenotype() -> pd.DataFrame:
     fs = fsspec.filesystem("s3", anon=True)
     frames = []
     for site in SITES:
@@ -55,9 +55,9 @@ def _phenotype() -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
-def _cohort() -> list[dict]:
-    paths = _t1w_paths()
-    pheno = _phenotype()
+def load_cohort() -> list[dict]:
+    paths = t1w_paths()
+    pheno = phenotype()
     pheno["key"] = pheno["site"] + "/sub-" + pheno["participant_id"].astype(str).str.zfill(7)
     usable = (
         pheno["key"].isin(paths)
@@ -91,7 +91,7 @@ def _cohort() -> list[dict]:
     return rows
 
 
-def _generate_adhd200(rows: list[dict]):
+def generate_adhd200(rows: list[dict]):
     fs = fsspec.filesystem("s3", anon=True)
     for row in rows:
         image = fs.cat_file(f"{ROOT}/{row['path']}")
@@ -117,9 +117,9 @@ def load_adhd200() -> Dataset:
         }
     )
     return Dataset.from_generator(
-        _generate_adhd200,
+        generate_adhd200,
         features=features,
-        gen_kwargs={"rows": _cohort()},
+        gen_kwargs={"rows": load_cohort()},
         num_proc=8,
     )
 
