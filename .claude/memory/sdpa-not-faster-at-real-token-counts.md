@@ -3,6 +3,7 @@ name: sdpa-not-faster-at-real-token-counts
 description: Swapping NeuroVFM's materialized attention matrix for SDPA is 1.6x at N=500 but 0.9x at the real ~2000 tokens — kept for memory, not speed.
 metadata:
   type: project
+  observed: 2026-07-29
 ---
 
 Swapped the `use_flash_attn=False` path off its materialized `(B,H,N,N)` score matrix (cosine

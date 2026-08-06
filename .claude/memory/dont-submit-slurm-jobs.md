@@ -3,6 +3,7 @@ name: dont-submit-slurm-jobs
 description: Do not submit jobs to the GPU queue — the cluster is shared and the queue is Connor's to manage.
 metadata:
   type: feedback
+  observed: 2026-07-30
 ---
 
 *"pls dont submit for gpu node btw"* (2026-07-30).

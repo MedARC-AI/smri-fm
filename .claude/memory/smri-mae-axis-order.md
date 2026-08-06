@@ -3,9 +3,10 @@ name: smri-mae-axis-order
 description: The sMRI MAE eval transform feeds native RAS (X, Y, Z); the (Z, Y, X) transpose was measured wrong and the flag is gone.
 metadata:
   type: project
+  observed: 2026-08-06
 ---
 
-Settled 2026-08-06. `models/smri_mae.py` used to carry a `transpose` flag defaulting to `False`,
+`models/smri_mae.py` used to carry a `transpose` flag defaulting to `False`,
 with a TODO calling the shape convention a footgun.
 
 Evidence that identity (native RAS `(X, Y, Z)`) is correct:

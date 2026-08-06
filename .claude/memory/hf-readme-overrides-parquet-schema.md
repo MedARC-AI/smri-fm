@@ -3,6 +3,7 @@ name: hf-readme-overrides-parquet-schema
 description: load_dataset builds its schema from the README YAML dataset_info, not the parquet shards — an under-declared README makes every shard fail to cast; bypass via the parquet builder.
 metadata:
   type: project
+  observed: 2026-07-30
 ---
 
 `load_dataset("<repo>")` builds its target schema from the README YAML `dataset_info.features`, not

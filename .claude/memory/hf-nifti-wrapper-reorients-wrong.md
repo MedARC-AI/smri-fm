@@ -3,6 +3,7 @@ name: hf-nifti-wrapper-reorients-wrong
 description: Use nanobrain's nifti.canonical_img, never HF datasets' Nifti1ImageWrapper — the latter reorients incorrectly.
 metadata:
   type: project
+  observed: 2026-07-27
 ---
 
 HF `datasets`' `Nifti1ImageWrapper` reorients incorrectly. Always use `nifti.canonical_img`.

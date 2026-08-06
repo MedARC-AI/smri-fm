@@ -3,6 +3,7 @@ name: smri-mae-checkpoint
 description: sMRI MAE test checkpoint path and load quirks — 3.9GB with optimizer state (use mmap), and args.model_kwargs carries a decoding key the current class rejects.
 metadata:
   type: reference
+  observed: 2026-07-29
 ---
 
 `/data/mihir-stuff/smri-pretrained/pretrain_full_90_10_h100/checkpoint-last.pth` — epoch 99,

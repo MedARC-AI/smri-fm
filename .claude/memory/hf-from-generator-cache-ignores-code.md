@@ -3,6 +3,7 @@ name: hf-from-generator-cache-ignores-code
 description: HF Dataset.from_generator keys its cache on gen_kwargs only — editing a generator body or a module-level global silently reuses stale cached data; Features changes are the one exception.
 metadata:
   type: project
+  observed: 2026-07-28
 ---
 
 `Dataset.from_generator` (datasets 5.0.0) keys its cache dir on `gen_kwargs` only. Module-level

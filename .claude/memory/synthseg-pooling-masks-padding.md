@@ -3,6 +3,7 @@ name: synthseg-pooling-masks-padding
 description: SynthSeg scans occupy 24-99% of the padded volume, so an unmasked mean pool mixes brain and padding in a subject-dependent ratio; _bottleneck_box ceils the start and floors the stop.
 metadata:
   type: project
+  observed: 2026-07-29
 ---
 
 Because the default path does not crop, the scan occupies anywhere from 24% to 99% of the padded

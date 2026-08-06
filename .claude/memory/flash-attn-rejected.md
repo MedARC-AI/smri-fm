@@ -3,6 +3,7 @@ name: flash-attn-rejected
 description: flash-attn was evaluated and rejected for NeuroVFM — the prebuilt wheel installs fine but omits the fused_dense_lib CUDA extension, which needs nvcc and a second build pass.
 metadata:
   type: project
+  observed: 2026-07-29
 ---
 
 Prebuilt wheels exist on GitHub releases for exactly cp311/torch2.8/cu12/cxx11abiTRUE and install in

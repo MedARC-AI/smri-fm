@@ -3,6 +3,7 @@ name: ppmi-mini-confound-floors
 description: PPMI-mini has no site or scanner column and its cohorts were enrolled in waves — measured confound floors, what shipped, and why Prodromal-vs-CN and SWEDD-vs-CN were rejected.
 metadata:
   type: project
+  observed: 2026-07-30
 ---
 
 `medarc/ppmi-mini` v0.1 has no site or scanner column, so scan date is the only acquisition handle,

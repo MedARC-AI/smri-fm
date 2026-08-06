@@ -3,6 +3,7 @@ name: synthseg-no-crop-by-default
 description: SynthSeg's default inference path does not crop — the help string's "Default is 192" is stale and wires nothing; a brain-centred crop was built then removed to match upstream.
 metadata:
   type: project
+  observed: 2026-07-29
 ---
 
 `--crop` has no argparse default, so it is `None` and `min_pad=128`. The help string's "Default is

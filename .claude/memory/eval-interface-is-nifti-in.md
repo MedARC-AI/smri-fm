@@ -3,6 +3,7 @@ name: eval-interface-is-nifti-in
 description: The eval suite uses a uniform per-nifti model interface so segmentation scoring is independent of any model's patch grid — the accepted cost is that batched inference is gone.
 metadata:
   type: project
+  observed: 2026-08-06
 ---
 
 `src/nanobrain/eval` moved from a `(model, transform)` contract to a uniform per-nifti interface:

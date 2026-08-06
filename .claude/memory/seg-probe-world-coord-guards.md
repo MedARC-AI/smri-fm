@@ -3,6 +3,7 @@ name: seg-probe-world-coord-guards
 description: What the seg probe's coverage assert can and cannot catch — measured: units and origin yes, axis permutations never, and why the guard scales by cell volume not nearest-neighbour spacing.
 metadata:
   type: project
+  observed: 2026-08-06
 ---
 
 `assign_patches` asserts `median(voxel -> nearest patch) < 2 * cell`, where

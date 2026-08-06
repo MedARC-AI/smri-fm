@@ -3,6 +3,7 @@ name: memory-lives-in-the-repo
 description: Assistant memory lives at .claude/memory/ inside the repo, not in the harness's external directory — Connor must be able to read, review and delete it.
 metadata:
   type: project
+  observed: 2026-08-06
 ---
 
 The harness's own memory directory (`~/.claude/projects/-data-connor-nanobrain-1/memory/`) was

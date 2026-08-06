@@ -3,6 +3,7 @@ name: neurovfm-integration-notes
 description: NeuroVFM fork, public weights and arch, plus two wrapper gotchas — SimpleITK input conversion and a hardcoded bfloat16 in SelfAttention.
 metadata:
   type: reference
+  observed: 2026-07-29
 ---
 
 MLNeurosurg, Nat Med 2026. Fork `clane9/neurovfm`. Weights `mlinslab/neurovfm-encoder` are public:

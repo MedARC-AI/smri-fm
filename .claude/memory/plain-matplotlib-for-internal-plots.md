@@ -3,6 +3,7 @@ name: plain-matplotlib-for-internal-plots
 description: Internal plots should be plain matplotlib with default colors and short readable code — the full design treatment is only for figures meant to be published.
 metadata:
   type: feedback
+  observed: 2026-07-30
 ---
 
 The eval radar was built to a full design spec — validated palette, CVD secondary encoding, dataset

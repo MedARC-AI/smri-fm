@@ -3,6 +3,7 @@ name: synthseg-numpy2-bugs
 description: numpy 2 broke the SynthSeg port in three places, all a shape-(1,) np.where result assigned into a scalar slot; the numpy<2 pin belongs to TensorFlow.
 metadata:
   type: project
+  observed: 2026-07-29
 ---
 
 Three failures in the `MedARC-AI/SynthSeg` @ `pytorch-port` fork, all the same shape — a shape-(1,)

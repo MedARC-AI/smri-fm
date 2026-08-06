@@ -3,6 +3,7 @@ name: neurovfm-torch-fallback-verified
 description: NeuroVFM's pure-torch fallback was diffed against flash-attn end to end at fp32 rel err 1.2e-6 — it is exact, not an approximation, but the layer_norm residual is subtle.
 metadata:
   type: project
+  observed: 2026-07-29
 ---
 
 With flash-attn temporarily installed on an H100, diffed end to end through the encoder:

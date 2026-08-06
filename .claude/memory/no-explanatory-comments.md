@@ -3,6 +3,7 @@ name: no-explanatory-comments
 description: Connor deletes explanatory comments outright — code should be obviously correct rather than explain the history that produced it.
 metadata:
   type: feedback
+  observed: 2026-07-30
 ---
 
 Comments and docstrings were trimmed twice in one session, then deleted outright in the fork

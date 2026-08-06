@@ -3,6 +3,7 @@ name: hf-revision-ignored-by-packaged-builders
 description: load_dataset(revision=...) is silently ignored by the packaged arrow/parquet builders — a garbage revision still loads; pin with the @rev URL form so a bad pin fails loudly.
 metadata:
   type: project
+  observed: 2026-07-30
 ---
 
 `load_dataset(revision=...)` only applies when loading by repo id. The packaged `arrow`/`parquet`

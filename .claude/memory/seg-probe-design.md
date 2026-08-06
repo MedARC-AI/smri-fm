@@ -3,9 +3,10 @@ name: seg-probe-design
 description: How probe_seg.py is built — patch point cloud in world mm, nearest-patch assignment, subject-level repeated CV, one forward pass holding every subject's features.
 metadata:
   type: project
+  observed: 2026-08-06
 ---
 
-Rebuilt on the patch contract (2026-08-06), replacing the per-voxel `dense_embed` design:
+Rebuilt on the patch contract, replacing the per-voxel `dense_embed` design:
 
 - the model returns `PatchFeatures(features (N, D), coords (N, 3))`, coords in **RAS world mm of the
   input image**; the model never sees the label grid;

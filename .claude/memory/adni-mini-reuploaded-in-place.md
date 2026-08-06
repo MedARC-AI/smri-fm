@@ -3,6 +3,7 @@ name: adni-mini-reuploaded-in-place
 description: medarc/adni-mini was replaced in place on 2026-07-29 — brain-masked images, 1000 -> 1200 scans, split renamed; any ADNI number from before that date is not comparable.
 metadata:
   type: project
+  observed: 2026-07-29
 ---
 
 Replaced on 2026-07-29 (sha `629f32de`) by a local derivative of `medarc/adni-mini-v1-3`. Three

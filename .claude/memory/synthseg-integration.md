@@ -3,6 +3,7 @@ name: synthseg-integration
 description: SynthSeg fork, cost profile after the torch port (7-9x), TF32 buys nothing, and the predictor is not an nn.Module.
 metadata:
   type: reference
+  observed: 2026-07-29
 ---
 
 Billot, Med Image Anal 2023. Fork `MedARC-AI/SynthSeg` @ `pytorch-port`. The port was written

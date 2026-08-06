@@ -3,10 +3,11 @@ name: smri-mae-pad-to-multiple-is-inert
 description: The sMRI MAE encoder's pad_to_multiple cannot change any token value — padded slots are dropped before the blocks — so the wrapper stops passing it.
 metadata:
   type: project
+  observed: 2026-08-06
 ---
 
 `SmriMae` used to forward `pad_to_multiple` (32, read from the checkpoint args) into the encoder.
-Removed 2026-08-06. It only rounds the token-slot count up (`masking.py:patch_ids_from_mask`), and
+Removed. It only rounds the token-slot count up (`masking.py:patch_ids_from_mask`), and
 `model_mae.py:255-256` then does
 
 ```python

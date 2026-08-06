@@ -3,6 +3,7 @@ name: smri-mae-preprocessing-gap
 description: sMRI MAE's eval transform uses a mean-intensity threshold as a stand-in for SynthSeg brain masking, so it keeps skull and neck that pretraining never saw — the main known fidelity gap.
 metadata:
   type: project
+  observed: 2026-07-29
 ---
 
 Pretraining preprocessing (`src/preprocessing/pipeline.py` in `/data/connor/smri-fm`, plus

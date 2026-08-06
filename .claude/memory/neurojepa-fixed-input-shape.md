@@ -3,6 +3,7 @@ name: neurojepa-fixed-input-shape
 description: Neuro-JEPA must run at exactly 96x108x96 — its RoPE position decomposition entangles the y/z axes at any other shape.
 metadata:
   type: project
+  observed: 2026-07-29
 ---
 
 Do not change Neuro-JEPA's input shape from `96x108x96`.

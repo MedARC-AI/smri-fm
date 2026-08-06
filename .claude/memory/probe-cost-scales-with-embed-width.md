@@ -3,6 +3,7 @@ name: probe-cost-scales-with-embed-width
 description: Probe wall-clock scales hard with embedding width — adni_age RidgeCV over 1000 subjects is 31s at 1024-d vs 605s at 3840-d.
 metadata:
   type: project
+  observed: 2026-07-28
 ---
 
 `adni_age` RidgeCV over 1000 subjects: **31s at 1024-d** (`random_features`) vs **605s at 3840-d**

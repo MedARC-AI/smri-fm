@@ -3,6 +3,7 @@ name: code-review-agent-blind-spots
 description: Three blind spots found by dry-running a code-quality review agent — locality, re-litigating settled decisions, and disproportionate fixes. Do not re-derive.
 metadata:
   type: feedback
+  observed: 2026-07-27
 ---
 
 Found by dry-running a review agent against commit `50cb2a8`:

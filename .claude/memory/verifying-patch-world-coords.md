@@ -3,6 +3,7 @@ name: verifying-patch-world-coords
 description: How to check a backbone's patch_embed coords are right — the marker test must target a local layer, and which statistic to use per architecture. Learned the hard way on all four ports.
 metadata:
   type: project
+  observed: 2026-08-06
 ---
 
 Porting a backbone to `patch_embed` means claiming its patch coords describe the image region its

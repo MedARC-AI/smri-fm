@@ -3,6 +3,7 @@ name: over-producing-the-artifact
 description: Connor's most repeated correction — I build more artifact than the job needs, and cutting it in one place tends to relocate it to another.
 metadata:
   type: feedback
+  observed: 2026-07-30
 ---
 
 Four corrections in one week (2026-07-29..30), all the same defect: over-producing the artifact.

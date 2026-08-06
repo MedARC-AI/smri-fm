@@ -3,6 +3,7 @@ name: no-memory-references-in-code
 description: Don't cite `.claude/memory/*.md` paths from source files — state the fact in the code and let memory hold the rationale.
 metadata:
   type: feedback
+  observed: 2026-08-06
 ---
 
 Connor, 2026-08-06, on a `smri_mae.py` docstring that ended "-- see

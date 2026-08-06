@@ -3,6 +3,7 @@ name: neurovfm-dependency-traps
 description: NeuroVFM's eager __init__ drags the training and VLM stacks into a frozen-encoder install — outlines must pin to 1.1.1, torch_scatter comes from data.pyg.org.
 metadata:
   type: reference
+  observed: 2026-07-29
 ---
 
 A lazy-`__init__` refactor was rejected as out of scope, so the eager import chain must be satisfied.

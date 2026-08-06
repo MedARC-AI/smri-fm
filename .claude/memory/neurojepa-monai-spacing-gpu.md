@@ -3,6 +3,7 @@ name: neurojepa-monai-spacing-gpu
 description: Neuro-JEPA's MONAI Spacing transform is 96% of preprocessing and must run on GPU — 37x, needs cupy; reordering the chain makes it slower.
 metadata:
   type: project
+  observed: 2026-07-29
 ---
 
 `Spacing(pixdim=1mm, mode=5)` is 96% of Neuro-JEPA preprocessing: **7.03s CPU vs 0.19s GPU (37x)**

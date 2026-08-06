@@ -3,6 +3,7 @@ name: neurojepa-integration
 description: Neuro-JEPA fork, gated weights, deferred segmentation and MNI fidelity gap — integration facts for the eval wrapper.
 metadata:
   type: reference
+  observed: 2026-07-29
 ---
 
 NYUMedML, arXiv 2606.14957. Fork `clane9/Neuro-JEPA` @ `e9dff69` (relaxed pins, quiet import-time

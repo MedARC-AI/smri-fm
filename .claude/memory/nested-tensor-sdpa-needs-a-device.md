@@ -3,6 +3,7 @@ name: nested-tensor-sdpa-needs-a-device
 description: Nested-tensor SDPA raises AcceleratorError on a CUDA-built torch with no visible device, so sMRI MAE cannot forward on the login node — tests build a depth-0 encoder instead.
 metadata:
   type: project
+  observed: 2026-07-29
 ---
 
 The sMRI MAE blocks use nested-tensor SDPA, whose backend selection calls

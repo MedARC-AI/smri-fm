@@ -6,6 +6,15 @@ Record observations and arguments, not descriptions of what another file current
 is the failure mode that killed the previous `HISTORY.md`. See
 [memory-lives-in-the-repo](memory-lives-in-the-repo.md).
 
+`metadata.observed` is **as of when this memory's claim was last true**, which is not the file's
+git date — memories get revised in place, and a file can hold claims of different ages. Bump it on
+a substantive revision, not on a typo fix. Dates also belong in the body where the date *is* part
+of the fact (an upstream re-upload, a quote, two separate confirmations) or where it marks which
+paragraph is the revision; elsewhere let the field carry it. Where a version or sha pins the fact
+harder (`datasets 5.0.0`, a fork sha), that beats a date and belongs in the body.
+
+Chronology: `grep -H '  observed:' *.md | sort -t: -k3`.
+
 ## Working style
 
 - [over-producing-the-artifact](over-producing-the-artifact.md) — the most repeated correction; cutting it in one place relocates it to another.

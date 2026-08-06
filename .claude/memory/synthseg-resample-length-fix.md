@@ -3,6 +3,7 @@ name: synthseg-resample-length-fix
 description: SynthSeg's resample is exactly F.interpolate(align_corners=False), except their output length is ceil(n*f) where torch gives floor — fix by padding the source, not the output.
 metadata:
   type: project
+  observed: 2026-07-29
 ---
 
 Their grid `start=-(f-1)/(2f), step=1/f` simplifies to `(i+0.5)/f - 0.5`, which is exactly
