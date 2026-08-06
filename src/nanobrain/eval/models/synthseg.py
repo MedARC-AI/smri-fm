@@ -5,7 +5,9 @@ The 384-channel bottleneck of the down arm is mean-pooled over the scan into one
 path, "torch" samples the same coordinates on the module's device.
 """
 
+import math
 import os
+from typing import Literal
 
 import nibabel as nib
 import numpy as np
@@ -23,15 +25,12 @@ STRIDE = 2 ** (N_LEVELS - 1)  # input voxels per bottleneck cell
 
 
 class SynthSeg(nn.Module):
-    def __init__(self, resample: str = "torch"):
+    def __init__(self, resample: Literal["verbatim", "torch"] = "torch"):
         super().__init__()
         from SynthSeg_pytorch.labels import load_synthseg_labels
         from SynthSeg_pytorch.model import build_synthseg_unet
         from SynthSeg_pytorch.predict import get_model_dir
         from SynthSeg_pytorch.weights import load_unet_from_h5
-
-        if resample not in ("verbatim", "torch"):
-            raise ValueError(f"resample should be 'verbatim' or 'torch', had {resample!r}")
 
         labels, _flip_indices, _topology_classes = load_synthseg_labels(fast=False)
         self.net = build_synthseg_unet(nb_labels=len(labels), name="unet")
@@ -48,7 +47,8 @@ class SynthSeg(nn.Module):
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
         volume, pad_idx = preprocess(img, self.device, self.resample)
         embedding, _skips = self.net.encode(volume[None, None])  # (1, 384, X/16, Y/16, Z/16)
-        return embedding[0][(slice(None), *bottleneck_box(pad_idx))].mean((1, 2, 3))  # (384,)
+        x, y, z = bottleneck_box(pad_idx)
+        return embedding[0][:, x, y, z].mean((1, 2, 3))  # (384,)
 
     def dense_embed(self, img: nib.Nifti1Image) -> Tensor:
         raise NotImplementedError(
@@ -58,7 +58,7 @@ class SynthSeg(nn.Module):
 
 
 def preprocess(
-    img: nib.Nifti1Image, device: torch.device, resample: str
+    img: nib.Nifti1Image, device: torch.device, resample: Literal["verbatim", "torch"]
 ) -> tuple[Tensor, np.ndarray]:
     """`SynthSeg.predict_synthseg.preprocess` for an in-memory nifti, on their default path.
 
@@ -74,9 +74,6 @@ def preprocess(
     )
 
     volume, affine, n_dims, _n_channels, _header, res = get_volume_info(img)
-    if n_dims != 3:
-        raise ValueError(f"input should have 3 dimensions, had {n_dims}")
-
     if np.any(np.abs(res - TARGET_RES) > 0.05):
         if resample == "torch":
             volume, affine = resample_torch(volume, affine, device)
@@ -100,7 +97,7 @@ def bottleneck_box(pad_idx: np.ndarray) -> tuple[slice, ...]:
     """
     box = []
     for low, high in zip(pad_idx[:3], pad_idx[3:]):
-        start = -(-int(low) // STRIDE)
+        start = math.ceil(int(low) / STRIDE)
         box.append(slice(start, max(int(high) // STRIDE, start + 1)))
     return tuple(box)
 
@@ -161,5 +158,5 @@ def gaussian_blur(volume: Tensor, sigmas: np.ndarray) -> Tensor:
 
 
 @register_model
-def synthseg(resample: str = "torch") -> SynthSeg:
+def synthseg(resample: Literal["verbatim", "torch"] = "torch") -> SynthSeg:
     return SynthSeg(resample=resample)
