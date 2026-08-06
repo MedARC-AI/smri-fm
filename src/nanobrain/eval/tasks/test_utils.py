@@ -12,6 +12,16 @@ def cell_counts(cells: list, labels: list[int], keep: list[int]) -> dict:
     return counts
 
 
+def test_rejects_labels_outside_zero_one():
+    with pytest.raises(AssertionError, match="0/1"):
+        matched_indices(["a", "a", "a"], [0, 1, 2], seed=0)
+
+
+def test_rejects_mismatched_cells_and_labels():
+    with pytest.raises(ValueError):
+        matched_indices(["a", "a"], [0, 1, 1], seed=0)
+
+
 def test_classes_have_identical_cell_makeup():
     rng = np.random.default_rng(0)
     cells = rng.choice(["a", "b", "c"], 200).tolist()
