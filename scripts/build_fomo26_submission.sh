@@ -35,6 +35,7 @@ From: pytorch/pytorch:2.12.1-cuda13.2-cudnn9-runtime
     $ckpt                                 /app/checkpoint.pth
     pyproject.toml                        /app/pyproject.toml
     scripts/predict_fomo26.py             /app/predict.py
+    scripts/preprocessing_fomo26.py       /app/predpreprocessingict.py
     src/asparagus_bridge                  /app/src/asparagus_bridge
     src/evaluation                        /app/src/evaluation
     src/smri_mae                          /app/src/smri_mae

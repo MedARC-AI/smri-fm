@@ -7,7 +7,7 @@ from omegaconf import OmegaConf as OC
 from fastcore.basics import AttrDict
 from fastcore.script import call_parse
 from asparagus_bridge.models_smri_mae import SmriMaeClsRegBackbone, SmriMaeSegBackbone
-from evaluation.models.smri_mae import SmriMaeTransform
+from preprocessing import preproc_pipe
 
 # Note:
 # - For tasks 6/7 we load the task 1 model and just use the encoder. That's why we have out_ch=2 like in task 1.
@@ -51,7 +51,7 @@ def main(
     model.eval().to(device)
     if cuda: model.half()
     # load and prepare input
-    tfm = SmriMaeTransform(img_size=cfg.get('img_size', (160,160,160)))
+    tfm = preproc_pipe(im_sz=cfg.get('img_size', (160,160,160)))
     paths = dict(flair=flair, adc=adc, dwi=dwi, t2s=t2s, swi=swi, t1=t1, t2=t2, input=input)
     imgs = [nib.load(paths[k]) for k in t.inp if paths.get(k)]
     x = torch.stack([tfm(im)['image'] for im in imgs]).to(device)
@@ -68,8 +68,9 @@ def main(
             Path(output).write_text(f'{pred:.3f}')
         elif t.kind=='seg':
             # todo: seg tasks receive multiple inputs. imo that doesnt make sense for seg tasks?
-            mask = model(x)[0].argmax(0).cpu().numpy().astype(np.uint8)
-            nib.save(nib.Nifti1Image(mask, imgs[0].affine, imgs[0].header), output)
+            seg = model(x)[0].argmax(0).cpu()
+            seg_nifti = tfm.decode(seg)
+            nib.save(seg_nifti, output)
         elif t.kind=='emb':
             # no need to aggregate, as emb tasks (6,7) only get a single input
             emb = model._encode(x)[0].flatten().cpu().numpy() 
