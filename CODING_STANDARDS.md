@@ -89,8 +89,6 @@ ML code fails silently. So we need to be very careful, to the point of paranoia,
 
 3. **Correctness is not relaxed.** Reproducibility is the whole reason the directory exists: commit before running, log the git sha and dirty status, save the full config, seed in one place.
 
-4. **Expect experiment code to rot.** The package will move on and old launch scripts will stop running against it. That's acceptable — a stale script is still an accurate record of what was run. Don't repair it; note the breakage if it matters.
-
 ## Git
 
 Use concise commit messages. Detailed rationale and history notes go in `.claude/memory/`. For initial development, commit directly to main. Once the codebase is built out, use trunk-based branching off of main. Experimental branches should make minimal additions and *zero* deletions on the stable core. Fixes to the stable core should be rare, and should be made in short-lived branches that are merged quickly to main. The main branch should always run, and should contain the minimal baseline starting point for new experimental branches. Experimental branches are not expected to be merged to main. If an experimental branch is promising, it can be used as a starting point for further experiments.
