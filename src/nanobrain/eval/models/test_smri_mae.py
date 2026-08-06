@@ -79,12 +79,12 @@ def test_transform_fits_grid_and_normalizes():
 
 
 def test_transform_resamples_to_1mm():
-    # 2mm in-plane, 3mm through-plane: a 10x12x11-voxel box becomes 20x24x33 at 1mm, then the
-    # transpose reverses the axes. Trilinear edges move the mean threshold by a voxel or so.
+    # 2mm in-plane, 3mm through-plane: a 10x12x11-voxel box becomes 20x24x33 at 1mm.
+    # Trilinear edges move the mean threshold by a voxel or so.
     sample = SmriMaeTransform(img_size=(64, 64, 64))(_image((20, 24, 22), np.diag([2, 2, 3, 1])))
     inside = sample["mask"][0].nonzero()
     extent = (inside.max(0).values - inside.min(0).values + 1).tolist()
-    assert all(abs(size - target) <= 2 for size, target in zip(extent, (33, 24, 20)))
+    assert all(abs(size - target) <= 2 for size, target in zip(extent, (20, 24, 33)))
 
 
 def test_transform_crops_volumes_larger_than_the_grid():
