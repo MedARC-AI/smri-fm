@@ -18,7 +18,7 @@ before writing code:
 - where the weights live and whether they are gated (Neuro-JEPA needs `HF_TOKEN`)
 - whether the pins can resolve against nanobrain
 - what the inference entry point is
-- whether `dense_embed` is feasible
+- whether `patch_embed` is feasible
 
 Deferring segmentation with a stated reason is fine — most backbones have.
 

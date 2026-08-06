@@ -13,7 +13,17 @@ Models canonicalize, normalize and own device placement internally. Shared `cano
 Motivation: make segmentation scoring independent of any model's patch grid, so backbones are
 comparable. **Accepted cost: batched inference is gone** — one volume at a time.
 
-**Why:** the single-volume throughput limit is a deliberate trade for comparability, so it will keep
-looking like an easy optimization to someone who doesn't know that.
-**How to apply:** don't reintroduce batching by pushing grid decisions back into the models. See
+**Update 2026-08-06: that trade is dissolved, not merely re-taken.** `dense_embed` became
+`patch_embed(nifti) -> PatchFeatures(features (N, D), coords (N, 3))` in world mm. What broke
+comparability in the pre-`50cb2a8` design was `patchify_labels`, which let the *model* define the
+label grid; patch-level *features* were never the problem. The probe now maps voxels to patches by
+world coordinate, so every backbone is scored on the task's own grid while the model returns
+patch-level output again. Batching can therefore come back without giving up comparability.
+
+**Why:** the old note read as "batching is the price of comparability", which is no longer the
+constraint and would otherwise block an easy win.
+**How to apply:** if batching returns, keep coords in world mm (so a subject's result does not
+depend on its batch), keep the probe consuming a *list* of per-subject results (N is ragged —
+NeuroVFM drops background tokens), and add it behind the single extraction call site in
+`probe_seg.seg_probe`. Still don't push grid decisions back into the models. See
 [[hf-nifti-wrapper-reorients-wrong]], [[seg-probe-design]].

@@ -32,15 +32,28 @@ run is a couple of lines, but needs a re-run of the sweep.
 **5. FOMO task-4 class label order is a guess (2026-07-23).** `("nerve", "vessel")`, with a TODO in
 `tasks/fomo.py`. Per-class metric names depend on it. Confirm against the challenge data.
 
-**6. `dense_embed` contract needs a rethink (2026-07-29).** Three of five backbones declined to
-implement it — Neuro-JEPA (768-d per voxel is ~24GB on the task-4 grid), SynthSeg (`postprocess`
-never resamples back to the input grid), sMRI MAE. A coarse-grid + lazy-resample contract would
-probably fit all three; the current per-voxel-on-the-canonical-grid one fits none.
+**6. Four backbones still need porting to `patch_embed` (2026-08-06).** The contract rethink is
+done: `dense_embed` is now `patch_embed(nifti) -> PatchFeatures(features (N, D), coords (N, 3))` in
+RAS world mm, and both baselines are on it. Neuro-JEPA, NeuroVFM, SynthSeg and sMRI MAE still raise
+`NotImplementedError`; each stub names the specific missing piece. Verified in passing that MONAI
+carries the affine through Neuro-JEPA's whole transform chain, so its coords are ~5 lines.
+**Port each against an off-centre, axis-asymmetric phantom** — the probe's coverage assert cannot
+see an axis permutation. See `.claude/memory/seg-probe-world-coord-guards.md`.
 
-**7. Seg probe is untuned (2026-07-27).** `NEG_PER_SUBJECT=10_000` and real-data peak memory were
-deferred on "measure first" and no real backbone has run the seg probe yet. Also `_predict`
-zero-fills columns for classes a fold never saw — silent degradation, suspect it first if task-4
-per-class AP looks wrong.
+**7. Seg probe is still untuned, and no real backbone has run it (2026-07-27, updated 2026-08-06).**
+`NEG_PER_SUBJECT=10_000` was deferred on "measure first" and is now clearly oversized: a subject's
+sampled voxels collapse onto at most N patches, so most of those 10k rows are duplicates. Also
+`predict_probs` zero-fills columns for classes a fold never saw — silent degradation, suspect it
+first if task-4 per-class AP looks wrong.
+
+**10. Seg training foreground is now brain-masked (2026-08-06).** `voxel_targets` restricts labels
+to the brain mask before sampling, so foreground voxels below `image.mean()` are no longer trained
+on; previously every labelled voxel was kept regardless of the mask. Scoring was always in-brain
+only, so this makes train and test agree — but it can cut the positive count. The mean-threshold
+mask is crude, and for `fomo_task4_trigeminal` a nerve sitting in bright CSF is plausibly sub-mean
+over much of its extent. **Measure the in-mask foreground fraction per seg task before trusting
+task-4 numbers.** If a class falls entirely out of mask across all subjects the "classes absent"
+assert fires, which is loud rather than silent.
 
 **8. Head extraction for submission (2026-07-27).** The fitted StandardScaler + linear head is
 trivially serializable; wire it up when prepping a real submission.

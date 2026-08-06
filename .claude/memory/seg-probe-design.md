@@ -1,19 +1,29 @@
 ---
 name: seg-probe-design
-description: How probe_seg.py is built — subject-level repeated CV, generic over K foreground classes, two embed passes to bound peak memory near one volume's embedding.
+description: How probe_seg.py is built — patch point cloud in world mm, nearest-patch assignment, subject-level repeated CV, one forward pass holding every subject's features.
 metadata:
   type: project
 ---
 
-Rewritten alongside the nifti-in interface (`50cb2a8`):
+Rebuilt on the patch contract (2026-08-06), replacing the per-voxel `dense_embed` design:
 
-- subject-level repeated CV, generic over K foreground classes (labels 1..K, 0 = background);
-- scored by per-subject Dice (argmax, implicit 0.5) and voxel-AP;
-- **two embed passes** — subsample for training, full-brain for scoring — to bound peak memory near
-  one volume's embedding;
-- subjects with empty ground truth score specificity in Dice and NaN in AP.
+- the model returns `PatchFeatures(features (N, D), coords (N, 3))`, coords in **RAS world mm of the
+  input image**; the model never sees the label grid;
+- each in-brain label voxel takes its **nearest patch** (`cKDTree`), so labels are never resampled
+  and every backbone is scored on the task's own native grid whatever its patch size;
+- nearest assignment makes predictions constant within a patch, so scoring runs the head over the
+  N patches and gathers out to voxels, not over millions of voxels;
+- subject-level repeated CV, generic over K foreground classes (labels 1..K, 0 = background),
+  scored by per-subject Dice (argmax) and voxel-AP; empty ground truth scores specificity in Dice
+  and NaN in AP;
+- **one forward pass**, with every subject's patch features held in memory at once.
 
-**Why:** the two-pass structure exists purely for the memory bound, so collapsing it to one pass
-looks like a simplification and isn't.
-**How to apply:** keep the two passes; it is untuned in other respects — `NEG_PER_SUBJECT=10_000`
-and real-data peak memory were deferred on "measure first". See [[eval-interface-is-nifti-in]].
+**Why:** the old two embed passes existed purely to bound peak memory near one volume's embedding,
+which was 24 GB for a 768-d ViT on the task-4 grid. Patch features are ~2 MB, so that bound stopped
+mattering and the second pass went. This is a deliberate reversal of the previous note, not drift.
+
+**How to apply:** memory is now linear in cohort size rather than bounded — fine for the FOMO seg
+tasks (tens of subjects), but `random_unet` at `patch=4` emits 128-d at stride 4, roughly 64 MB per
+subject on the task-4 grid. If a large-cohort seg task arrives, re-split the passes rather than
+shrinking the cohort. Keeping exactly one extraction call site is also the seam where batched
+inference would drop back in. See [[eval-interface-is-nifti-in]], [[seg-probe-world-coord-guards]].
