@@ -22,10 +22,12 @@ Chosen by task type; each fixes its own metrics.
 |---|---|---|---|
 | `RegressionTask` | global embedding | `RidgeCV` | MAE, Pearson r |
 | `ClassificationTask` | global embedding | `LogisticRegressionCV` | AUROC, balanced accuracy |
-| `SegmentationTask` | dense embeddings | `LogisticRegression` (balanced) | Dice, voxel-AP |
+| `SegmentationTask` | patch features | `LogisticRegression` (balanced) | Dice, voxel-AP |
 
 Segmentation fits on subsampled voxels (every foreground voxel plus a capped draw of in-brain
-background) and scores every in-brain voxel of held-out subjects, per foreground class.
+background) and scores every in-brain voxel of held-out subjects, per foreground class. Each voxel
+takes the features of the nearest patch by world-mm distance, so labels are never resampled and
+every backbone is scored on the task's own grid whatever its patch size.
 
 Cross-validation is `n_splits`-fold repeated `n_repeats` times, always splitting subjects. Metrics
 pool out-of-fold predictions within a repeat, then average across repeats — so rank metrics see all
@@ -35,7 +37,7 @@ interval.
 ## Adding things
 
 - **Model**: an `nn.Module` implementing [models/base.py](models/base.py) (`global_embed`,
-  `dense_embed`), preprocessing each volume with the helpers in [nifti.py](nifti.py). Decorate a
+  `patch_embed`), preprocessing each volume with the helpers in [nifti.py](nifti.py). Decorate a
   builder with `@register_model`. See [models/random_features.py](models/random_features.py) and
   [models/unet.py](models/unet.py).
 - **Task**: a dataclass from [tasks/base.py](tasks/base.py) wrapping a lazy `dataset_fn` (an HF
@@ -52,4 +54,9 @@ Both have a procedure: `.claude/skills/add-eval-model` and `.claude/skills/add-e
   it via `ds.cache_files[0]["filename"]` — before trusting the rerun. Feature *schema* changes are
   safe.
 - **Use `nifti.canonical_img`**, not HF's `Nifti1ImageWrapper`, which reorients incorrectly.
+- **A wrong `patch_embed` affine is silent.** Bad world coordinates just scatter features onto the
+  wrong voxels and report a poor score. `assign_patches` asserts the patches cover the brain, which
+  catches unit and origin errors — but **not** an axis permutation, which leaves the point cloud
+  exactly where it was. Only content catches that, so test a new backbone against an off-centre,
+  axis-asymmetric phantom.
 - **The `*_sex` tasks are wiring anchors, not results.** Every backbone lands >= 0.96 AUROC.

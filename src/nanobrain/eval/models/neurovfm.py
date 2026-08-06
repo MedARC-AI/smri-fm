@@ -11,6 +11,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from nanobrain.eval.models import register_model
+from nanobrain.eval.models.base import PatchFeatures
 
 REPO_ID = "mlinslab/neurovfm-encoder"
 
@@ -49,10 +50,10 @@ class NeuroVFM(nn.Module):
             )
         return embs.float().mean(0)
 
-    def dense_embed(self, img: nib.Nifti1Image) -> Tensor:
+    def patch_embed(self, img: nib.Nifti1Image) -> PatchFeatures:
         raise NotImplementedError(
-            "NeuroVFM drops background tokens and packs the rest varlen, so there is no dense "
-            "grid to scatter back to without reconstructing it from the coords."
+            "not yet ported to the patch contract: `preprocess` already returns per-token coords, "
+            "which need mapping through the preprocessed sitk image's geometry into RAS world mm."
         )
 
 

@@ -12,6 +12,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from nanobrain.eval.models import register_model
+from nanobrain.eval.models.base import PatchFeatures
 from nanobrain.eval.nifti import canonical_img
 
 REPO_ID = "NYUMedML/Neuro-JEPA"
@@ -38,10 +39,10 @@ class NeuroJEPA(nn.Module):
         tokens, _moe_scores = self.backbone(volume)
         return tokens[0].mean(0)  # (768,)
 
-    def dense_embed(self, img: nib.Nifti1Image) -> Tensor:
+    def patch_embed(self, img: nib.Nifti1Image) -> PatchFeatures:
         raise NotImplementedError(
-            "Neuro-JEPA tokens are 12 voxels of a brain resized to ~1.8mm, so a patch spans "
-            "~21mm; and one 768-d vector per voxel does not fit in memory on the seg grids."
+            "not yet ported to the patch contract: the token grid maps to world space through the "
+            "transform's MetaTensor affine, but a token spans ~21mm so expect coarse segmentations."
         )
 
 

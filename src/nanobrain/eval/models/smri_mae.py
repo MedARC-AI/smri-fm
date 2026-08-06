@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from nanobrain.eval.models import register_model
+from nanobrain.eval.models.base import PatchFeatures
 from nanobrain.eval.nifti import canonical_img
 
 import smri_mae.model_mae as models_mae
@@ -53,8 +54,11 @@ class SmriMae(nn.Module):
         embed = (patch * token_mask.unsqueeze(-1)).sum(dim=1) / denom
         return embed[0]  # the contract is one (D,) vector per volume
 
-    def dense_embed(self, img: nib.Nifti1Image) -> Tensor:
-        raise NotImplementedError("SmriMae does not yet implement dense embedding")
+    def patch_embed(self, img: nib.Nifti1Image) -> PatchFeatures:
+        raise NotImplementedError(
+            "not yet ported to the patch contract: `SmriMaeTransform` works on bare tensors, so "
+            "the 1mm rescale and `fit_to_shape` offsets need tracking to recover world coords."
+        )
 
 
 class SmriMaeTransform:

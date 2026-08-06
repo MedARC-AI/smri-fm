@@ -17,6 +17,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from nanobrain.eval.models import register_model
+from nanobrain.eval.models.base import PatchFeatures
 
 TARGET_RES = 1.0
 N_LEVELS = 5
@@ -50,10 +51,10 @@ class SynthSeg(nn.Module):
         x, y, z = bottleneck_box(pad_idx)
         return embedding[0][:, x, y, z].mean((1, 2, 3))  # (384,)
 
-    def dense_embed(self, img: nib.Nifti1Image) -> Tensor:
+    def patch_embed(self, img: nib.Nifti1Image) -> PatchFeatures:
         raise NotImplementedError(
-            "SynthSeg predicts on its own 1mm grid after resampling and padding, and postprocess "
-            "never resamples back, so mapping the decoder onto the canonical grid is unbuilt."
+            "not yet ported to the patch contract: `preprocess` already computes the 1mm resampled "
+            "affine and drops it, which is what the bottleneck cells need to land in world mm."
         )
 
 
