@@ -87,7 +87,7 @@ def test_seg_probe_detects_foreground():
     rows += [make_subject(i + 100, {}) for i in range(2)]  # label-negative subjects
     dataset = make_dataset(rows)
     scores = seg_probe(
-        FakeSegModel(), make_task(dataset, ("lesion",)), dataset,
+        FakeSegModel(), make_task(dataset, ("lesion",)),
         n_splits=3, n_repeats=1, seed=0, device=CPU, n_boot=200,
     )  # fmt: skip
     assert {"dice_lesion", "voxel_ap_lesion", "dice", "voxel_ap"} <= set(scores)
@@ -101,7 +101,7 @@ def test_seg_probe_multiclass():
     rows = [make_subject(i, {1: 6.0, 2: 12.0}) for i in range(6)]
     dataset = make_dataset(rows)
     scores = seg_probe(
-        FakeSegModel(), make_task(dataset, ("nerve", "vessel")), dataset,
+        FakeSegModel(), make_task(dataset, ("nerve", "vessel")),
         n_splits=3, n_repeats=1, seed=0, device=CPU, n_boot=200,
     )  # fmt: skip
     assert {"dice_nerve", "dice_vessel", "voxel_ap_nerve", "voxel_ap_vessel"} <= set(scores)
@@ -113,6 +113,6 @@ def test_seg_probe_requires_present_class():
     dataset = make_dataset([make_subject(i, {}) for i in range(4)])  # no foreground anywhere
     with pytest.raises(AssertionError, match="absent"):
         seg_probe(
-            FakeSegModel(), make_task(dataset, ("lesion",)), dataset,
+            FakeSegModel(), make_task(dataset, ("lesion",)),
             n_splits=2, n_repeats=1, seed=0, device=CPU, n_boot=50,
         )  # fmt: skip

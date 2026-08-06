@@ -127,7 +127,7 @@ def summarize(y: np.ndarray, oofs: list[np.ndarray], metrics: dict, n_boot: int,
 def reg_probe(
     model: Model,
     task: RegressionTask,
-    dataset: Dataset,
+    *,
     device: torch.device,
     n_splits: int,
     n_repeats: int,
@@ -136,6 +136,8 @@ def reg_probe(
 ) -> dict:
     """Scalar regression off the pooled embedding, scored by MAE and Pearson r."""
     start = time.perf_counter()
+    dataset = task.dataset_fn()
+    logger.info(f"dataset: {len(dataset)} samples")
     X = extract_features(model, dataset, task.image_col, device)
     y = read_targets(dataset, task.target_col).astype(float)
     oofs = repeated_oof(X, y, fit_ridge, n_splits, n_repeats, seed, stratified=False)
@@ -146,7 +148,7 @@ def reg_probe(
 def cls_probe(
     model: Model,
     task: ClassificationTask,
-    dataset: Dataset,
+    *,
     device: torch.device,
     n_splits: int,
     n_repeats: int,
@@ -155,6 +157,8 @@ def cls_probe(
 ) -> dict:
     """Binary classification off the pooled embedding, scored by AUROC and balanced accuracy."""
     start = time.perf_counter()
+    dataset = task.dataset_fn()
+    logger.info(f"dataset: {len(dataset)} samples")
     y = read_targets(dataset, task.target_col, task.target_map)
     assert set(np.unique(y)) == {0, 1}, (
         f"cls probe expects binary 0/1 labels, got {set(np.unique(y))}"

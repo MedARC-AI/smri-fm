@@ -159,29 +159,6 @@ def score_dataset(
     return dice, ap
 
 
-# ---- probe ----------------------------------------------------------------------------
-
-
-def seg_probe(
-    model: Model,
-    task: SegmentationTask,
-    dataset: Dataset,
-    device: torch.device,
-    n_splits: int,
-    n_repeats: int,
-    seed: int,
-    n_boot: int = 2000,
-) -> dict:
-    """Voxel-level detection over K foreground classes: subject-level repeated CV, scored by
-    per-subject Dice and average precision."""
-    start = time.perf_counter()
-    subsamples = training_subsamples(model, dataset, task, device, seed)
-    heads, folds = fit_folds(subsamples, n_splits, n_repeats, seed)
-    dice, ap = score_dataset(model, dataset, task, heads, folds, device)
-    logger.info(f"seg probe over {len(dataset)} subjects in {time.perf_counter() - start:.1f}s")
-    return summarize(dice, ap, task.class_names, n_boot, seed)
-
-
 def summarize(
     dice: np.ndarray, ap: np.ndarray, class_names: tuple[str, ...], n_boot: int, seed: int
 ) -> dict:
@@ -219,3 +196,28 @@ def nanmean(values: np.ndarray, axis: int | None = None) -> np.ndarray:
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", "Mean of empty slice", RuntimeWarning)
         return np.nanmean(values, axis=axis)
+
+
+# ---- probe ----------------------------------------------------------------------------
+
+
+def seg_probe(
+    model: Model,
+    task: SegmentationTask,
+    *,
+    device: torch.device,
+    n_splits: int,
+    n_repeats: int,
+    seed: int,
+    n_boot: int = 2000,
+) -> dict:
+    """Voxel-level detection over K foreground classes: subject-level repeated CV, scored by
+    per-subject Dice and average precision."""
+    start = time.perf_counter()
+    dataset = task.dataset_fn()
+    logger.info(f"dataset: {len(dataset)} samples")
+    subsamples = training_subsamples(model, dataset, task, device, seed)
+    heads, folds = fit_folds(subsamples, n_splits, n_repeats, seed)
+    dice, ap = score_dataset(model, dataset, task, heads, folds, device)
+    logger.info(f"seg probe over {len(dataset)} subjects in {time.perf_counter() - start:.1f}s")
+    return summarize(dice, ap, task.class_names, n_boot, seed)

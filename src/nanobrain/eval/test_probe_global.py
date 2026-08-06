@@ -113,7 +113,7 @@ def test_reg_probe_matches_its_parts():
     dataset = make_dataset(12, "age", list(range(20, 32)))
     task = RegressionTask(name="fake", dataset_fn=lambda: dataset, target_col="age")
     model = create_model("random_features", size=32, patch=8, dim=64)
-    scores = reg_probe(model, task, dataset, CPU, n_splits=3, n_repeats=1, seed=0, n_boot=50)
+    scores = reg_probe(model, task, device=CPU, n_splits=3, n_repeats=1, seed=0, n_boot=50)
 
     X = extract_features(model, dataset, task.image_col, CPU)
     y = read_targets(dataset, task.target_col).astype(float)
@@ -126,4 +126,4 @@ def test_cls_probe_rejects_non_binary_before_extracting():
     dataset = make_dataset(6, "label", [0, 1, 2, 0, 1, 2])
     task = ClassificationTask(name="fake", dataset_fn=lambda: dataset, target_col="label")
     with pytest.raises(AssertionError, match="binary"):
-        cls_probe(None, task, dataset, CPU, n_splits=2, n_repeats=1, seed=0)
+        cls_probe(None, task, device=CPU, n_splits=2, n_repeats=1, seed=0)
