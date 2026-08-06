@@ -1,6 +1,8 @@
 """SynthSeg (Billot et al., Med Image Anal 2023): a supervised 3D U-Net over synthetic scans.
 
-The 384-channel bottleneck of the down arm is mean-pooled over the scan into one vector.
+The 384-channel bottleneck of the down arm is mean-pooled over the scan into one vector for
+`global_embed`, or returned cell by cell with world-mm centres for `patch_embed`. A cell covers
+STRIDE=16 input voxels, i.e. 16mm of the resampled scan, so expect coarse segmentations.
 `resample` picks the interpolation backend for the 1mm resample: "verbatim" is SynthSeg's scipy
 path, "torch" samples the same coordinates on the module's device.
 """
@@ -14,6 +16,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from einops import rearrange
+from nibabel.affines import apply_affine
 from torch import Tensor
 
 from nanobrain.eval.models import register_model
@@ -46,24 +50,35 @@ class SynthSeg(nn.Module):
 
     @torch.inference_mode()
     def global_embed(self, img: nib.Nifti1Image) -> Tensor:
-        volume, pad_idx = preprocess(img, self.device, self.resample)
+        volume, pad_idx, _affine = preprocess(img, self.device, self.resample)
         embedding, _skips = self.net.encode(volume[None, None])  # (1, 384, X/16, Y/16, Z/16)
         x, y, z = bottleneck_box(pad_idx)
         return embedding[0][:, x, y, z].mean((1, 2, 3))  # (384,)
 
+    @torch.inference_mode()
     def patch_embed(self, img: nib.Nifti1Image) -> PatchFeatures:
-        raise NotImplementedError(
-            "not yet ported to the patch contract: `preprocess` already computes the 1mm resampled "
-            "affine and drops it, which is what the bottleneck cells need to land in world mm."
-        )
+        volume, _pad_idx, affine = preprocess(img, self.device, self.resample)
+        embedding, _skips = self.net.encode(volume[None, None])  # (1, 384, X/16, Y/16, Z/16)
+
+        # four pools of stride 2 over same-padded convs, so cell j covers input voxels [16j, 16j+16)
+        grid = tuple(embedding.shape[2:])
+        centres = rearrange(np.indices(grid), "c x y z -> (x y z) c") * STRIDE
+        coords = apply_affine(affine, centres + (STRIDE - 1) / 2)
+        features = rearrange(embedding[0], "d x y z -> (x y z) d")
+        return PatchFeatures(features.float().cpu(), torch.from_numpy(coords).float())
 
 
 def preprocess(
     img: nib.Nifti1Image, device: torch.device, resample: Literal["verbatim", "torch"]
-) -> tuple[Tensor, np.ndarray]:
+) -> tuple[Tensor, np.ndarray, np.ndarray]:
     """`SynthSeg.predict_synthseg.preprocess` for an in-memory nifti, on their default path.
 
-    Returns the (X, Y, Z) network input on `device`, and the indices the scan occupies within it.
+    Returns the (X, Y, Z) network input on `device`, the indices the scan occupies within it, and
+    the affine taking that volume's voxel indices to RAS world mm in the input image's frame.
+
+    Three steps move the geometry and all three are folded into the affine: the resample to 1mm
+    rescales it, `align_volume_to_ref` permutes and flips its columns to reorient the array, and
+    the pad shifts the index origin to where the scan starts.
     """
     from SynthSeg_pytorch.preprocessing import (
         align_volume_to_ref,
@@ -81,14 +96,22 @@ def preprocess(
         else:
             volume, affine = resample_volume(volume, affine, [TARGET_RES] * n_dims)
 
-    volume = align_volume_to_ref(volume, affine, np.eye(4), n_dims=n_dims, return_copy=False)
+    volume, affine = align_volume_to_ref(
+        volume, affine, np.eye(4), return_aff=True, n_dims=n_dims, return_copy=False
+    )
     volume = rescale_volume(
         volume, new_min=0.0, new_max=1.0, min_percentile=0.5, max_percentile=99.5
     )
 
     pad_shape = [find_closest_number_divisible_by_m(s, 2**N_LEVELS, "higher") for s in volume.shape]
     volume, pad_idx = pad_volume(volume, np.maximum(pad_shape, MIN_SIZE), return_pad_idx=True)
-    return torch.as_tensor(volume, dtype=torch.float32, device=device), pad_idx
+    origin_shift = np.eye(4)
+    origin_shift[:3, 3] = -pad_idx[:3]
+    return (
+        torch.as_tensor(volume, dtype=torch.float32, device=device),
+        pad_idx,
+        affine @ origin_shift,
+    )
 
 
 def bottleneck_box(pad_idx: np.ndarray) -> tuple[slice, ...]:

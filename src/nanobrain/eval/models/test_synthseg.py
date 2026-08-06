@@ -1,12 +1,16 @@
 """SynthSeg needs the optional `synthseg` extra; these skip without it.
 
-The weights are a separate download, so everything here exercises preprocessing alone.
+Most of it exercises preprocessing alone. The two tests that need the network skip when the
+weights, which are a separate download, are not cached.
 """
+
+import os
 
 import nibabel as nib
 import numpy as np
 import pytest
 import torch
+from nibabel.affines import apply_affine
 
 pytest.importorskip("SynthSeg_pytorch")
 
@@ -16,6 +20,13 @@ from nanobrain.eval.models.synthseg import (  # noqa: E402
     bottleneck_box,
     preprocess,
     resample_torch,
+)
+from nanobrain.eval.nifti import canonical_img  # noqa: E402
+from SynthSeg_pytorch.predict import get_model_dir  # noqa: E402
+
+needs_weights = pytest.mark.skipif(
+    not os.path.exists(os.path.join(get_model_dir(), "synthseg_2.0.h5")),
+    reason="needs the downloaded SynthSeg weights",
 )
 
 CASES = [
@@ -42,7 +53,7 @@ def test_verbatim_preprocess_matches_upstream(shape, affine):
     from SynthSeg_pytorch.preprocessing import preprocess as upstream_preprocess
 
     img = make_image(shape, affine)
-    ours, pad_idx = preprocess(img, torch.device("cpu"), "verbatim")
+    ours, pad_idx, _world = preprocess(img, torch.device("cpu"), "verbatim")
     theirs, _, _, _, _, their_pad_idx, _ = upstream_preprocess(img, crop=None, min_pad=MIN_SIZE)
 
     np.testing.assert_array_equal(ours.numpy(), theirs[0, 0].astype(np.float32))
@@ -66,7 +77,7 @@ def test_torch_resample_matches_the_reference_resample(shape, affine):
 
 @pytest.mark.parametrize("shape, affine", CASES)
 def test_preprocess_output_is_a_valid_network_input(shape, affine):
-    volume, pad_idx = preprocess(make_image(shape, affine), torch.device("cpu"), "torch")
+    volume, pad_idx, _world = preprocess(make_image(shape, affine), torch.device("cpu"), "torch")
 
     assert volume.ndim == 3
     for size in volume.shape:
@@ -81,7 +92,7 @@ def test_preprocess_output_is_a_valid_network_input(shape, affine):
 
 def test_pooling_box_excludes_the_padding():
     """A scan padded up to the 128 floor must pool over the scan, not the padding around it."""
-    volume, pad_idx = preprocess(
+    volume, pad_idx, _world = preprocess(
         make_image((70, 80, 90), np.diag([1.0, 1.0, 1.0, 1.0])), torch.device("cpu"), "torch"
     )
 
@@ -94,6 +105,88 @@ def test_pooling_box_excludes_the_padding():
         assert sl.stop * STRIDE <= pad_idx[axis + 3]
 
 
+@pytest.mark.parametrize("resample", ["verbatim", "torch"])
+@pytest.mark.parametrize("shape, affine", CASES)
+def test_world_affine_tracks_the_whole_geometric_chain(monkeypatch, shape, affine, resample):
+    """Feed the pipeline the world coordinates themselves and read them back out.
+
+    Resampling, reorientation and padding are all intensity-independent, so an input holding one
+    world coordinate per voxel comes out holding that same coordinate at wherever the voxel moved
+    to -- which is exactly what the returned affine has to predict. Blur and edge clamping bend the
+    ramp at the scan boundary, so the comparison skips a margin there.
+
+    The percentile rescale would clip the coordinates it is handed, and moves no geometry.
+    """
+    import SynthSeg_pytorch.preprocessing as upstream
+
+    monkeypatch.setattr(upstream, "rescale_volume", lambda volume, **kwargs: volume)
+    margin = 4
+    world = apply_affine(affine, np.indices(shape).reshape(3, -1).T)
+
+    for axis in range(3):
+        coordinate = world[:, axis].reshape(shape)
+        img = nib.Nifti1Image(coordinate, affine)
+        volume, pad_idx, world_affine = preprocess(img, torch.device("cpu"), resample)
+
+        interior = np.indices(tuple(pad_idx[3:] - pad_idx[:3] - 2 * margin)).reshape(3, -1).T
+        interior += pad_idx[:3] + margin
+        stored = volume.numpy()[tuple(interior.T)]
+        np.testing.assert_allclose(stored, apply_affine(world_affine, interior)[:, axis], atol=1e-3)
+
+
+@needs_weights
+def test_patch_coords_cover_the_canonical_grid():
+    """Every cell the scan occupies must map back inside the grid the seg probe labels on."""
+    from nanobrain.eval.models import create_model
+
+    shape, affine = CASES[-1]
+    img = make_image(shape, affine)
+    features, coords = create_model("synthseg").patch_embed(img)
+
+    canonical = canonical_img(img)
+    assert features.shape == (len(coords), 384)
+    voxels = apply_affine(np.linalg.inv(canonical.affine), coords.numpy())
+    inside = np.all((voxels > -STRIDE) & (voxels < np.array(canonical.shape) + STRIDE), axis=1)
+    # the padding pushes cells off the scan; what matters is that the scan itself is covered
+    assert inside.sum() > 0.4 * len(coords)
+    np.testing.assert_allclose(voxels[inside].min(0), 0, atol=STRIDE)
+    np.testing.assert_allclose(voxels[inside].max(0), np.array(canonical.shape) - 1, atol=STRIDE)
+
+
+@needs_weights
+def test_patch_coords_locate_a_marker():
+    """A dark blob must move the bottleneck features sitting over its own world position.
+
+    Scored on the change-weighted centroid of the response rather than the single most-changed
+    cell: five levels of 3x3x3 convolutions give the bottleneck a ~125-voxel receptive field, so
+    the argmax cell wanders by tens of mm while the response as a whole stays on the marker. The
+    affine here permutes and flips two axes, which is where a silent ordering bug would show.
+    """
+    from nanobrain.eval.models import create_model
+
+    model = create_model("synthseg")
+    shape = (100, 110, 96)
+    affine = np.array([[-1.0, 0, 0, 60], [0, 0, 1.0, -50], [0, -1.0, 0, 45], [0, 0, 0, 1]])
+    base = np.random.default_rng(0).uniform(10, 30, shape).astype(np.float32)
+    base[tuple(slice(int(0.2 * s), int(0.8 * s)) for s in shape)] += 200  # a head-sized block
+
+    reference, coords = model.patch_embed(nib.Nifti1Image(base, affine))
+    markers = [(30, 35, 30), (70, 80, 65), (50, 55, 48)]
+    centroids = []
+    for voxel in markers:
+        marked = base.copy()
+        marked[tuple(slice(v - 6, v + 6) for v in voxel)] = 0.0
+        features, _ = model.patch_embed(nib.Nifti1Image(marked, affine))
+        change = (features - reference).norm(dim=1).numpy()
+        centroids.append((coords.numpy() * change[:, None]).sum(0) / change.sum())
+
+    truth = apply_affine(affine, np.array(markers, dtype=float))
+    offsets = np.linalg.norm(np.array(centroids)[:, None] - truth[None], axis=-1)
+    assert np.all(np.diag(offsets) < STRIDE), f"response centroids {offsets.diagonal().round(1)}mm"
+    # and each response is nearer its own marker than any other, which no shrinkage can fake
+    np.testing.assert_array_equal(offsets.argmin(axis=1), np.arange(len(markers)))
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a GPU")
 @pytest.mark.parametrize("shape, affine", CASES)
 def test_torch_resample_on_gpu_matches_cpu(shape, affine):
@@ -101,8 +194,9 @@ def test_torch_resample_on_gpu_matches_cpu(shape, affine):
     # cuDNN convolves in TF32 by default, which costs ~3 decimal digits in the blur; pin it off
     # so this measures the preprocessing rather than the backend's precision policy.
     with torch.backends.cudnn.flags(allow_tf32=False):
-        on_cpu, _ = preprocess(img, torch.device("cpu"), "torch")
-        on_gpu, _ = preprocess(img, torch.device("cuda"), "torch")
+        on_cpu, _, world_cpu = preprocess(img, torch.device("cpu"), "torch")
+        on_gpu, _, world_gpu = preprocess(img, torch.device("cuda"), "torch")
 
     assert on_cpu.shape == on_gpu.shape
     assert torch.allclose(on_cpu, on_gpu.cpu(), atol=1e-5)
+    np.testing.assert_allclose(world_cpu, world_gpu)
