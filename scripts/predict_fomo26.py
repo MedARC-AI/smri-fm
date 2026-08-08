@@ -68,7 +68,7 @@ def main(
             Path(output).write_text(f'{pred:.3f}')
         elif t.kind=='seg':
             # todo: seg tasks receive multiple inputs. imo that doesnt make sense for seg tasks?
-            seg = model(x)[0].argmax(0).cpu()
+            seg = model(x)[0].argmax(0).int().cpu()
             seg_nifti = tfm.decode(seg)
             nib.save(seg_nifti, output)
         elif t.kind=='emb':
