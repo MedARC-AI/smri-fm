@@ -51,7 +51,8 @@ def main(
     model.eval().to(device)
     if cuda: model.half()
     # load and prepare input
-    tfm = preproc_pipe(im_sz=cfg.get('img_size', (160,160,160)))
+    im_sz = cfg.get('img_size', (160,160,160))
+    tfm = preproc_pipe(im_sz=im_sz, crop=t.kind!='seg')
     paths = dict(flair=flair, adc=adc, dwi=dwi, t2s=t2s, swi=swi, t1=t1, t2=t2, input=input)
     imgs = [nib.load(paths[k]) for k in t.inp if paths.get(k)]
     x = torch.stack([tfm(im) for im in imgs]).to(device)
@@ -67,8 +68,9 @@ def main(
             pred = model(x)[0,0].item()                       
             Path(output).write_text(f'{pred:.3f}')
         elif t.kind=='seg':
-            # todo: seg tasks receive multiple inputs. imo that doesnt make sense for seg tasks?
-            seg = model(x)[0].argmax(0).int().cpu()
+            # for seg, use sliding_window_predict
+            seg = torch.cat([model.sliding_window_predict(o[None,:], patch_size=im_sz, overlap=0.5) for o in x], axis=0) # (B,CLS,D,W,H)
+            seg = seg.softmax(2).mean(0).argmax(0).int().cpu() # (B,CLS,D,W,H) → (B,CLS,D,W,H) → (CLS,D,W,H) → (D,W,H)            
             seg_nifti = tfm.decode(seg)
             nib.save(seg_nifti, output)
         elif t.kind=='emb':

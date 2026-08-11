@@ -48,19 +48,20 @@ class ToZXY(Transform):
     def encodes(self, x:Tensor): return x.permute(2,1,0).contiguous()
     def decodes(self, x:Tensor): return x.permute(2,1,0).contiguous()
 
-class CenterPadCrop(Transform):
-    def __init__(self, tgt_shape): store_attr()
-    def _padcrop(self, x, tgt):
+class CenterPad(Transform):
+    def __init__(self, tgt_shape, crop=False): store_attr()
+    def _padcrop(self, x, tgt, crop):
         pads = []
         for s,s_ in zip(x.shape, tgt):
             d = s_-s
+            if not crop: d = max(0,d)
             pads.extend([d//2, d - d//2])
         return F.pad(x, pads[::-1])
     def encodes(self, x:Tensor):
         self.orig_shape = x.shape
-        return self._padcrop(x, self.tgt_shape)
+        return self._padcrop(x, self.tgt_shape, self.crop)
     def decodes(self, x:Tensor):
-        return self._padcrop(x, self.orig_shape)
+        return self._padcrop(x, self.orig_shape, crop=True)
 
 class Normalize(Transform):
     'Normalize values to standard Gaussian, ignoring mask'
@@ -73,4 +74,4 @@ class Normalize(Transform):
 class AddChanelDim(Transform):
     def encodes(self, x:Tensor): return x[None,:]
 
-def preproc_pipe(im_sz): return Pipeline([ Reorient(), Resample(), Unwrap(), ToZXY(), CenterPadCrop(im_sz), Normalize(), AddChanelDim() ])
+def preproc_pipe(im_sz, crop): return Pipeline([ Reorient(), Resample(), Unwrap(), ToZXY(), CenterPad(im_sz, crop), Normalize(), AddChanelDim() ])
