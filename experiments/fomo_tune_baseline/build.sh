@@ -2,7 +2,7 @@
 # Package each trained run into its challenge .sif. Run on the login node, after launch.sh:
 # apptainer lives there and on n-6 only, and a build needs no GPU driver.
 #
-# Slow. Apptainer always re-runs %post, so each of the three re-downloads ~3G of wheels.
+# Slow. Apptainer always re-runs %post, so each run re-downloads ~3G of wheels.
 
 set -euo pipefail
 
@@ -12,7 +12,7 @@ cd $ROOT
 EXP_DIR="experiments/fomo_tune_baseline"
 OUT_DIR="${EXP_DIR}/output"
 
-runs=(task1 task5 task3)
+runs=(task1 task5 task3 task2)
 
 for name in "${runs[@]}"; do
     # build.py names the sif after `task` in the run's saved config, which is the run name here

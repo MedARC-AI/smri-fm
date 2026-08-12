@@ -23,6 +23,7 @@ runs=(
     "task1 main_task1"
     "task5 main_task5"
     "task3 main_task3"
+    "task2 main_task2"
 )
 
 for run in "${runs[@]}"; do
