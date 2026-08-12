@@ -1,4 +1,4 @@
-exclude: 'build|third_party|.github'
+exclude: '(^|/)build/|^third_party/|^\.github/'
 
 default_language_version:
     python: python3
