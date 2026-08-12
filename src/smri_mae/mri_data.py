@@ -1,5 +1,4 @@
 import math
-from functools import partial
 from glob import glob
 from typing import Sequence
 
@@ -35,7 +34,9 @@ def unpack_img_mask_batch(mask: torch.Tensor, image_shape: Sequence[int]) -> tor
     if mask.dtype != torch.uint8:
         raise ValueError(f"packed img_mask must have dtype uint8, got {mask.dtype}")
     if mask.ndim != 2 or mask.shape[1] != packed_numel:
-        raise ValueError(f"expected packed img_mask shape (B, {packed_numel}), got {tuple(mask.shape)}")
+        raise ValueError(
+            f"expected packed img_mask shape (B, {packed_numel}), got {tuple(mask.shape)}"
+        )
 
     shifts = torch.arange(7, -1, -1, device=mask.device, dtype=torch.uint8)
     bits = (mask.unsqueeze(-1).bitwise_right_shift(shifts) & 1).reshape(mask.shape[0], -1)
@@ -87,7 +88,6 @@ def expand_urls(urls: str | list[str]) -> list[str]:
             result = [url]
         results.extend(result)
     return results
-
 
 
 def warn_and_continue(exn):
