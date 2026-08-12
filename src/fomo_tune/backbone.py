@@ -62,9 +62,12 @@ class SmriMaeTransform:
     def __call__(self, img: nib.Nifti1Image) -> dict[str, Tensor]:
         # repack image to handle incomplete hf Nifti interface
         img = nib.Nifti1Image(img.dataobj, img.affine, img.header)
+        # a converter's trailing singleton axis is common and would otherwise reach `fit_to_shape`
+        img = nib.funcs.squeeze_image(img)
         img = nib.as_closest_canonical(img)
 
         data = torch.from_numpy(np.ascontiguousarray(img.get_fdata(dtype=np.float32)))
+        assert data.ndim == 3, f"expected a 3D volume, got {tuple(data.shape)}"
         affine = np.asarray(img.affine)
 
         spacing = img.header.get_zooms()
