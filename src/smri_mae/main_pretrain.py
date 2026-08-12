@@ -28,7 +28,7 @@ from PIL import Image
 from matplotlib import pyplot as plt
 from torch import Tensor
 
-import smri_mae.mri_data as mri_data
+import data.mri_data as mri_data
 import smri_mae.model_mae as models_mae
 import smri_mae.utils as ut
 import smri_mae.visualization as vis
@@ -267,7 +267,9 @@ def train_one_epoch(
     amp_dtype = getattr(torch, args.amp_dtype)
     use_cuda = device.type == "cuda"
     if use_cuda and args.presend_cuda:
-        data_loader = ut.pre_send_to_cuda_wrapper(data_loader, device, dtype_map={torch.float16: amp_dtype})
+        data_loader = ut.pre_send_to_cuda_wrapper(
+            data_loader, device, dtype_map={torch.float16: amp_dtype}
+        )
 
     optimizer.zero_grad()
 
@@ -369,7 +371,9 @@ def evaluate(
     if use_cuda:
         torch.cuda.manual_seed(eval_seed)
     if use_cuda and args.presend_cuda:
-        data_loader = ut.pre_send_to_cuda_wrapper(data_loader, device, dtype_map={torch.float16: amp_dtype})
+        data_loader = ut.pre_send_to_cuda_wrapper(
+            data_loader, device, dtype_map={torch.float16: amp_dtype}
+        )
 
     eval_batches = islice(data_loader, num_batches)
     for batch_idx, batch in enumerate(
@@ -397,9 +401,7 @@ def evaluate(
             )
 
         loss_value = loss.detach().float().item()
-        finite = torch.tensor(
-            int(math.isfinite(loss_value)), dtype=torch.int32, device=device
-        )
+        finite = torch.tensor(int(math.isfinite(loss_value)), dtype=torch.int32, device=device)
         if args.distributed:
             torch.distributed.all_reduce(finite, op=torch.distributed.ReduceOp.MIN)
         if not finite.item():
@@ -469,6 +471,7 @@ def make_plots(
     plt.close(mask_pred_fig)
 
     return plots
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

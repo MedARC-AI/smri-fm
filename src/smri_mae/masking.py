@@ -46,9 +46,7 @@ def pad_patch_mask(
     if pad_to_multiple is not None:
         if pad_to_multiple <= 0:
             raise ValueError(f"pad_to_multiple must be positive, got {pad_to_multiple}")
-        max_count = (
-            (max_count + pad_to_multiple - 1) // pad_to_multiple * pad_to_multiple
-        )
+        max_count = (max_count + pad_to_multiple - 1) // pad_to_multiple * pad_to_multiple
     padded_ids = shuffled_ids[:, :max_count]
     token_mask = torch.arange(max_count, device=device).unsqueeze(0) < num_keep.unsqueeze(1)
     selected = torch.zeros_like(patch_mask).scatter_(1, padded_ids, token_mask)
@@ -69,9 +67,7 @@ def patch_ids_from_mask(
     counts = patch_mask.sum(dim=1)
     max_count = int(counts.max().item())
     if pad_to_multiple is not None:
-        max_count = (
-            (max_count + pad_to_multiple - 1) // pad_to_multiple * pad_to_multiple
-        )
+        max_count = (max_count + pad_to_multiple - 1) // pad_to_multiple * pad_to_multiple
 
     patch_ids = torch.zeros((B, max_count), dtype=torch.long, device=device)
     token_mask = torch.arange(max_count, device=device).unsqueeze(0) < counts.unsqueeze(1)
