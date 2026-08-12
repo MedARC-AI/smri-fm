@@ -48,7 +48,7 @@ class Config:
     output_root: str = "output/fomo_tune"
     name: str = "task2"
     inverse_reg: float = 1.0
-    largest_component: bool = False
+    largest_component: bool = True
     device: str = "cuda"
     seed: int = 4466
 
