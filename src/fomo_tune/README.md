@@ -26,6 +26,10 @@ unzip 'data/fomo_eval/*.zip' -d data/fomo_eval/
 
 > nb, on the cluster these data are at `/data/smri-datasets/fomo_eval/`.
 
+Checkpoints and run dirs go to [`medarc/walnut`](https://huggingface.co/medarc/walnut):
+`checkpoints/<run>/` for pretraining, which is what the default `ckpt_path` resolves to, and
+`finetune/<experiment>/` mirroring `experiments/<name>/`, whose outputs are gitignored here.
+
 ## Run
 
 ```bash
@@ -69,6 +73,42 @@ uv run python third_party/container-validator/container_validator/validate.py \
 | 4 trigeminal | 40 | t2w | mask, labels 1=nerve 2=vessel | — | tabled |
 | 5 polymicrogyria | 48 | t1w | probability | 20-fold | done |
 | 6+7 probing, fairness | — | one image, any modality | 1024-d embedding `.npy` | — | drafted — no labels and no head, so `export` in place of `train` |
+
+## Leaderboard
+
+### Task 1 — infarct, AUROC, LOO over 21
+
+| Run | AUROC | 95% CI | Time | Git | Notes |
+|---|---|---|---|---|---|
+| baseline | 0.990 | 0.944 – 1.000 | 11s | `1df2e5d`† | dwi_b1000 only, `LogisticRegressionCV` |
+
+### Task 2 — meningioma, Dice, LOO over 23
+
+| Run | Dice | 95% CI | Oracle | Time | Git | Notes |
+|---|---|---|---|---|---|---|
+| baseline | 0.195 | 0.098 – 0.303 | 0.271 | 174s | `7d13f45` | flair only, largest-component filter, threshold 0.011 |
+| no largest component | 0.170 | 0.082 – 0.266 | 0.226 | 132s | `7508a46`-dirty | threshold 0.085 |
+
+Oracle is the per-subject best threshold — the ceiling any thresholding rule could reach.
+
+### Task 3 — brain age, 20-fold over 494
+
+| Run | Pearson r | 95% CI | MAE (y) | 95% CI | Time | Git | Notes |
+|---|---|---|---|---|---|---|---|
+| baseline | 0.963 | 0.957 – 0.969 | 3.69 | 3.45 – 3.95 | 306s | `1df2e5d`† | t1w, `RidgeCV` head |
+
+### Task 5 — polymicrogyria, AUROC, 20-fold over 48
+
+| Run | AUROC | 95% CI | Time | Git | Notes |
+|---|---|---|---|---|---|
+| baseline | 0.984 | 0.953 – 1.000 | 68s | `1df2e5d`† | t1w, `LogisticRegressionCV` |
+
+Shas marked † predate this branch split.
+
+### Tasks 6 and 7 — embeddings
+
+No local metric: the challenge withholds the labels and fits its own probes. The evidence the
+embedding carries signal is the three tables above, which score the same pooled vector.
 
 ## Gotchas
 
