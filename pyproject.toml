@@ -38,6 +38,8 @@ dependencies = [
     "webdataset",
     "asparagus",
     "asparagus_preprocessing",
+    "fastcore",
+    "fasttransform"
 ]
 
 [tool.uv.sources]
