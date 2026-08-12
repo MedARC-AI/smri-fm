@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 
 import torch
+from huggingface_hub import hf_hub_download
 from omegaconf import OmegaConf
 
 HERE = Path(__file__).parent
@@ -55,12 +56,20 @@ def main() -> None:
     shutil.copy(HERE / "Apptainer.def", stage / "Apptainer.def")
     (stage / "predict.py").write_text(PREDICT_SHIM.format(module=f"main_{cfg.task}"))
 
+    path = cfg.ckpt_path
+    if path.startswith("hf://"):
+        org, repo, *rest = path.removeprefix("hf://").split("/")
+        path = hf_hub_download(f"{org}/{repo}", "/".join(rest))
+
     # three quarters of the 3.9G checkpoint is optimizer state that inference never reads
-    ckpt = torch.load(cfg.ckpt_path, map_location="cpu", weights_only=True, mmap=True)
+    ckpt = torch.load(path, map_location="cpu", weights_only=True, mmap=True)
     torch.save({"model": ckpt["model"], "args": ckpt["args"]}, stage / "model" / "backbone.pth")
 
     build = ["apptainer", "build", "--fakeroot", "--force", str(sif.resolve()), "Apptainer.def"]
     subprocess.run(build, cwd=stage, check=True)
+
+    # a gigabyte of it is the trimmed checkpoint, and a failed build leaves it for inspection
+    shutil.rmtree(stage)
     print(f"built {sif}")
 
 
