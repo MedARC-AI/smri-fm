@@ -28,7 +28,7 @@ from PIL import Image
 from matplotlib import pyplot as plt
 from torch import Tensor
 
-import data.mri_data as mri_data
+import smri_mae.mri_data as mri_data
 import smri_mae.model_mae as models_mae
 import smri_mae.utils as ut
 import smri_mae.visualization as vis

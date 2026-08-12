@@ -9,7 +9,6 @@ description = "MedARC sMRI foundation model"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
-    "antspyx",
     "braceexpand",
     "datasets",
     "einops",
@@ -25,6 +24,7 @@ dependencies = [
     "pre-commit",
     "pytest",
     "pyyaml",
+    "s3fs",
     "scikit-learn",
     "scipy",
     "seaborn",
@@ -36,23 +36,8 @@ dependencies = [
     "tqdm",
     "wandb",
     "webdataset",
-    "asparagus",
-    "asparagus_preprocessing",
 ]
 
-[tool.uv.sources]
-asparagus = { path = "third_party/asparagus", editable = true }
-asparagus_preprocessing = { path = "third_party/asparagus_preprocessing", editable = true }
-
-[tool.uv]
-override-dependencies = [
-    "torch==2.8.0",
-    "torchvision==0.23.0",
-    "huggingface-hub<1.0",
-]
-
-[tool.setuptools.packages.find]
-where = ["src"]
 
 [tool.setuptools_scm]
 version_file = "src/_version.py"
