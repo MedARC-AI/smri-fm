@@ -68,6 +68,7 @@ uv run python third_party/container-validator/container_validator/validate.py \
 | 3 brain age | 494 | t1w | age in years | 20-fold | done — RidgeCV head, **Pearson r and MAE**, each with its own bootstrap CI |
 | 4 trigeminal | 40 | t2w | mask, labels 1=nerve 2=vessel | — | tabled |
 | 5 polymicrogyria | 48 | t1w | probability | 20-fold | done |
+| 6+7 probing, fairness | — | one image, any modality | 1024-d embedding `.npy` | — | drafted — no labels and no head, so `export` in place of `train` |
 
 ## Gotchas
 
