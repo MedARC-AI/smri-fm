@@ -44,11 +44,12 @@ class Unwrap(Transform):
         return Nifti1Image(x.numpy(), self.affine)
 
 class ToZXY(Transform):
-    'Transpose (X,Y,Z) -> (Z,Y,X) C-order'
+    'Transpose (X,Y,Z) -> (Z,Y,X)'
     def encodes(self, x:Tensor): return x.permute(2,1,0).contiguous()
     def decodes(self, x:Tensor): return x.permute(2,1,0).contiguous()
 
 class CenterPad(Transform):
+    'Pad to at least `tgt_shape`. `crop=True`, forces size to exactly `tgt_shape`.'
     def __init__(self, tgt_shape, crop=False): store_attr()
     def _padcrop(self, x, tgt, crop):
         pads = []
