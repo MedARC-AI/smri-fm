@@ -43,9 +43,7 @@ Images = dict[str, nib.Nifti1Image]
 @dataclass
 class Config:
     task: str = "task2"
-    ckpt_path: str = (
-        "/data/mihir-stuff/smri-pretrained/pretrain_full_90_10_h100/checkpoint-last.pth"
-    )
+    ckpt_path: str = "hf://medarc/walnut/checkpoints/pretrain_full_90_10_h100/checkpoint-last.pth"
     modality: str = "flair"
     output_root: str = "output/fomo_tune"
     name: str = "task2"

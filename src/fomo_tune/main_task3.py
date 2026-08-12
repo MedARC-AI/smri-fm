@@ -37,9 +37,7 @@ Images = dict[str, nib.Nifti1Image]
 @dataclass
 class Config:
     task: str = "task3"
-    ckpt_path: str = (
-        "/data/mihir-stuff/smri-pretrained/pretrain_full_90_10_h100/checkpoint-last.pth"
-    )
+    ckpt_path: str = "hf://medarc/walnut/checkpoints/pretrain_full_90_10_h100/checkpoint-last.pth"
     output_root: str = "output/fomo_tune"
     name: str = "task3"
     device: str = "cuda"
