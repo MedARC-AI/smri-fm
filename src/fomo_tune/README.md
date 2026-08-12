@@ -6,7 +6,7 @@ The five FOMO26 challenge tasks, one script each, tuned independently.
 
 | File | |
 |---|---|
-| `main_task<k>.py` |  One task, end to end. Each has a **frozen** "protocol" section. Anything outside of the protocol is fair game. |
+| `main_task<k>.py` | One task, end to end. Each has a **frozen** "protocol" section. Anything outside of the protocol is fair game. |
 | `datasets.py` | **frozen**. One `load_fomo_task<k>()` per task, streaming the challenge zips into an HF dataset. Raw niftis, no resampling — the backbone transform does that. |
 | `backbone.py` | **frozen**. Frozen sMRI MAE encoder; the transform canonicalizes to RAS, rescales to 1mm, fits to the pretraining shape, z-scores in a mean-threshold brain mask. |
 | `utils.py` | **frozen**. Seeding, git sha, logging. |
@@ -17,10 +17,9 @@ The five FOMO26 challenge tasks, one script each, tuned independently.
 Download the FOMO eval data for local exploration
 
 ```bash
-mkdir data
 uvx hf download medarc/smri-fm \
     --include 'fomo_eval/*' \
-    --local-dir ./data/fomo_eval \
+    --local-dir ./data \
     --repo-type dataset
 unzip 'data/fomo_eval/*.zip' -d data/fomo_eval/
 ```
@@ -72,9 +71,9 @@ uv run python third_party/container-validator/container_validator/validate.py \
 
 ## Gotchas
 
-**Volumes are wildly anisotropic.** Task 1's DWI is 0.46×0.46×**5.6**mm, so the transform
-upsamples z by 5.6× to reach 1mm iso. Nothing is wrong, but don't read the 1mm grid as real
-resolution.
+**Volumes are wildly anisotropic.** Task 1's in-plane spacing runs 0.44–0.90mm against a slice
+thickness of **5.2–7.2**mm (median 6.5), so the transform upsamples z by ~6× to reach 1mm iso.
+Nothing is wrong, but don't read the 1mm grid as real resolution.
 
 **The backbone never saw skull or neck.** Pretraining used a SynthSeg brain mask; the transform
 substitutes a mean-intensity threshold, which keeps both.
@@ -84,4 +83,4 @@ hard; task 1's out-of-fold probabilities all land in 0.48–0.52 with near-perfe
 AUROC, which is what the challenge scores, but don't read them as probabilities. Task 5's do span
 0–1, which is n=48 rather than n=21 and not evidence of calibration.
 
-**n is tiny.** Task 1's is ~0.06 wide at the top of the range. Most tuning deltas you chase will be inside it.
+**n is tiny.** Task 1's AUROC CI is ~0.06 wide at the top of the range. Most tuning deltas you chase will be inside it.

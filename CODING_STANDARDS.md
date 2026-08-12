@@ -91,7 +91,7 @@ ML code fails silently. So we need to be very careful, to the point of paranoia,
 
 ## Git
 
-Use concise commit messages. Detailed rationale and history notes go in `.claude/memory/`. For initial development, commit directly to main. Once the codebase is built out, use trunk-based branching off of main. Experimental branches should make minimal additions and *zero* deletions on the stable core. Fixes to the stable core should be rare, and should be made in short-lived branches that are merged quickly to main. The main branch should always run, and should contain the minimal baseline starting point for new experimental branches. Experimental branches are not expected to be merged to main. If an experimental branch is promising, it can be used as a starting point for further experiments.
+Use concise commit messages. Detailed rationale and history notes go in your memory. For initial development, commit directly to main. Once the codebase is built out, use trunk-based branching off of main. Experimental branches should make minimal additions and *zero* deletions on the stable core. Fixes to the stable core should be rare, and should be made in short-lived branches that are merged quickly to main. The main branch should always run, and should contain the minimal baseline starting point for new experimental branches. Experimental branches are not expected to be merged to main. If an experimental branch is promising, it can be used as a starting point for further experiments.
 
 ## Tools
 
