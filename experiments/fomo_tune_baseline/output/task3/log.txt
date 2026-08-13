@@ -1,0 +1,30 @@
+16:34:12 run task3 (git 1df2e5d)
+16:34:12 config:
+task: task3
+ckpt_path: /data/mihir-stuff/smri-pretrained/pretrain_full_90_10_h100/checkpoint-last.pth
+output_root: experiments/fomo_tune_baseline/output
+name: task3
+device: cuda
+seed: 4466
+16:35:16 dataset: 494 subjects, age 19-80 mean 45.2
+16:38:39 fold 1/20 n=25 mae=3.91 (190s)
+16:38:51 fold 2/20 n=25 mae=4.50 (202s)
+16:38:57 fold 3/20 n=25 mae=3.74 (208s)
+16:39:03 fold 4/20 n=25 mae=3.58 (214s)
+16:39:09 fold 5/20 n=25 mae=3.57 (220s)
+16:39:14 fold 6/20 n=25 mae=3.12 (226s)
+16:39:20 fold 7/20 n=25 mae=3.42 (232s)
+16:39:26 fold 8/20 n=25 mae=3.12 (238s)
+16:39:32 fold 9/20 n=25 mae=3.74 (244s)
+16:39:38 fold 10/20 n=25 mae=4.20 (249s)
+16:39:44 fold 11/20 n=25 mae=3.22 (255s)
+16:39:50 fold 12/20 n=25 mae=3.50 (261s)
+16:39:55 fold 13/20 n=25 mae=3.39 (267s)
+16:40:01 fold 14/20 n=25 mae=4.17 (273s)
+16:40:07 fold 15/20 n=24 mae=4.36 (278s)
+16:40:12 fold 16/20 n=24 mae=4.15 (284s)
+16:40:18 fold 17/20 n=24 mae=3.66 (289s)
+16:40:23 fold 18/20 n=24 mae=3.54 (295s)
+16:40:29 fold 19/20 n=24 mae=3.42 (300s)
+16:40:34 fold 20/20 n=24 mae=3.53 (306s)
+16:40:35 result: pearson_r=0.9631  pearson_r_ci_low=0.9567  pearson_r_ci_high=0.9687  mae=3.6910  mae_ci_low=3.4464  mae_ci_high=3.9466  (306s)

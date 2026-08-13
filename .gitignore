@@ -25,13 +25,20 @@ uv.lock
 
 # Local data directories
 /data/
+
+# Large files
 *.pth
 *.mds
+*.npz
+*.sif
+*.joblib
 
-# Output directories
-checkpoints/
-output
-wandb/
+# Output directories.
+# An experiment's run dirs keep their text record -- the 5G .sif, the fitted
+# head and the copied build tree stay out.
+/checkpoints/
+/output/
+/wandb/
 
 # Local scratch/tmp
 .scratch
@@ -47,5 +54,6 @@ CLAUDE.md
 .DS_Store
 
 # Slurm outputs
+slurms/
 *.out
 *.err

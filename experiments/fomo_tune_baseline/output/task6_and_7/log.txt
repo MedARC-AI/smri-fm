@@ -1,0 +1,8 @@
+22:33:06 run task6_and_7 (git 7d13f45)
+22:33:06 config:
+task: task6_and_7
+ckpt_path: hf://medarc/walnut/checkpoints/pretrain_full_90_10_h100/checkpoint-last.pth
+output_root: experiments/fomo_tune_baseline/output
+name: task6_and_7
+device: cpu
+22:33:09 embedding dim 1024

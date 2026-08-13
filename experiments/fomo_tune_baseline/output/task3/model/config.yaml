@@ -1,0 +1,6 @@
+task: task3
+ckpt_path: /data/mihir-stuff/smri-pretrained/pretrain_full_90_10_h100/checkpoint-last.pth
+output_root: experiments/fomo_tune_baseline/output
+name: task3
+device: cuda
+seed: 4466

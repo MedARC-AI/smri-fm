@@ -1,0 +1,8 @@
+task: task1
+ckpt_path: /data/mihir-stuff/smri-pretrained/pretrain_full_90_10_h100/checkpoint-last.pth
+modalities:
+- dwi_b1000
+output_root: experiments/fomo_tune_baseline/output
+name: task1
+device: cuda
+seed: 4466

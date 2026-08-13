@@ -1,0 +1,5 @@
+task: task6_and_7
+ckpt_path: hf://medarc/walnut/checkpoints/pretrain_full_90_10_h100/checkpoint-last.pth
+output_root: experiments/fomo_tune_baseline/output
+name: task6_and_7
+device: cpu

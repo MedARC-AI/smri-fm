@@ -1,0 +1,33 @@
+16:31:38 run task1 (git 1df2e5d)
+16:31:38 config:
+task: task1
+ckpt_path: /data/mihir-stuff/smri-pretrained/pretrain_full_90_10_h100/checkpoint-last.pth
+modalities:
+- dwi_b1000
+output_root: experiments/fomo_tune_baseline/output
+name: task1
+device: cuda
+seed: 4466
+16:31:40 dataset: 21 subjects, 13 positive
+16:31:48 fold 1/21 sub-01 y=1 p=0.512 (4s)
+16:31:49 fold 2/21 sub-02 y=1 p=0.514 (4s)
+16:31:49 fold 3/21 sub-03 y=0 p=0.486 (5s)
+16:31:49 fold 4/21 sub-04 y=1 p=0.499 (5s)
+16:31:50 fold 5/21 sub-05 y=1 p=0.507 (5s)
+16:31:50 fold 6/21 sub-06 y=1 p=0.493 (6s)
+16:31:50 fold 7/21 sub-07 y=0 p=0.489 (6s)
+16:31:51 fold 8/21 sub-08 y=0 p=0.490 (6s)
+16:31:51 fold 9/21 sub-09 y=1 p=0.523 (7s)
+16:31:52 fold 10/21 sub-10 y=1 p=0.525 (7s)
+16:31:52 fold 11/21 sub-11 y=0 p=0.479 (7s)
+16:31:52 fold 12/21 sub-12 y=0 p=0.474 (8s)
+16:31:53 fold 13/21 sub-13 y=1 p=0.516 (8s)
+16:31:53 fold 14/21 sub-14 y=1 p=0.536 (9s)
+16:31:53 fold 15/21 sub-15 y=0 p=0.486 (9s)
+16:31:54 fold 16/21 sub-16 y=0 p=0.482 (9s)
+16:31:54 fold 17/21 sub-17 y=1 p=0.520 (10s)
+16:31:54 fold 18/21 sub-18 y=1 p=0.518 (10s)
+16:31:55 fold 19/21 sub-19 y=1 p=0.520 (10s)
+16:31:55 fold 20/21 sub-20 y=1 p=0.519 (11s)
+16:31:56 fold 21/21 sub-21 y=0 p=0.498 (11s)
+16:31:57 result: auroc=0.9904  auroc_ci_low=0.9444  auroc_ci_high=1.0000  (11s)
