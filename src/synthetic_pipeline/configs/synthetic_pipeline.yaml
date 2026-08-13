@@ -1,0 +1,49 @@
+# Replace these paths before running the pipeline.
+generator_backend: nv_generate_ctmr
+generator_repo: /admin/home/luka.secerovic/code/NV-Generate-CTMR
+output_dir: /data/luka.secerovic/synthetic_mri_pipeline
+
+# num_images is per selected target. The single target below produces 20 images.
+# For WaveDiT, num_images is the total number of images across all ages.
+num_images: 20
+random_seed: 1234
+num_gpus: 1
+output_size: null
+
+targets:
+  conditions: [whole_brain]
+  modalities: [mri_t1]
+  planes: [axial]
+
+qc:
+  mode: direct_synthseg
+  # SynthSeg QC runs for every image. null records scores without filtering.
+  threshold: null
+  metric: min
+  synthseg_cmd: "uvx --python 3.11 --from 'git+https://github.com/MedARC-AI/SynthSeg.git' SynthSeg"
+  threads: 8
+  cpu: false
+
+push_to_hf:
+  # enabled: upload QC-accepted outputs to Hugging Face after the pipeline finishes.
+  enabled: false
+  # repo_id: target dataset repo, for example "username/synthetic-mri". Required when enabled.
+  repo_id: null
+  # private: visibility used when creating a new dataset repo. Existing repos keep current visibility.
+  private: true
+  # allow_overwrite: if false, publishing fails when a remote file path already exists.
+  allow_overwrite: false
+
+# For generator_backend: wavedit, set generator_repo to a WaveDiT checkout.
+# wavedit:
+#   ages: [6, 18, 30, 45, 60, 75, 90]
+#   checkpoint_path: null
+#   checkpoint_repo: danesed/WaveDiT
+#   checkpoint_filename: WaveDiT-Base.pth
+#   checkpoint_revision: main
+#   num_flow_steps: 10
+#   sampler: heun
+#   cfg_scale: 1.0
+#   cfg_rescale: 0.7
+#   morpheus_scale: null
+#   device: cuda
