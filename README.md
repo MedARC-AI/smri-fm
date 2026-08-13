@@ -5,6 +5,8 @@
 Open research project building a structural MRI foundation model, targeting
 the [FOMO26](https://fomo26.github.io/) challenge.
 
+For the final FOMO26 push, we are working exclusively in [`src/fomo_tune/`](src/fomo_tune/).
+
 ## Installation
 
 ```bash

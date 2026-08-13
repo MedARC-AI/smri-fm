@@ -14,7 +14,8 @@ The five FOMO26 challenge tasks, one script each, tuned independently.
 
 ## Pre-requisites
 
-Download the FOMO eval data for local exploration
+If on MedARC cluster, we already downloaded FOMO eval data to `/data/smri-datasets/fomo_eval/`.
+If not on MedARC cluster, download FOMO eval data like so:
 
 ```bash
 uvx hf download medarc/smri-fm \
@@ -24,11 +25,10 @@ uvx hf download medarc/smri-fm \
 unzip 'data/fomo_eval/*.zip' -d data/fomo_eval/
 ```
 
-> nb, on the cluster these data are at `/data/smri-datasets/fomo_eval/`.
-
-Checkpoints and run dirs go to [`medarc/walnut`](https://huggingface.co/medarc/walnut):
-`checkpoints/<run>/` for pretraining, which is what the default `ckpt_path` resolves to, and
+Checkpoints and run dirs are being shared at [`medarc/walnut`](https://huggingface.co/medarc/walnut):
+`checkpoints/<run>/` for pretraining and
 `finetune/<experiment>/` mirroring `experiments/<name>/`, whose outputs are gitignored here.
+Our scripts default to working off of Mihir's pretrained checkpoint: [`mihirneal/smri-fm@35ef89d`](https://github.com/mihirneal/smri-fm/commit/35ef89df797e0086f6cc8f5f6b9c195ae3595690). We encourage everyone to use this checkpoint rather than pretraining your own foundation models.
 
 ## Run
 
@@ -44,6 +44,10 @@ uv run python -m fomo_tune.main_task1 predict \
 
 ## Submit
 
+Let Connor handle building & submitting containers to FOMO! You can ignore this section.
+
+Containers are how we need to package our attempts for official submissions to FOMO.
+
 Make sure you have [apptainer](https://apptainer.org/docs/admin/main/installation.html#install-from-pre-built-packages) installed.
 
 `build.py` packages a run dir into the `.sif` the challenge wants:
@@ -51,8 +55,6 @@ Make sure you have [apptainer](https://apptainer.org/docs/admin/main/installatio
 ```bash
 uv run python -m fomo_tune.build output/fomo_tune/task1
 ```
-
-> nb, this is just for reference. you probably don't need to worry about building the containers.
 
 ### Validating
 
