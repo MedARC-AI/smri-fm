@@ -193,6 +193,13 @@ def train(args: argparse.Namespace) -> None:
     method.fit(rows)
     method.save(run_dir / "model")
 
+    # per subject, so a run can be audited afterwards without re-running the folds
+    predictions = ["subject\tage\tpred"]
+    predictions += [
+        f"{row['subject']}\t{age:.0f}\t{pred:.3f}" for row, age, pred in zip(rows, y, oof)
+    ]
+    (run_dir / "oof.tsv").write_text("\n".join(predictions) + "\n")
+
     record = {"name": cfg.name, **summary, "run_time": round(run_time, 1)}
     (run_dir / "metrics.json").write_text(json.dumps(record) + "\n")
     scores = "  ".join(f"{k}={v:.4f}" for k, v in summary.items())
