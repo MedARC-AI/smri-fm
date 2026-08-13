@@ -29,7 +29,7 @@ Checkpoints and run dirs are being shared at [`medarc/walnut`](https://huggingfa
 `checkpoints/<run>/` for pretraining and
 `finetune/<experiment>/` mirroring `experiments/<name>/`, whose outputs are gitignored here.
 
-Our scripts default to Mihir’s foundation model checkpoint, [trained from his fork at this commit](https://github.com/mihirneal/smri-fm/tree/35ef89df797e0086f6cc8f5f6b9c195ae3595690). We encourage everyone to use Mihir's checkpoint rather than pretraining your own foundation model.
+We encourage everyone to use our default pretrained checkpoint from Mihir rather than pretraining your own foundation model.
 
 ## Run
 
