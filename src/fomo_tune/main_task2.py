@@ -38,14 +38,12 @@ from fomo_tune.utils import git_sha, set_seed, setup_logging
 logger = logging.getLogger("fomo_tune")
 
 Images = dict[str, nib.Nifti1Image]
-LOCAL_CKPT = "/data/mihir-stuff/smri-pretrained/pretrain_full_90_10_h100/checkpoint-last.pth"
-HF_CKPT = "hf://medarc/walnut/checkpoints/pretrain_full_90_10_h100/checkpoint-last.pth"
 
 
 @dataclass
 class Config:
     task: str = "task2"
-    ckpt_path: str = LOCAL_CKPT if Path(LOCAL_CKPT).exists() else HF_CKPT
+    ckpt_path: str = "hf://medarc/walnut/checkpoints/pretrain_full_90_10_h100/checkpoint-last.pth"
     modality: str = "flair"
     output_root: str = "output/fomo_tune"
     name: str = "task2"
