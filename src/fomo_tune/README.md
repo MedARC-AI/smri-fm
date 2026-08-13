@@ -1,6 +1,6 @@
 # fomo_tune
 
-The five FOMO26 challenge tasks, one script each, tuned independently.
+The FOMO26 challenge tasks, one script each, tuned independently.
 
 ## Layout
 
@@ -12,24 +12,23 @@ The five FOMO26 challenge tasks, one script each, tuned independently.
 | `utils.py` | **frozen**. Seeding, git sha, logging. |
 | `build.py` + `Apptainer.def` | **frozen**. Package a run dir into the challenge `.sif`. Shared by every task. |
 
+## Pretrained model
+
+The pretrained model is a ViT-L MAE trained on 208x240x208 1mm volumes with patch size 8 and mask ratio 0.8. The checkpoints with original configs are on huggingface at [`medarc/walnut`](https://huggingface.co/medarc/walnut/tree/main/checkpoints). Our default checkpoint is from the [`pretrain_full_90_10_h100`](https://huggingface.co/medarc/walnut/tree/main/checkpoints/pretrain_full_90_10_h100) run ([`mihirneal/35ef89d`](https://github.com/mihirneal/smri-fm/tree/35ef89df797e0086f6cc8f5f6b9c195ae3595690)), which was trained on [FOMO300K](https://huggingface.co/datasets/FOMO-MRI/FOMO300K/tree/main) webdataset shards.
+
+**The pretrained model is considered frozen. No new pretrain checkpoints will be accepted for the challenge.**
+
 ## Pre-requisites
 
-If on MedARC cluster, we already downloaded FOMO eval data to `/data/smri-datasets/fomo_eval/`.
-If not on MedARC cluster, download FOMO eval data like so:
+If you are on the MedARC cluster, setup your environment to use the shared huggingface cache.
 
 ```bash
-uvx hf download medarc/smri-fm \
-    --include 'fomo_eval/*' \
-    --local-dir ./data \
-    --repo-type dataset
-unzip 'data/fomo_eval/*.zip' -d data/fomo_eval/
+export HF_HOME="/data/smri-datasets/huggingface"
 ```
 
-Checkpoints and run dirs are being shared at [`medarc/walnut`](https://huggingface.co/medarc/walnut):
-`checkpoints/<run>/` for pretraining and
-`finetune/<experiment>/` mirroring `experiments/<name>/`, whose outputs are gitignored here.
+This will save re-downloading the datasets and checkpoint weights.
 
-We encourage everyone to use our default pretrained checkpoint from Mihir rather than pretraining your own foundation model.
+You can also use the data in `/data/smri-datasets` for one-off exploration. If you're not on the cluster, you can use data at [`medarc/smri-fm`](https://huggingface.co/datasets/medarc/smri-fm).
 
 ## Run
 
@@ -45,13 +44,10 @@ uv run python -m fomo_tune.main_task1 predict \
 
 ## Submit
 
-Let Connor handle building & submitting containers to FOMO! You can ignore this section.
+> Nb: @clane9 will handle final build and submission to FOMO! You can ignore this section.
 
-Containers are how we need to package our attempts for official submissions to FOMO.
 
-Make sure you have [apptainer](https://apptainer.org/docs/admin/main/installation.html#install-from-pre-built-packages) installed.
-
-`build.py` packages a run dir into the `.sif` the challenge wants:
+Challenge submission requires building an [Apptainer](https://apptainer.org/) container image (credit: @UmerHA for working on this).
 
 ```bash
 uv run python -m fomo_tune.build output/fomo_tune/task1
