@@ -28,7 +28,8 @@ unzip 'data/fomo_eval/*.zip' -d data/fomo_eval/
 Checkpoints and run dirs are being shared at [`medarc/walnut`](https://huggingface.co/medarc/walnut):
 `checkpoints/<run>/` for pretraining and
 `finetune/<experiment>/` mirroring `experiments/<name>/`, whose outputs are gitignored here.
-Our scripts default to working off of Mihir's pretrained checkpoint: [`mihirneal/smri-fm@35ef89d`](https://github.com/mihirneal/smri-fm/commit/35ef89df797e0086f6cc8f5f6b9c195ae3595690). We encourage everyone to use this checkpoint rather than pretraining your own foundation models.
+
+Our scripts default to Mihir’s foundation model checkpoint, [trained from his fork at this commit](https://github.com/mihirneal/smri-fm/tree/35ef89df797e0086f6cc8f5f6b9c195ae3595690). We encourage everyone to use Mihir's checkpoint rather than pretraining your own foundation model.
 
 ## Run
 
