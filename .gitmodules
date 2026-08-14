@@ -1,3 +1,6 @@
 [submodule "third_party/container-validator"]
 	path = third_party/container-validator
 	url = https://github.com/fomo26/container-validator.git
+[submodule "third_party/SynthSeg"]
+	path = third_party/SynthSeg
+	url = git@github.com:MedARC-AI/SynthSeg.git
