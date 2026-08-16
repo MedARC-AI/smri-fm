@@ -68,7 +68,7 @@ uv run python third_party/container-validator/container_validator/validate.py \
 |---|---|---|---|---|---|
 | 1 infarct | 21 | adc, dwi_b1000, flair (+t2s/swi) | probability | LOO | done |
 | 2 meningioma | 23 | dwi_b1000, flair (+t2s/swi) | mask, input grid | LOO | drafted — flair only, per-subject **Dice** |
-| 3 brain age | 494 | t1w | age in years | 20-fold | done — RidgeCV head, **Pearson r and MAE**, each with its own bootstrap CI |
+| 3 brain age | 494 | t1w | age in years | external DLBS | fit on all supplied SALD; track **Pearson r and MAE** |
 | 4 trigeminal | 40 | t2w | mask, labels 1=nerve 2=vessel | — | tabled |
 | 5 polymicrogyria | 48 | t1w | probability | 20-fold | done |
 | 6+7 probing, fairness | — | one image, any modality | 1024-d embedding `.npy` | — | drafted — no labels and no head, so `export` in place of `train` |
@@ -92,12 +92,17 @@ uv run python third_party/container-validator/container_validator/validate.py \
 
 Oracle is the per-subject best threshold — the ceiling any thresholding rule could reach.
 
-### Task 3 — brain age, 20-fold over 494
+### Task 3 — brain age, external DLBS development test, 128 subjects
 
-| Run | Pearson r | 95% CI | MAE (y) | 95% CI | Time | Git | Notes |
-|---|---|---|---|---|---|---|---|
-| baseline | 0.963 | 0.957 – 0.969 | 3.69 | 3.45 – 3.95 | 306s | `1df2e5d`† | t1w, `RidgeCV` head |
-| walnut-v0.1 | 0.968 | 0.963 – 0.972 | 3.50 | 3.29 – 3.74 | 261s | `ead1264` | vitl/sub-52k checkpoint, baseline otherwise |
+Fit on all 494 supplied SALD subjects and evaluate Task 3 changes with Pearson r and MAE on the
+fixed augmented DLBS test in `experiments/fomo_task3_ood`. DLBS is evaluation-only and must not
+influence submitted model weights, calibration, or ensemble weights.
+
+| Run | Pearson r | MAE (y) | Time | Git | Notes |
+|---|---:|---:|---:|---|---|
+| walnut-v0.1 | 0.536 | 13.91 | 250s | PR #39 | current `RidgeCV` head |
+| + heavy SALD augmentation | 0.868 | 7.24 | — | — | local fitting experiment |
+| + age-balanced fitting | **0.878** | **7.01** | — | — | local fitting experiment |
 
 ### Task 5 — polymicrogyria, AUROC, 20-fold over 48
 
