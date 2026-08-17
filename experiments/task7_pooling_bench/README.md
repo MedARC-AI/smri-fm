@@ -85,49 +85,79 @@ uses. It is a proxy — task 3 is regression where the challenge probes
 classification, and these are not the eval set's bins. Read it for ranking and
 large effects, not third decimals.
 
-## What is established so far
+## Result
 
-**Simulation, against a faithful copy of the challenge probe** (multi-head SGD,
-lr sweep, val selection, 20 epochs), 60 paired seeds at D=1024, n_train=80/class:
+Run on walnut-v0.1 vitl/sub-52k over task 3's 494 subjects, 87 variants, one
+A100, about eight minutes to encode.
 
-| transform | disparity vs raw | probe macro F1 vs raw |
-|---|---|---|
-| PCA 256 | +0.000 [-0.016, +0.017] | +0.003 [-0.004, +0.010] |
-| PCA 128 | **-0.023 [-0.039, -0.006]** | **+0.034 [+0.025, +0.042]** |
+**Keep `mean` + `identity`. Nothing earned a submission slot.**
 
-Both CIs exclude zero only at 128. So the mechanism is real and moves tasks 6
-and 7 the same way, but it needs aggressive reduction and the effect is modest.
+The harness reproduces the team's own number exactly, which is what makes the
+rest of the table worth reading: `mean` + `identity` gives MAE 3.505 and
+r 0.9680 against the committed `fomo_tune_walnut_v0_1` values of 3.505 and
+0.9680, on the same 494 ages.
 
-An earlier version of this table showed a far larger effect. That was an
-artifact of standing in for the probe with unregularised sklearn logistic
-regression, which collapses in p>>n where their SGD-plus-val-selection probe
-does not. The number above is the corrected one.
+Paired against the incumbent on the same subjects and folds, 4000 bootstrap
+resamples:
 
-**This is simulation, not evidence about the walnut embeddings.** It assumes the
-dominant variance directions carry no class signal. In the sandbox, where the
-planted signal *is* in the top components, `drop_top` variants destroy the task
-(r goes negative). Which case the real encoder is in is exactly what the bench
-settles, and it is why `drop_top` is in the grid rather than in the submission.
+| pooling | transform | dMAE | 95% CI | dspread | 95% CI |
+|---|---|---|---|---|---|
+| logsumexp_t1 | identity | -0.004 | [-0.021, +0.012] | -0.01 | [-0.14, +0.06] |
+| mean | l2 | -0.004 | [-0.010, +0.003] | -0.00 | [-0.02, +0.04] |
+| mean | pca_128 | **+0.289** | [+0.138, +0.448] | -0.28 | [-1.19, +0.38] |
+| mean_topk_p05 | pca_256 | **+0.449** | [+0.254, +0.646] | -0.38 | [-1.58, +0.34] |
+| mean | pca_128_drop2 | **+7.592** | [+7.043, +8.144] | **+7.70** | [+5.53, +11.06] |
 
-**Age bias in the current submission, from the committed walnut-v0.1 task 3
-predictions** (`experiments/fomo_tune_walnut_v0_1/output/task3/preds.json`):
+**0 of 87 beat the incumbent, and no spread interval excludes zero.** Three
+variants tie, none win. Every dimensionality reduction costs real MAE for a
+spread change that is indistinguishable from noise, which is the tradeoff this
+bench existed to measure rather than assume.
 
-| age bin | n | MAE | mean signed error |
-|---|---|---|---|
-| <=25 | 128 | 2.99 | +1.08 |
-| 26-50 | 142 | 3.54 | +0.39 |
-| 51-75 | 214 | 3.66 | -0.73 |
-| 76+ | 10 | 6.29 | -4.89 |
+### The post-transform idea is refuted
 
-Spread 3.30y, 95% CI [1.17, 5.54]. Residual against chronological age is
-r = -0.234, p = 1.5e-07 over all 494, so this is the standard brain-age
-regression to the mean, not the n=10 bin alone.
+Removing leading principal components destroys the task: MAE goes 3.51 to 11.1
+and r goes 0.968 to 0.70 at `drop_top=2`, worse at 5. So the top variance
+directions of this encoder **carry the age signal**, they are not the nuisance
+directions that all-but-the-top removes in the NLP setting the idea came from.
+That was the stated risk when the axis was proposed, and it is now settled on
+real features rather than argued.
 
-**The obvious fix does not work.** Out-of-fold Beheshti/de Lange age-bias
-correction, fitted per fold so no test subject's chronological age is used:
-MAE +0.137y [+0.050, +0.227] (significantly worse) for a spread change of
--0.79y [-1.69, +0.39] (not significant). Not worth a submission slot. Recorded
-so nobody spends a day rediscovering it.
+PCA without dropping is milder but still costs MAE for nothing measurable, so
+the whole second axis comes back negative. Worth knowing: it is the kind of
+plausible, literature-backed move that would have looked reasonable in a
+submission and cost accuracy for no fairness gain.
+
+### What did not move
+
+Order statistics lose to the mean on this task, which is consistent with brain
+age being a global property rather than a focal one. `max` and
+`topk_mean_p01` are the worst non-degenerate variants at MAE 6.13 and 4.52.
+That is not evidence about task 1, where the signal is one small infarct and
+the argument for keeping the peak is much stronger.
+
+### Caveats
+
+This is task 3 regression standing in for a classification probe the challenge
+runs on withheld labels, and these are the local cohort's age bins, not the
+eval set's. It ranks candidates and catches large effects. It cannot tell you
+the actual task 6 or 7 score.
+
+`MIN_BIN_N=12` drops the 76+ bin at n=10, so the spread column here is over
+three bins and reads 0.68 where the same predictions across all four bins give
+3.30. The exclusion is deliberate, since at n=10 the bin is mostly sampling
+noise, but the two numbers are not comparable.
+
+### Age bias in the shipped model, unchanged by any of this
+
+From the committed walnut task 3 predictions, per age bin MAE is 2.99, 3.54,
+3.66, 6.29 with signed error +1.08, +0.39, -0.73, -4.89. Residual against
+chronological age is r = -0.234, p = 1.5e-07 over all 494, the standard brain
+age regression to the mean rather than the n=10 bin alone.
+
+Out-of-fold Beheshti/de Lange bias correction, fitted per fold so no test
+subject's chronological age is used, makes MAE significantly worse
+(+0.137y [+0.050, +0.227]) for a spread change that is not significant
+(-0.79y [-1.69, +0.39]). Not worth a slot either.
 
 ## Status
 
