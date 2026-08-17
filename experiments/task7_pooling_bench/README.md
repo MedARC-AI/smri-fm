@@ -113,6 +113,55 @@ variants tie, none win. Every dimensionality reduction costs real MAE for a
 spread change that is indistinguishable from noise, which is the tradeoff this
 bench existed to measure rather than assume.
 
+### Correction: the first conclusion was blind to scale and offset
+
+"Nothing beats the incumbent" held only for transforms the bench could see, and
+it could not see this class at all. The head above is `StandardScaler` +
+`RidgeCV`, which z-scores every dimension before the probe runs, so any
+transform whose effect is per-axis scale or offset was erased. Measured
+directly: that head returns an identical 3.5050 MAE on features multiplied by
+100, while a probe without a standardiser goes from 6.89 to 1.3e14 on the same
+input.
+
+This matters because **fomo-lp does not normalise**. `embedding_dataset.py`
+states "No image transforms are applied, embeddings are already final
+features", and `identity_model.py` is a pass-through, so the challenge's linear
+head receives the shipped vector exactly as written, offset included.
+
+And the offset is large. Across every pooling the embedding cloud sits about
+**nine times further from the origin than its own between-subject spread**,
+12.6x for `mean_std`. The variation carrying all the signal is a much smaller
+effect than a constant carrying none, so a head trained by SGD for 20 epochs
+spends much of its budget with the bias absorbing an offset instead of fitting
+the directions that matter.
+
+Under a probe that does not standardise, paired over the same 494 subjects:
+
+| pooling | dMAE (centered - raw) | dspread |
+|---|---|---|
+| mean | **-3.225** [-3.711, -2.783] | -1.54 [-4.39, +0.13] |
+| gem_p3 | **-2.819** [-3.201, -2.454] | -0.83 [-2.09, +1.12] |
+| logsumexp_t1 | **-3.027** [-3.403, -2.630] | -1.09 [-2.40, +0.96] |
+
+Every MAE interval excludes zero; every spread moves the right way without
+reaching significance. The effect does not depend on the pooling, which is what
+you expect from something driven by the geometry of the cloud rather than by
+how it was reduced.
+
+**Centering is downside-free in a way the other transforms are not.** A linear
+head with a bias represents exactly the same function on centered or uncentered
+input, so the fitted function class is unchanged and only the conditioning
+differs. Worst case is neutral. PCA and whitening discard or rescale
+information and can genuinely lose; centering cannot.
+
+Two honest limits. The SGD stand-in here is weaker than the challenge's probe,
+which uses momentum, a cosine schedule and a val-selected lr sweep, and a
+better optimiser copes better with an offset, so **expect a smaller gain than
+these numbers, not this size**. And full whitening is catastrophic (MAE 23.4,
+r 0.17): whitening 1024 dimensions from ~470 samples amplifies near-null
+directions that are pure noise. Centering is the safe member of this family,
+not the whole family.
+
 ### The post-transform idea is refuted
 
 Removing leading principal components destroys the task: MAE goes 3.51 to 11.1
