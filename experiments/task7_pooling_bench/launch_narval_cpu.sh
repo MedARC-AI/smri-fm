@@ -76,7 +76,7 @@ if [[ ! -f "${POOLED}" ]]; then
     # Smoke 8 subjects first. A bad checkpoint path or a broken transform then
     # fails in about a minute rather than 40, which matters when the queue wait
     # already cost hours.
-    echo "=== smoke: 8 subjects ==="
+    echo "=== smoke: 4 subjects ==="
     python -m fomo_tune.cache_pooled \
         --out "${EXP_DIR}/output/smoke.npz" --ckpt-path "${CKPT}" --limit 4 --device cpu
     python -m fomo_tune.bench_task7 --cache "${EXP_DIR}/output/smoke.npz" >/dev/null
