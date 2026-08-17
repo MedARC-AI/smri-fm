@@ -59,6 +59,7 @@ downstream runs on a laptop.
 python -m fomo_tune.bench_task7 --sandbox            # no model, data or GPU
 python -m fomo_tune.cache_pooled --out pooled.npz    # one forward pass, GPU
 python -m fomo_tune.bench_task7 --cache pooled.npz --out grid.json
+python -m fomo_tune.compare_task7 --grid grid.json --cache pooled.npz
 ```
 
 Two axes:
@@ -215,44 +216,6 @@ returns a fixed width, is deterministic and finite, and that each transform
 applies to held-out data as float32. The real grid needs one GPU pass over task
 3 and has not been run — no GPU on this machine.
 
-## Running it on Narval
-
-The team's `launch.sh` targets their own cluster. Narval needs a different
-shape because its compute nodes have no internet, and both the checkpoint and
-`Task_3.zip` are fetched over the network by default.
-
-Two hatches already exist in the code, so no loader needed changing:
-`open_zip` opens a path that exists instead of downloading, so pointing
-`FOMO_EVAL_BASE_URL` at a local directory keeps task 3 on disk; and
-`resolve_ckpt` returns a non-`hf://` path unchanged, so a prefetched `.pth`
-works directly.
-
-```bash
-git clone https://github.com/saman-rahbar/smri-fm.git   # ~39MB, no submodule needed
-cd smri-fm && git checkout feat/task7-fairness-harness
-
-bash experiments/task7_pooling_bench/prefetch_narval.sh     # LOGIN node
-sbatch --account=def-<supervisor> \
-       experiments/task7_pooling_bench/launch_narval.sh     # compute node
-```
-
-The account is passed at submission rather than hardcoded, so a supervisor's
-name is not committed to a repo that may go upstream. It must be `--account`
-or `SBATCH_ACCOUNT`; `SLURM_ACCOUNT` is an output variable Slurm sets inside
-the job and is ignored at submission time. The job
-self-tests, smoke-runs 8 subjects before committing to all 494, then writes
-`output/grid.txt`.
-
-Narval specifics folded in, each of which has cost a job before: the venv lives
-in `$PROJECT` because `$SCRATCH` is purged after ~60 days idle; `--gres` rather
-than `--gpus-per-node`; `--mem` is system RAM, not VRAM; `HF_HOME` is not
-exported in a fresh login shell even after a successful `huggingface-cli
-login`, so it is set explicitly; `HF_HUB_DISABLE_XET=1` because Xet transfers
-fail there; and `scipy-stack` on StdEnv/2023 carries no scikit-learn, which is
-why the prefetch builds a `virtualenv --no-download`. The bench does not need
-`asparagus`, `matplotlib` or most of `pyproject`, only the import set of
-`cache_pooled`/`bench_task7` plus what `backbone.py` pulls in.
-
 ## Shipping the winner
 
 `main_task6_and_7.py` now takes `pooling` and `transform`. **Defaults are
@@ -317,35 +280,18 @@ interval excludes zero while MAE is not made worse.
 Re-running the grid is cheap — it is numpy over the cached npz — so the GPU
 pass never has to be repeated to get these.
 
-## When the GPU queue is longer than the job
 
-The pass is 494 forward passes with no backward pass, so it does not need an
-A100, it just finishes sooner on one. Three levers, cheapest first:
+## Notes on running it
 
-**Right-size the ask.** Walltime picks the backfill bucket. A 3h request sat a
-full day behind what a 1h request gets, for a job that needs well under an
-hour. `launch_narval.sh` now asks 1h / 4 cores / 24G, which is what it uses.
+`cache_pooled` is the only GPU step and takes about eight minutes for 494
+subjects on one A100, roughly 0.9s each. It flushes every `--flush-every`
+subjects through a temp file and an atomic replace and skips whatever is
+already cached on a re-run, so a preempted job resumes rather than starting
+over.
 
-**Submit the CPU twin as well.** `launch_narval_cpu.sh` runs the same thing on
-16 cores with an 11h walltime. It is slower per subject, but the CPU queue is
-usually minutes against a day for a GPU, so it often finishes first in wall
-time. Submit both and cancel whichever loses.
+Everything after that is numpy and sklearn over a 24MB cache, so the grid and
+the paired comparison run anywhere, including a login node.
 
-```bash
-sbatch --account=def-<supervisor> experiments/task7_pooling_bench/launch_narval.sh
-sbatch --account=def-<supervisor> experiments/task7_pooling_bench/launch_narval_cpu.sh
-squeue -u $USER --start
-```
-
-Both write the same `output/pooled_walnut_v0_1.npz`. That is deliberate: the
-cache is resumable, so if one is killed the other picks up where it stopped
-rather than starting over. Do not run them at the same time on purpose.
-
-**Another cluster.** The same RAP usually covers Rorqual, Fir, Beluga and
-Cedar, and their GPU queues differ a lot hour to hour. The cost is redoing the
-prefetch there, which is a 3.9GB checkpoint and a 2GB zip.
-
-`cache_pooled` flushes every `--flush-every` subjects (default 50) through a
-temp file and an atomic replace, and a re-run skips whatever is already cached.
-A preemption or a walltime kill costs the subjects since the last flush, not
-the pass, which is what makes the CPU route and a short walltime safe.
+It will not run on CPU. The encoder attends over jagged tensors and torch's
+jagged SDPA path calls `can_use_cudnn_attention` regardless of where the
+tensors live, so a CPU node raises on the driver check before any arithmetic.
