@@ -199,3 +199,28 @@ construction; a config asking for a fitted transform whose `post.npz` is
 missing refuses to load rather than silently shipping the raw pooling; and a
 transform fitted on a different pooling's width is caught in `predict` with the
 two widths named.
+
+## Deciding whether a variant is worth a slot
+
+The grid reports point estimates. Three submission slots per task per track is
+not enough to spend one on noise, and the trap is already visible in the walnut
+table, where the CIs are unpaired so overlapping intervals settle nothing.
+
+Every variant is scored on the same subjects under the same fold split, so
+`bench_task7` records per-subject out-of-fold predictions and the comparison
+can be paired:
+
+```bash
+python -m fomo_tune.compare_task7 \
+    --grid  experiments/task7_pooling_bench/output/grid.json \
+    --cache experiments/task7_pooling_bench/output/pooled_walnut_v0_1.npz
+```
+
+It reports, against `mean` + `identity`, the paired difference in MAE (the
+task 6 proxy) and in age-bin spread (the task 7 proxy), each with a 95%
+bootstrap interval, and a verdict per row. **The incumbent wins ties.** A
+variant earns a slot only if its MAE interval excludes zero, or its spread
+interval excludes zero while MAE is not made worse.
+
+Re-running the grid is cheap — it is numpy over the cached npz — so the GPU
+pass never has to be repeated to get these.

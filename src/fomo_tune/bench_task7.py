@@ -153,7 +153,13 @@ def evaluate_with_transform(pooled: np.ndarray, age: np.ndarray,
     dim = posttransform.fit(tname, pooled)(pooled[:1]).shape[1]
     return {"mae": float(np.abs(oof - age).mean()),
             "pearson_r": float(np.corrcoef(age, oof)[0, 1]),
-            "age_bin_mae_spread": spread, "per_bin": per_bin, "dim": int(dim)}
+            "age_bin_mae_spread": spread, "per_bin": per_bin, "dim": int(dim),
+            # Per-subject out-of-fold predictions. Every variant is scored on
+            # the same 494 subjects in the same fold split, so keeping these
+            # makes the comparison against the baseline paired. Unpaired CIs
+            # overlapping settles nothing, which is the same trap the walnut
+            # table carries.
+            "oof": [float(v) for v in oof]}
 
 
 def report(rows: list[dict]) -> str:
