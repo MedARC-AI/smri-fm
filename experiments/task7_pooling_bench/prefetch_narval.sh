@@ -2,7 +2,6 @@
 # Run on a Narval LOGIN node. Compute nodes have no internet, so the checkpoint,
 # the task 3 zip and every wheel have to be on disk before the job starts.
 #
-#   export SLURM_ACCOUNT=def-<supervisor>
 #   bash experiments/task7_pooling_bench/prefetch_narval.sh
 #
 # Then: sbatch experiments/task7_pooling_bench/launch_narval.sh
@@ -82,6 +81,5 @@ prefetch complete
   HF_HOME     ${HF_HOME}
 
 next:
-  export SLURM_ACCOUNT=def-<supervisor>
-  sbatch experiments/task7_pooling_bench/launch_narval.sh
+  sbatch --account=def-<supervisor> experiments/task7_pooling_bench/launch_narval.sh
 EOF

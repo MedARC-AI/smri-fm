@@ -11,13 +11,15 @@
 # One GPU pass over task 3's 494 subjects applying every pooling, then the
 # (pooling x transform) grid on the resulting cache.
 #
-#   export SLURM_ACCOUNT=def-<supervisor>     # sbatch reads this
-#   bash  experiments/task7_pooling_bench/prefetch_narval.sh    # login node
-#   sbatch experiments/task7_pooling_bench/launch_narval.sh
+#   bash experiments/task7_pooling_bench/prefetch_narval.sh   # login node
+#   sbatch --account=def-<supervisor> \
+#          experiments/task7_pooling_bench/launch_narval.sh
 #   squeue -u $USER   /   seff <jobid>
 #
-# The account is taken from SLURM_ACCOUNT rather than hardcoded, so the
-# supervisor's name is not committed to a repo that may go upstream.
+# Pass --account on the command line (or export SBATCH_ACCOUNT) rather than
+# hardcoding it, so a supervisor's name is not committed to a repo that may go
+# upstream. Note SBATCH_ACCOUNT, not SLURM_ACCOUNT: the latter is an output
+# variable Slurm sets inside the job and is ignored at submission.
 # --mem is system RAM, not VRAM.
 
 set -euo pipefail

@@ -152,14 +152,15 @@ works directly.
 git clone https://github.com/saman-rahbar/smri-fm.git   # ~39MB, no submodule needed
 cd smri-fm && git checkout feat/task7-fairness-harness
 
-export SLURM_ACCOUNT=def-<supervisor>
-
-bash   experiments/task7_pooling_bench/prefetch_narval.sh   # LOGIN node
-sbatch experiments/task7_pooling_bench/launch_narval.sh     # compute node
+bash experiments/task7_pooling_bench/prefetch_narval.sh     # LOGIN node
+sbatch --account=def-<supervisor> \
+       experiments/task7_pooling_bench/launch_narval.sh     # compute node
 ```
 
-The account comes from `SLURM_ACCOUNT` rather than being hardcoded, so a
-supervisor's name is not committed to a repo that may go upstream. The job
+The account is passed at submission rather than hardcoded, so a supervisor's
+name is not committed to a repo that may go upstream. It must be `--account`
+or `SBATCH_ACCOUNT`; `SLURM_ACCOUNT` is an output variable Slurm sets inside
+the job and is ignored at submission time. The job
 self-tests, smoke-runs 8 subjects before committing to all 494, then writes
 `output/grid.txt`.
 
