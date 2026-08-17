@@ -19,6 +19,7 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
+from fomo_tune import poolings, posttransform
 from fomo_tune.backbone import load_backbone
 from fomo_tune.utils import git_sha, setup_logging
 
@@ -32,6 +33,16 @@ class Config:
     output_root: str = "output/fomo_tune"
     name: str = "task6_and_7"
     device: str = "cuda"
+    # The whole tunable surface, ranked by experiments/task7_pooling_bench.
+    # Defaults reproduce the mean-pooled vector this shipped before, so an
+    # export with no overrides is byte-identical to the previous submission.
+    pooling: str = "mean"
+    transform: str = "identity"
+    # Pooled-embedding npz from cache_pooled.py. Required only when `transform`
+    # is fitted (anything but identity/l2): the projection is estimated here,
+    # once, and frozen into the container. It cannot be fitted at inference --
+    # the challenge hands predict.py one image at a time.
+    fit_cache: str = ""
 
 
 # ---- method: the part we tune -----------------------------------------------------------
@@ -41,10 +52,18 @@ class Task6And7Method:
     """Frozen sMRI MAE, mean-pooled tokens over whichever modality arrives."""
 
     def __init__(self, cfg: Config):
+        if cfg.pooling not in poolings.VARIANTS:
+            raise ValueError(f"unknown pooling {cfg.pooling!r}; "
+                             f"one of {sorted(poolings.VARIANTS)}")
+        if cfg.transform not in posttransform.VARIANTS:
+            raise ValueError(f"unknown transform {cfg.transform!r}; "
+                             f"one of {sorted(posttransform.VARIANTS)}")
         self.cfg = cfg
         self.backbone, self.transform = load_backbone(cfg.ckpt_path)
         self.device = torch.device(cfg.device)
         self.backbone.to(self.device).eval().requires_grad_(False)
+        self.post = None
+        self.post_in_dim = None
 
     @torch.inference_mode()
     def predict(self, image: nib.Nifti1Image) -> np.ndarray:
@@ -55,16 +74,43 @@ class Task6And7Method:
         with torch.autocast("cuda", torch.bfloat16, enabled=self.device.type == "cuda"):
             out = self.backbone(batch)
 
-        patch_embeds = out["patch_embeds"]
-        token_mask = out["token_mask"].bool().unsqueeze(-1)
-        embed = (patch_embeds * token_mask).sum(dim=1) / token_mask.sum(dim=1)
-        return embed[0].float().cpu().numpy()
+        tokens = out["patch_embeds"][0].float().cpu().numpy()
+        mask = out["token_mask"][0].bool().cpu().numpy()
+        embed = poolings.apply(self.cfg.pooling, tokens, mask)
+        if self.post is not None:
+            if self.post_in_dim is not None and embed.shape[0] != self.post_in_dim:
+                # Only reachable if the transform was fitted on a different
+                # pooling than the one configured. Left unchecked it surfaces as
+                # a broadcast error inside the container, at submission time.
+                raise ValueError(
+                    f"pooling {self.cfg.pooling!r} gives {embed.shape[0]} dims but "
+                    f"transform {self.cfg.transform!r} was fitted on "
+                    f"{self.post_in_dim}; re-export with a fit_cache built from "
+                    "the same pooling"
+                )
+            embed = self.post(embed[None])[0]
+        return np.asarray(embed, dtype=np.float32)
+
+    def fit_post(self, pooled: np.ndarray) -> None:
+        """Freeze the post-transform from pooled embeddings of allowed data.
+
+        Fitted once, offline, and shipped as a matrix. `identity` and `l2` need
+        no fit; everything else does, and a container built without one would
+        silently ship the raw pooling instead of the variant that was chosen.
+        """
+        self.post = posttransform.fit(self.cfg.transform, pooled)
+        self.post_in_dim = int(pooled.shape[1])
+        probe = self.post(pooled[:1])
+        logger.info(f"post-transform {self.cfg.transform}: "
+                    f"{pooled.shape[1]} -> {probe.shape[1]} dims")
 
     def save(self, model_dir: Path) -> None:
-        """Nothing is fitted, so this is the config alone -- the backbone weights stay wherever
-        `ckpt_path` points, and `build.py` is what copies them into a container."""
+        """Config, plus the fitted post-transform when there is one. The backbone
+        weights stay wherever `ckpt_path` points; `build.py` copies them in."""
         model_dir.mkdir(parents=True, exist_ok=True)
         OmegaConf.save(self.cfg, model_dir / "config.yaml")
+        if self.post is not None:
+            posttransform.save_state(self.post, model_dir / "post.npz")
 
     @classmethod
     def load(cls, model_dir: Path, **overrides) -> "Task6And7Method":
@@ -73,7 +119,23 @@ class Task6And7Method:
         cfg = OmegaConf.merge(
             OmegaConf.structured(Config), OmegaConf.load(model_dir / "config.yaml"), overrides
         )
-        return cls(cfg)
+        method = cls(cfg)
+        post_path = model_dir / "post.npz"
+        if post_path.exists():
+            method.post = posttransform.load_state(post_path)
+            state = method.post.state
+            if state.get("kind") == "pca":
+                method.post_in_dim = int(state["V"].shape[1])
+        elif cfg.transform not in ("identity", "l2"):
+            # Loading a fitted variant without its matrix would silently ship the
+            # raw pooling under the winning variant's name.
+            raise FileNotFoundError(
+                f"config asks for transform={cfg.transform!r} but {post_path} is "
+                "missing; re-run export with fit_cache=<pooled.npz>"
+            )
+        elif cfg.transform == "l2":
+            method.post = posttransform.fit("l2", np.zeros((1, 1), dtype=np.float32))
+        return method
 
 
 # ---- entrypoints ------------------------------------------------------------------------
@@ -91,8 +153,24 @@ def export(args: argparse.Namespace) -> None:
     OmegaConf.save(cfg, run_dir / "config.yaml")
 
     method = Task6And7Method(cfg)
+
+    if cfg.transform not in ("identity", "l2"):
+        if not cfg.fit_cache:
+            raise SystemExit(
+                f"transform={cfg.transform!r} has to be fitted; pass "
+                "fit_cache=<pooled.npz> from fomo_tune.cache_pooled"
+            )
+        blob = np.load(cfg.fit_cache, allow_pickle=False)
+        if cfg.pooling not in blob.files:
+            raise SystemExit(f"{cfg.fit_cache} has no '{cfg.pooling}' pooling; "
+                             f"it holds {[f for f in blob.files if f not in ('age', 'subject')]}")
+        method.fit_post(blob[cfg.pooling])
+    elif cfg.transform == "l2":
+        method.post = posttransform.fit("l2", np.zeros((1, 1), dtype=np.float32))
+
     method.save(run_dir / "model")
-    logger.info(f"embedding dim {method.backbone.encoder.patch_embed.out_features}")
+    logger.info(f"pooling {cfg.pooling}  transform {cfg.transform}")
+    logger.info(f"backbone width {method.backbone.encoder.patch_embed.out_features}")
 
 
 def predict(args: argparse.Namespace) -> None:

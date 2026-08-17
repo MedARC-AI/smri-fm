@@ -44,7 +44,9 @@ def _svd_basis(X: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 def identity(X: np.ndarray):
     """The current submission: ship the pooled vector as-is."""
-    return lambda Z: np.asarray(Z, dtype=np.float32)
+    f = lambda Z: np.asarray(Z, dtype=np.float32)   # noqa: E731
+    f.state = {"kind": "identity"}
+    return f
 
 
 def l2(X: np.ndarray):
@@ -53,6 +55,7 @@ def l2(X: np.ndarray):
     def f(Z):
         Z = np.asarray(Z, dtype=np.float64)
         return (Z / np.maximum(np.linalg.norm(Z, axis=-1, keepdims=True), EPS)).astype(np.float32)
+    f.state = {"kind": "l2"}
     return f
 
 
@@ -94,6 +97,8 @@ def pca(X: np.ndarray, dim: int = 128, drop_top: int = 0, whiten: bool = False):
         if scale is not None:
             out = out / scale
         return out.astype(np.float32)
+    f.state = {"kind": "pca", "mu": mu, "V": V,
+               "scale": scale if scale is not None else np.array([])}
     return f
 
 
@@ -116,3 +121,38 @@ def fit(name: str, X_train: np.ndarray):
     """Fit on training embeddings, return the transform to apply to any split."""
     fn, kwargs = VARIANTS[name]
     return fn(X_train, **kwargs)
+
+
+# --- persistence -------------------------------------------------------------
+# A fitted transform has to survive into the container: the challenge hands
+# predict.py one image at a time, so nothing can be estimated at inference.
+# The closures above carry their parameters on `.state` for exactly this.
+
+
+def save_state(f, path) -> None:
+    np.savez(path, **{k: np.asarray(v) for k, v in f.state.items()})
+
+
+def load_state(path):
+    """Rebuild a fitted transform from `save_state`."""
+    blob = np.load(path, allow_pickle=False)
+    kind = str(blob["kind"])
+    if kind == "identity":
+        return identity(np.zeros((1, 1)))
+    if kind == "l2":
+        return l2(np.zeros((1, 1)))
+    if kind != "pca":
+        raise ValueError(f"unknown transform kind {kind!r}")
+
+    mu, V = blob["mu"], blob["V"]
+    scale = blob["scale"]
+    scale = None if scale.size == 0 else scale
+
+    def f(Z):
+        out = (np.asarray(Z, dtype=np.float64) - mu) @ V.T
+        if scale is not None:
+            out = out / scale
+        return out.astype(np.float32)
+    f.state = {"kind": "pca", "mu": mu, "V": V,
+               "scale": scale if scale is not None else np.array([])}
+    return f

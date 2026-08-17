@@ -135,3 +135,56 @@ Everything here is verified only by `--sandbox`, which checks that each pooling
 returns a fixed width, is deterministic and finite, and that each transform
 applies to held-out data as float32. The real grid needs one GPU pass over task
 3 and has not been run — no GPU on this machine.
+
+## Running it on Narval
+
+The team's `launch.sh` targets their own cluster (`--account=sophont`,
+`/data/connor`). Narval needs a different shape because its compute nodes have
+no internet, and both the checkpoint and `Task_3.zip` are fetched over the
+network by default.
+
+Two hatches already exist in the code, so no loader needed changing:
+`open_zip` opens a path that exists instead of downloading, so pointing
+`FOMO_EVAL_BASE_URL` at a local directory keeps task 3 on disk; and
+`resolve_ckpt` returns a non-`hf://` path unchanged, so a prefetched `.pth`
+works directly.
+
+```bash
+# login node: venv, wheels, checkpoint, Task_3.zip -> $SCRATCH/fomo_task7
+bash experiments/task7_pooling_bench/prefetch_narval.sh
+
+# compute node: fully offline, HF_*_OFFLINE=1 so a missed prefetch fails
+# loudly instead of hanging on a socket
+sbatch experiments/task7_pooling_bench/launch_narval.sh
+```
+
+Fill in `--account=def-CHANGEME` first. The job self-tests, smoke-runs 8
+subjects before committing to all 494, then writes `output/grid.txt`.
+`scipy-stack` on StdEnv/2023 has no scikit-learn, which is why the prefetch
+builds a `virtualenv --no-download` and installs it with `--no-index`.
+
+## Shipping the winner
+
+`main_task6_and_7.py` now takes `pooling` and `transform`. **Defaults are
+`mean` + `identity`, which is byte-identical to what it shipped before**, so
+nothing changes until a variant is chosen deliberately.
+
+```bash
+# identity / l2 need no fit
+python -m fomo_tune.main_task6_and_7 export transform=l2
+
+# anything fitted takes the pooled cache the bench already produced; the
+# projection is estimated once, offline, and frozen into the container, since
+# the challenge hands predict.py one image at a time
+python -m fomo_tune.main_task6_and_7 export \
+    pooling=mean transform=pca_128 \
+    fit_cache=experiments/task7_pooling_bench/output/pooled_walnut_v0_1.npz
+```
+
+`save` writes `post.npz` beside `config.yaml` and `load` restores it. Three
+guards, because each of these would otherwise surface inside the container at
+submission time: an unknown pooling or transform name is rejected at
+construction; a config asking for a fitted transform whose `post.npz` is
+missing refuses to load rather than silently shipping the raw pooling; and a
+transform fitted on a different pooling's width is caught in `predict` with the
+two widths named.
