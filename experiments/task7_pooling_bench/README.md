@@ -224,3 +224,36 @@ interval excludes zero while MAE is not made worse.
 
 Re-running the grid is cheap — it is numpy over the cached npz — so the GPU
 pass never has to be repeated to get these.
+
+## When the GPU queue is longer than the job
+
+The pass is 494 forward passes with no backward pass, so it does not need an
+A100, it just finishes sooner on one. Three levers, cheapest first:
+
+**Right-size the ask.** Walltime picks the backfill bucket. A 3h request sat a
+full day behind what a 1h request gets, for a job that needs well under an
+hour. `launch_narval.sh` now asks 1h / 4 cores / 24G, which is what it uses.
+
+**Submit the CPU twin as well.** `launch_narval_cpu.sh` runs the same thing on
+16 cores with an 11h walltime. It is slower per subject, but the CPU queue is
+usually minutes against a day for a GPU, so it often finishes first in wall
+time. Submit both and cancel whichever loses.
+
+```bash
+sbatch --account=def-<supervisor> experiments/task7_pooling_bench/launch_narval.sh
+sbatch --account=def-<supervisor> experiments/task7_pooling_bench/launch_narval_cpu.sh
+squeue -u $USER --start
+```
+
+Both write the same `output/pooled_walnut_v0_1.npz`. That is deliberate: the
+cache is resumable, so if one is killed the other picks up where it stopped
+rather than starting over. Do not run them at the same time on purpose.
+
+**Another cluster.** The same RAP usually covers Rorqual, Fir, Beluga and
+Cedar, and their GPU queues differ a lot hour to hour. The cost is redoing the
+prefetch there, which is a 3.9GB checkpoint and a 2GB zip.
+
+`cache_pooled` flushes every `--flush-every` subjects (default 50) through a
+temp file and an atomic replace, and a re-run skips whatever is already cached.
+A preemption or a walltime kill costs the subjects since the last flush, not
+the pass, which is what makes the CPU route and a short walltime safe.

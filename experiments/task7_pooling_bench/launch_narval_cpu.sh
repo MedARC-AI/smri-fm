@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=fomo_task7_bench
+#SBATCH --job-name=fomo_task7_cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:a100:1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=24G
-#SBATCH --time=1:00:00
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=48G
+#SBATCH --time=11:00:00
 #SBATCH --output=slurms/slurm-%j.out
 
-# One GPU pass over task 3's 494 subjects applying every pooling, then the
-# (pooling x transform) grid on the resulting cache.
+# The CPU twin of launch_narval.sh, for when the GPU queue is longer than the
+# job. This is inference over 494 volumes with no backward pass, so it runs on
+# CPU perfectly well, just slower, and the CPU queue is usually minutes against
+# a day for an A100.
+#
+# cache_pooled is resumable and flushes every 50 subjects, so this surviving a
+# walltime kill costs only the subjects since the last flush. Submit both and
+# cancel whichever loses.
 #
 #   bash experiments/task7_pooling_bench/prefetch_narval.sh   # login node
 #   sbatch --account=def-<supervisor> \
@@ -43,7 +48,7 @@ if [[ ! -d "${VENV}" || ! -f "${CACHE}/ckpt_path.txt" ]]; then
     exit 1
 fi
 
-module load StdEnv/2023 gcc/12.3 cuda/12.2 cudnn/8.9 arrow/21.0.0 python/3.11
+module load StdEnv/2023 gcc/12.3 arrow/21.0.0 python/3.11
 source "${VENV}/bin/activate"
 
 # Offline. Without these a missing prefetch stalls on a socket the compute node
@@ -59,10 +64,10 @@ export PYTHONPATH="${PWD}/src:${PYTHONPATH:-}"
 
 CKPT="$(cat "${CACHE}/ckpt_path.txt")"
 POOLED="${EXP_DIR}/output/pooled_walnut_v0_1.npz"
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-16}"
 
 echo "=== environment ==="
-python -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available())"
-nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+python -c "import torch; print('torch', torch.__version__, 'threads', torch.get_num_threads())"
 
 echo "=== self-test (no model, no data) ==="
 python -m fomo_tune.bench_task7 --sandbox
@@ -73,12 +78,12 @@ if [[ ! -f "${POOLED}" ]]; then
     # already cost hours.
     echo "=== smoke: 8 subjects ==="
     python -m fomo_tune.cache_pooled \
-        --out "${EXP_DIR}/output/smoke.npz" --ckpt-path "${CKPT}" --limit 8
+        --out "${EXP_DIR}/output/smoke.npz" --ckpt-path "${CKPT}" --limit 4 --device cpu
     python -m fomo_tune.bench_task7 --cache "${EXP_DIR}/output/smoke.npz" >/dev/null
     echo "smoke passed"
 
     echo "=== caching pooled embeddings, all 494 (the only GPU step) ==="
-    python -m fomo_tune.cache_pooled --out "${POOLED}" --ckpt-path "${CKPT}"
+    python -m fomo_tune.cache_pooled --out "${POOLED}" --ckpt-path "${CKPT}" --device cpu
 else
     echo "pooled cache exists; skipping the GPU step"
 fi
