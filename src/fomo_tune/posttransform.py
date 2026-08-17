@@ -49,6 +49,27 @@ def identity(X: np.ndarray):
     return f
 
 
+def center(X: np.ndarray):
+    """Subtract the training mean. Nothing else.
+
+    Worth its own entry because the challenge's probe does not center: fomo-lp
+    feeds the raw `.npy` straight to a linear head (`embedding_dataset.py`:
+    "No image transforms are applied", `identity_model.py` is a pass-through),
+    so whatever mean offset the embedding carries goes into the optimisation.
+    Gradient descent on off-center features is badly conditioned, and the head
+    has 20 epochs to recover, so an offset costs accuracy that never comes back.
+
+    This is invisible to any bench whose own head standardises first, which is
+    why it was missed on the first pass.
+    """
+    mu = np.asarray(X, dtype=np.float64).mean(axis=0)
+
+    def f(Z):
+        return (np.asarray(Z, dtype=np.float64) - mu).astype(np.float32)
+    f.state = {"kind": "pca", "mu": mu, "V": np.eye(len(mu)), "scale": np.array([])}
+    return f
+
+
 def l2(X: np.ndarray):
     """Unit-norm each embedding. Removes the global scale factor that overall
     image brightness writes into every channel at once."""
@@ -107,6 +128,7 @@ def pca(X: np.ndarray, dim: int = 128, drop_top: int = 0, whiten: bool = False):
 #: 128, not 256) and go below it, since the real optimum is unknown.
 VARIANTS: dict = {
     "identity": (identity, {}),
+    "center": (center, {}),
     "l2": (l2, {}),
     "pca_256": (pca, {"dim": 256}),
     "pca_128": (pca, {"dim": 128}),
