@@ -85,6 +85,7 @@ def evaluate(X: np.ndarray, age: np.ndarray, n_folds: int = 20, seed: int = 0) -
     only. Fitting it once on everything would leak the test subjects' geometry
     into the projection and flatter every variant that uses one.
     """
+    n_folds = max(2, min(n_folds, len(age)))
     oof = np.zeros(len(age))
     for train, test in KFold(n_folds, shuffle=True, random_state=seed).split(X):
         head = make_pipeline(StandardScaler(), RidgeCV(alphas=np.logspace(-3, 6, 19)))
@@ -143,6 +144,11 @@ def run_grid_pooled(pooled_by_name: dict, age: np.ndarray,
 
 def evaluate_with_transform(pooled: np.ndarray, age: np.ndarray,
                             tname: str, n_folds: int = 20, seed: int = 0) -> dict:
+    # Clamp to the cohort. KFold raises when n_splits exceeds n_samples, and a
+    # smoke run over a handful of subjects is a legitimate use of this: the
+    # point there is that the plumbing runs on real embedding widths, not that
+    # the numbers mean anything.
+    n_folds = max(2, min(n_folds, len(age)))
     oof = np.zeros(len(age))
     for train, test in KFold(n_folds, shuffle=True, random_state=seed).split(pooled):
         f = posttransform.fit(tname, pooled[train])
