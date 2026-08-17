@@ -138,10 +138,9 @@ applies to held-out data as float32. The real grid needs one GPU pass over task
 
 ## Running it on Narval
 
-The team's `launch.sh` targets their own cluster (`--account=sophont`,
-`/data/connor`). Narval needs a different shape because its compute nodes have
-no internet, and both the checkpoint and `Task_3.zip` are fetched over the
-network by default.
+The team's `launch.sh` targets their own cluster. Narval needs a different
+shape because its compute nodes have no internet, and both the checkpoint and
+`Task_3.zip` are fetched over the network by default.
 
 Two hatches already exist in the code, so no loader needed changing:
 `open_zip` opens a path that exists instead of downloading, so pointing
@@ -150,18 +149,29 @@ Two hatches already exist in the code, so no loader needed changing:
 works directly.
 
 ```bash
-# login node: venv, wheels, checkpoint, Task_3.zip -> $SCRATCH/fomo_task7
-bash experiments/task7_pooling_bench/prefetch_narval.sh
+git clone https://github.com/saman-rahbar/smri-fm.git   # ~39MB, no submodule needed
+cd smri-fm && git checkout feat/task7-fairness-harness
 
-# compute node: fully offline, HF_*_OFFLINE=1 so a missed prefetch fails
-# loudly instead of hanging on a socket
-sbatch experiments/task7_pooling_bench/launch_narval.sh
+export SLURM_ACCOUNT=def-<supervisor>
+
+bash   experiments/task7_pooling_bench/prefetch_narval.sh   # LOGIN node
+sbatch experiments/task7_pooling_bench/launch_narval.sh     # compute node
 ```
 
-Fill in `--account=def-CHANGEME` first. The job self-tests, smoke-runs 8
-subjects before committing to all 494, then writes `output/grid.txt`.
-`scipy-stack` on StdEnv/2023 has no scikit-learn, which is why the prefetch
-builds a `virtualenv --no-download` and installs it with `--no-index`.
+The account comes from `SLURM_ACCOUNT` rather than being hardcoded, so a
+supervisor's name is not committed to a repo that may go upstream. The job
+self-tests, smoke-runs 8 subjects before committing to all 494, then writes
+`output/grid.txt`.
+
+Narval specifics folded in, each of which has cost a job before: the venv lives
+in `$PROJECT` because `$SCRATCH` is purged after ~60 days idle; `--gres` rather
+than `--gpus-per-node`; `--mem` is system RAM, not VRAM; `HF_HOME` is not
+exported in a fresh login shell even after a successful `huggingface-cli
+login`, so it is set explicitly; `HF_HUB_DISABLE_XET=1` because Xet transfers
+fail there; and `scipy-stack` on StdEnv/2023 carries no scikit-learn, which is
+why the prefetch builds a `virtualenv --no-download`. The bench does not need
+`asparagus`, `matplotlib` or most of `pyproject`, only the import set of
+`cache_pooled`/`bench_task7` plus what `backbone.py` pulls in.
 
 ## Shipping the winner
 
