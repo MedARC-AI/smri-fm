@@ -210,7 +210,20 @@ Every variant is scored on the same subjects under the same fold split, so
 `bench_task7` records per-subject out-of-fold predictions and the comparison
 can be paired:
 
+Both of these are numpy and sklearn over the cached npz, so they run on a login
+node. The venv alone is not enough there: numpy and scipy come from
+`scipy-stack`, which is only on the path once the modules are loaded, so a bare
+`source .../activate` gives `ModuleNotFoundError: No module named 'numpy'`.
+
 ```bash
+module load StdEnv/2023 gcc/12.3 arrow/21.0.0 python/3.11
+source "${PROJECT}/fomo_task7_venv/bin/activate"
+export PYTHONPATH="${PWD}/src"
+
+python -m fomo_tune.bench_task7 \
+    --cache experiments/task7_pooling_bench/output/pooled_walnut_v0_1.npz \
+    --out   experiments/task7_pooling_bench/output/grid.json
+
 python -m fomo_tune.compare_task7 \
     --grid  experiments/task7_pooling_bench/output/grid.json \
     --cache experiments/task7_pooling_bench/output/pooled_walnut_v0_1.npz
