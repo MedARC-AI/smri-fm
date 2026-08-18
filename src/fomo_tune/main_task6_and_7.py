@@ -32,10 +32,6 @@ class Config:
     output_root: str = "output/fomo_tune"
     name: str = "task6_and_7"
     device: str = "cuda"
-    # Pooled training embeddings, (N, D), whose mean is subtracted from every
-    # output. Fitted at export and frozen into the container: predict sees one
-    # image at a time, so there is nothing to take a mean over there. Empty
-    # leaves the embedding untouched.
     center_from: str = ""
 
 
