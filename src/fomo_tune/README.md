@@ -7,7 +7,7 @@ The FOMO26 challenge tasks, one script each, tuned independently.
 | File | |
 |---|---|
 | `main_task<k>.py` | One task, end to end. Each has a **frozen** "protocol" section. Anything outside of the protocol is fair game. |
-| `datasets.py` | **frozen**. One `load_fomo_task<k>()` per task, streaming the challenge zips into an HF dataset. Raw niftis, no resampling — the backbone transform does that. |
+| `datasets.py` | One loader per challenge or fixed development dataset, streaming its zip into an HF dataset. Raw niftis, no resampling — the backbone transform does that. |
 | `backbone.py` | **frozen**. Frozen sMRI MAE encoder; the transform canonicalizes to RAS, rescales to 1mm, fits to the pretraining shape, z-scores in a mean-threshold brain mask. |
 | `utils.py` | **frozen**. Seeding, git sha, logging. |
 | `build.py` + `Apptainer.def` | **frozen**. Package a run dir into the challenge `.sif`. Shared by every task. |
@@ -68,7 +68,7 @@ uv run python third_party/container-validator/container_validator/validate.py \
 |---|---|---|---|---|---|
 | 1 infarct | 21 | adc, dwi_b1000, flair (+t2s/swi) | probability | LOO | done |
 | 2 meningioma | 23 | dwi_b1000, flair (+t2s/swi) | mask, input grid | LOO | drafted — flair only, per-subject **Dice** |
-| 3 brain age | 494 | t1w | age in years | external DLBS | fit on all supplied SALD; track **Pearson r and MAE** |
+| 3 brain age | 494 + 128 | t1w | age in years | fit SALD, test DLBS | **Pearson r and MAE** |
 | 4 trigeminal | 40 | t2w | mask, labels 1=nerve 2=vessel | — | tabled |
 | 5 polymicrogyria | 48 | t1w | probability | 20-fold | done |
 | 6+7 probing, fairness | — | one image, any modality | 1024-d embedding `.npy` | — | drafted — no labels and no head, so `export` in place of `train` |
@@ -92,17 +92,34 @@ uv run python third_party/container-validator/container_validator/validate.py \
 
 Oracle is the per-subject best threshold — the ceiling any thresholding rule could reach.
 
-### Task 3 — brain age, external DLBS development test, 128 subjects
+### Task 3 — brain age, fit 494 SALD / test 128 augmented DLBS
 
-Fit on all 494 supplied SALD subjects and evaluate Task 3 changes with Pearson r and MAE on the
-fixed augmented DLBS test in `experiments/fomo_task3_ood`. DLBS is evaluation-only and must not
-influence submitted model weights, calibration, or ensemble weights.
+Fit on all 494 supplied SALD subjects and evaluate on the fixed augmented DLBS test with
+`main_task3.py train`. DLBS is evaluation-only and must not influence submitted model weights,
+calibration, or ensemble weights. The frozen walnut-v0.1 encoder was pretrained on FOMO300K, which
+includes DLBS, so this tests head robustness to the imposed acquisition shifts rather than a wholly
+unseen pretraining cohort.
 
-| Run | Pearson r | MAE (y) | Time | Git | Notes |
-|---|---:|---:|---:|---|---|
-| walnut-v0.1 | 0.536 | 13.91 | 250s | PR #39 | current `RidgeCV` head |
-| + heavy SALD augmentation | 0.868 | 7.24 | — | — | local fitting experiment |
-| + age-balanced fitting | **0.878** | **7.01** | — | — | local fitting experiment |
+| Encoder / SALD fitting recipe | Pearson r | MAE (y) | Time | Notes |
+|---|---:|---:|---:|---|
+| current default / clean only | 0.676 | 23.68 | 141s | `RidgeCV` head |
+| walnut-v0.1 / clean only | 0.536 | 13.91 | 253s | `RidgeCV` head |
+| walnut-v0.1 / heavy augmentation | 0.868 | 7.24 | — | seven views weighted to one subject |
+| walnut-v0.1 / heavy augmentation + age balance | **0.878** | **7.01** | — | reproducible configuration below |
+
+```bash
+uv run python -m fomo_tune.main_task3 train \
+  name=task3_dlbs_augmented augmentation=true age_balance=true \
+  ckpt_path=hf://medarc/walnut/checkpoints/walnut-v0-1/vitl/sub-52k/checkpoint-last.pth
+```
+
+Previous protocol, 20-fold over the 494 SALD subjects (kept for reference; the DLBS test above
+replaces it):
+
+| Run | Pearson r | 95% CI | MAE (y) | 95% CI | Time | Git | Notes |
+|---|---|---|---|---|---|---|---|
+| baseline | 0.963 | 0.957 – 0.969 | 3.69 | 3.45 – 3.95 | 306s | `1df2e5d`† | t1w, `RidgeCV` head |
+| walnut-v0.1 | 0.968 | 0.963 – 0.972 | 3.50 | 3.29 – 3.74 | 261s | `ead1264` | vitl/sub-52k checkpoint, baseline otherwise |
 
 ### Task 5 — polymicrogyria, AUROC, 20-fold over 48
 

@@ -1,18 +1,19 @@
 """FOMO task 3: brain age regression, scored by Pearson r and MAE as the challenge scores it.
 
 `Task3Method` is the part we tune -- features, head, hyperparameters. The protocol below it is
-fixed so scores stay comparable across iterations: 20-fold over the 494 subjects, pool the
-out-of-fold predictions, bootstrap subjects for the CI.
+fixed so scores stay comparable across iterations: fit on all 494 supplied SALD subjects and
+evaluate once on the fixed 128-subject augmented DLBS development set.
 
-`train` runs that protocol then fits and saves a head; `predict` is the challenge contract, one t1
-path in and one age out. Both go through `Task3Method.predict`, so every fold exercises the path
-the submission will run.
+`train` runs that protocol and saves the SALD-fitted head; `predict` is the challenge contract, one
+t1 path in and one age out. Both go through `Task3Method`, so evaluation exercises the path the
+submission will run.
 """
 
 import argparse
 import json
 import logging
 import time
+from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,9 +21,10 @@ import joblib
 import nibabel as nib
 import numpy as np
 import torch
+import torch.nn.functional as F
 from omegaconf import OmegaConf
-from sklearn.linear_model import RidgeCV
-from sklearn.model_selection import KFold
+from scipy import ndimage
+from sklearn.linear_model import Ridge, RidgeCV
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -42,15 +44,236 @@ class Config:
     name: str = "task3"
     device: str = "cuda"
     seed: int = 4466
+    augmentation: bool = False
+    age_balance: bool = False
 
 
 # ---- method: the part we tune -----------------------------------------------------------
+
+FIT_WEIGHTS = {
+    "clean": 0.25,
+    "acquisition": 0.15,
+    "lowres_extreme": 0.10,
+    "geometry": 0.15,
+    "intensity_artifact": 0.15,
+    "motion_coverage": 0.10,
+    "domain": 0.10,
+}
+AGE_EDGES = np.array([18, 30, 40, 50, 60, 70, 81])
+
+
+def resample_acquisition(
+    data: np.ndarray,
+    mask: np.ndarray,
+    affine: np.ndarray,
+    target_spacing: np.ndarray,
+    profile: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Apply a slice profile and resample while preserving voxel-centre world coordinates."""
+    old_shape = np.asarray(data.shape)
+    spacing = nib.affines.voxel_sizes(affine)
+    if profile == "gaussian":
+        added_fwhm = np.sqrt(np.maximum(target_spacing**2 - spacing**2, 0))
+        data = ndimage.gaussian_filter(data, added_fwhm / (2.355 * spacing))
+    else:
+        assert profile == "boxcar"
+        for axis, width in enumerate(np.maximum(1, np.rint(target_spacing / spacing)).astype(int)):
+            data = ndimage.uniform_filter1d(data, width, axis=axis, mode="nearest")
+    new_shape = np.maximum(1, np.rint(old_shape * spacing / target_spacing)).astype(int)
+    data = (
+        F.interpolate(
+            torch.from_numpy(data)[None, None],
+            size=tuple(new_shape),
+            mode="trilinear",
+            align_corners=False,
+        )
+        .squeeze()
+        .numpy()
+    )
+    mask = (
+        F.interpolate(
+            torch.from_numpy(mask.astype(np.float32))[None, None],
+            size=tuple(new_shape),
+            mode="nearest-exact",
+        )
+        .squeeze()
+        .bool()
+        .numpy()
+    )
+    scale = old_shape / new_shape
+    step = np.diag([*scale, 1.0])
+    step[:3, 3] = 0.5 * scale - 0.5
+    return data, mask, affine @ step
+
+
+def change_contrast(
+    data: np.ndarray, mask: np.ndarray, rng: np.random.Generator, strength: float
+) -> np.ndarray:
+    brain = data[mask]
+    low, high = np.percentile(brain, (1, 99))
+    gamma = rng.uniform(1 - 0.35 * strength, 1 + 0.45 * strength)
+    data = low + (high - low) * np.clip((data - low) / (high - low), 0, 1) ** gamma
+    coefficients = rng.uniform(-0.25 * strength, 0.25 * strength, 3)
+    coordinates = np.meshgrid(
+        *[np.linspace(-1, 1, n, dtype=np.float32) for n in data.shape], indexing="ij"
+    )
+    data *= np.clip(
+        1
+        + sum(
+            coefficient * coordinate for coefficient, coordinate in zip(coefficients, coordinates)
+        ),
+        0.5,
+        1.5,
+    )
+    sigma = 0.025 * strength * (high - low)
+    n1 = rng.normal(0, sigma, data.shape).astype(np.float32)
+    n2 = rng.normal(0, sigma, data.shape).astype(np.float32)
+    return np.sqrt((np.maximum(data, 0) + n1) ** 2 + n2**2)
+
+
+def change_pose(
+    data: np.ndarray, mask: np.ndarray, rng: np.random.Generator, strength: float
+) -> tuple[np.ndarray, np.ndarray]:
+    x, y, z = np.deg2rad(rng.uniform(-8 * strength, 8 * strength, 3))
+    rx = np.array([[1, 0, 0], [0, np.cos(x), -np.sin(x)], [0, np.sin(x), np.cos(x)]])
+    ry = np.array([[np.cos(y), 0, np.sin(y)], [0, 1, 0], [-np.sin(y), 0, np.cos(y)]])
+    rz = np.array([[np.cos(z), -np.sin(z), 0], [np.sin(z), np.cos(z), 0], [0, 0, 1]])
+    scale = rng.uniform(1 - 0.10 * strength, 1 + 0.10 * strength)
+    inverse = np.linalg.inv(scale * (rz @ ry @ rx))
+    shift = rng.uniform(-8 * strength, 8 * strength, 3)
+    centre = (np.asarray(data.shape) - 1) / 2
+    offset = centre - inverse @ (centre + shift)
+    data = ndimage.affine_transform(data, inverse, offset=offset, order=1)
+    mask = ndimage.affine_transform(mask, inverse, offset=offset, order=0) > 0
+    return data, mask
+
+
+def augment_row(row: dict, seed: int) -> Generator[dict, None, None]:
+    """One clean and six fixed-seed acquisition/domain views of a SALD subject."""
+    image = row["t1w"]
+    source_data = image.get_fdata(dtype=np.float32)
+    source_mask = source_data > 0
+    for variant_index, (variant, weight) in enumerate(FIT_WEIGHTS.items()):
+        if variant == "clean":
+            yield {
+                **row,
+                "subject": f"{row['subject']}__clean",
+                "base_subject": row["subject"],
+                "variant": variant,
+                "fit_weight": weight,
+                "age_bin": int(np.searchsorted(AGE_EDGES, row["age"], side="right") - 1),
+            }
+            continue
+
+        rng = np.random.default_rng(
+            np.random.SeedSequence([seed, sum(map(ord, row["subject"])), variant_index])
+        )
+        data, mask, affine = source_data.copy(), source_mask.copy(), image.affine.copy()
+
+        if variant == "acquisition":
+            data = change_contrast(data, mask, rng, 0.5)
+            family = ("anisotropic", "isotropic", "reconstruction")[int(rng.integers(0, 3))]
+            if family == "anisotropic":
+                target = nib.affines.voxel_sizes(affine).copy()
+                target[int(rng.integers(0, 3))] = rng.uniform(2, 5)
+                data, mask, affine = resample_acquisition(data, mask, affine, target, "gaussian")
+            elif family == "isotropic":
+                target = np.full(3, rng.uniform(1.5, 2.5))
+                data, mask, affine = resample_acquisition(data, mask, affine, target, "gaussian")
+            else:
+                fwhm = rng.uniform(1.5, 3)
+                data = ndimage.gaussian_filter(
+                    data, fwhm / (2.355 * nib.affines.voxel_sizes(affine))
+                )
+        elif variant == "lowres_extreme":
+            data = change_contrast(data, mask, rng, 0.4)
+            family = ("thick_slice", "dual_axis", "isotropic")[int(rng.integers(0, 3))]
+            target = nib.affines.voxel_sizes(affine).copy()
+            if family == "thick_slice":
+                target[int(rng.integers(0, 3))] = rng.uniform(5, 9)
+            elif family == "dual_axis":
+                axes = rng.choice(3, 2, replace=False)
+                target[axes[0]] = rng.uniform(4, 8)
+                target[axes[1]] = rng.uniform(1.5, 2.5)
+            else:
+                target[:] = rng.uniform(2.5, 3.5)
+            data, mask, affine = resample_acquisition(data, mask, affine, target, "boxcar")
+        elif variant == "geometry":
+            data, mask = change_pose(data, mask, rng, 2.0)
+            data = change_contrast(data, mask, rng, 0.35)
+        elif variant == "intensity_artifact":
+            data = change_contrast(data, mask, rng, 1.5)
+            fwhm = rng.uniform(1.5, 3.5)
+            data = ndimage.gaussian_filter(data, fwhm / (2.355 * nib.affines.voxel_sizes(affine)))
+        elif variant == "motion_coverage":
+            data, mask = change_pose(data, mask, rng, 0.8)
+            data = change_contrast(data, mask, rng, 0.7)
+            axis = int(rng.integers(0, 3))
+            shift = np.zeros(3)
+            shift[axis] = rng.uniform(6, 16)
+            weight = rng.uniform(0.15, 0.30)
+            data = (1 - weight) * data + weight * ndimage.shift(data, shift, order=1)
+            dropout_axis = int(rng.integers(0, 3))
+            for _ in range(int(rng.integers(2, 6))):
+                start = int(rng.integers(0, data.shape[dropout_axis] - 3))
+                width = int(rng.integers(1, 4))
+                index = [slice(None)] * 3
+                index[dropout_axis] = slice(start, start + width)
+                data[tuple(index)] *= rng.uniform(0.25, 0.75)
+            crop_axis = int(rng.integers(0, 3))
+            crop_mm = int(rng.integers(4, 13))
+            crop_voxels = max(1, round(crop_mm / nib.affines.voxel_sizes(affine)[crop_axis]))
+            index = [slice(None)] * 3
+            index[crop_axis] = (
+                slice(0, crop_voxels) if rng.random() < 0.5 else slice(-crop_voxels, None)
+            )
+            mask[tuple(index)] = False
+            erosion = int(rng.integers(0, 3))
+            if erosion:
+                mask = ndimage.binary_erosion(mask, iterations=erosion)
+        else:
+            assert variant == "domain"
+            data, mask = change_pose(data, mask, rng, 1.15)
+            data = change_contrast(data, mask, rng, 1.0)
+            axis = int(rng.integers(0, 3))
+            shift = np.zeros(3)
+            shift[axis] = rng.uniform(6, 12)
+            weight = rng.uniform(0.12, 0.22)
+            data = (1 - weight) * data + weight * ndimage.shift(data, shift, order=1)
+            erosion = int(rng.integers(0, 3))
+            if erosion:
+                mask = ndimage.binary_erosion(mask, iterations=erosion)
+            family = ("anisotropic", "isotropic", "reconstruction")[int(rng.integers(0, 3))]
+            if family == "anisotropic":
+                target = nib.affines.voxel_sizes(affine).copy()
+                target[int(rng.integers(0, 3))] = rng.uniform(3, 6)
+                data, mask, affine = resample_acquisition(data, mask, affine, target, "boxcar")
+            elif family == "isotropic":
+                target = np.full(3, rng.uniform(2, 3))
+                data, mask, affine = resample_acquisition(data, mask, affine, target, "gaussian")
+            else:
+                fwhm = rng.uniform(3, 5)
+                data = ndimage.gaussian_filter(
+                    data, fwhm / (2.355 * nib.affines.voxel_sizes(affine))
+                )
+
+        data = np.where(mask, np.maximum(data, 0), 0).astype(np.float32)
+        yield {
+            "subject": f"{row['subject']}__{variant}",
+            "base_subject": row["subject"],
+            "age": row["age"],
+            "age_bin": int(np.searchsorted(AGE_EDGES, row["age"], side="right") - 1),
+            "variant": variant,
+            "fit_weight": weight,
+            "t1w": nib.Nifti1Image(data, affine),
+        }
 
 
 class Task3Method:
     """Frozen sMRI MAE, mean-pooled tokens over the t1w, ridge head."""
 
     def __init__(self, cfg: Config):
+        assert not cfg.age_balance or cfg.augmentation
         self.cfg = cfg
         self.backbone, self.transform = load_backbone(cfg.ckpt_path)
         self.device = torch.device(cfg.device)
@@ -78,13 +301,44 @@ class Task3Method:
         return self.cache[row["subject"]]
 
     def fit(self, rows: list[dict]) -> None:
-        X = np.stack([self.cached_features(row) for row in rows])
-        y = np.array([row["age"] for row in rows], dtype=float)
+        if self.cfg.augmentation:
+            features, ages, variants, weights, bins = [], [], [], [], []
+            for row in rows:
+                for view in augment_row(row, self.cfg.seed):
+                    features.append(self.cached_features(view))
+                    ages.append(view["age"])
+                    variants.append(view["variant"])
+                    weights.append(view["fit_weight"])
+                    bins.append(view["age_bin"])
+            X = np.stack(features)
+            y = np.array(ages, dtype=float)
+        else:
+            X = np.stack([self.cached_features(row) for row in rows])
+            y = np.array([row["age"] for row in rows], dtype=float)
 
-        # RidgeCV picks alpha by its own efficient leave-one-out, so the fold's own split is
-        # never touched by model selection
-        self.head = make_pipeline(StandardScaler(), RidgeCV(alphas=np.logspace(-3, 6, 19)))
-        self.head.fit(X, y)
+        # RidgeCV picks alpha by efficient leave-one-out on clean SALD only; DLBS is never touched.
+        clean = np.array(variants) == "clean" if self.cfg.augmentation else np.ones(len(rows), bool)
+        clean_head = make_pipeline(StandardScaler(), RidgeCV(alphas=np.logspace(-3, 6, 19)))
+        clean_head.fit(X[clean], y[clean])
+        if not self.cfg.augmentation:
+            self.head = clean_head
+            return
+
+        weights = np.array(weights)
+        if self.cfg.age_balance:
+            bins = np.array(bins)
+            subject_bins = np.array(
+                [np.searchsorted(AGE_EDGES, row["age"], side="right") - 1 for row in rows]
+            )
+            counts = np.bincount(subject_bins)
+            weights *= len(rows) / (len(np.unique(subject_bins)) * counts[bins])
+        self.head = make_pipeline(StandardScaler(), Ridge(alpha=clean_head[-1].alpha_))
+        self.head.fit(
+            X,
+            y,
+            standardscaler__sample_weight=weights,
+            ridge__sample_weight=weights,
+        )
 
     def predict(self, images: Images) -> float:
         """Age in years."""
@@ -117,47 +371,30 @@ class Task3Method:
 IMAGE_COLS = ("t1w",)
 
 
-def cross_validate(
-    rows: list[dict], method: Task3Method, seed: int = 0, n_folds: int = 20
+def evaluate(
+    sald: list[dict], dlbs: list[dict], method: Task3Method
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Out-of-fold age for every subject, each predicted by a head fit on the other folds."""
-    y = np.array([row["age"] for row in rows], dtype=float)
-    oof = np.zeros(len(rows), dtype=float)
-    folds = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
+    """Fit only on all supplied SALD subjects, then predict every fixed DLBS subject once."""
     start = time.perf_counter()
-    for fold, (train, test) in enumerate(folds.split(rows)):
-        method.fit([rows[i] for i in train])
-        for i in test:
-            oof[i] = method.predict({key: rows[i][key] for key in IMAGE_COLS})
-        logger.info(
-            f"fold {fold + 1}/{n_folds} n={len(test)} mae={np.abs(y[test] - oof[test]).mean():.2f} "
-            f"({time.perf_counter() - start:.0f}s)"
-        )
-    return y, oof
+    method.fit(sald)
+    y = np.array([row["age"] for row in dlbs], dtype=float)
+    predicted = np.zeros(len(dlbs), dtype=float)
+    for index, row in enumerate(dlbs):
+        predicted[index] = method.predict({key: row[key] for key in IMAGE_COLS})
+        if (index + 1) % 16 == 0:
+            logger.info(
+                f"DLBS {index + 1}/{len(dlbs)} "
+                f"mae={np.abs(y[: index + 1] - predicted[: index + 1]).mean():.2f} "
+                f"({time.perf_counter() - start:.0f}s)"
+            )
+    return y, predicted
 
 
-def metrics(y: np.ndarray, oof: np.ndarray) -> dict:
+def metrics(y: np.ndarray, predicted: np.ndarray) -> dict:
     return {
-        "pearson_r": float(np.corrcoef(y, oof)[0, 1]),
-        "mae": float(np.abs(y - oof).mean()),
+        "pearson_r": float(np.corrcoef(y, predicted)[0, 1]),
+        "mae": float(np.abs(y - predicted).mean()),
     }
-
-
-def score(
-    y: np.ndarray, oof: np.ndarray, seed: int = 0, n_boot: int = 2000, alpha: float = 0.05
-) -> dict:
-    """Both challenge metrics, each with a percentile CI resampling subjects with replacement."""
-    rng = np.random.default_rng(seed)
-    resamples = rng.integers(0, len(y), size=(n_boot, len(y)))
-
-    summary = {}
-    for name, point in metrics(y, oof).items():
-        samples = [metrics(y[rows], oof[rows])[name] for rows in resamples]
-        low, high = np.percentile(samples, [100 * alpha / 2, 100 * (1 - alpha / 2)])
-        summary[name] = point
-        summary[f"{name}_ci_low"] = float(low)
-        summary[f"{name}_ci_high"] = float(high)
-    return summary
 
 
 # ---- entrypoints ------------------------------------------------------------------------
@@ -165,7 +402,7 @@ def score(
 
 def train(args: argparse.Namespace) -> None:
     # imported here, not at the top, so the container needs no dataset stack to run `predict`
-    from fomo_tune.datasets import load_fomo_task3
+    from fomo_tune.datasets import load_fomo_task3, load_fomo_task3_dlbs
 
     cfg = OmegaConf.merge(OmegaConf.structured(Config), OmegaConf.from_dotlist(args.overrides))
     run_dir = Path(cfg.output_root) / cfg.name
@@ -177,25 +414,22 @@ def train(args: argparse.Namespace) -> None:
     logger.info(f"config:\n{OmegaConf.to_yaml(cfg).rstrip()}")
     OmegaConf.save(cfg, run_dir / "config.yaml")
 
-    rows = list(load_fomo_task3())
-    ages = np.array([row["age"] for row in rows])
-    logger.info(
-        f"dataset: {len(rows)} subjects, age {ages.min()}-{ages.max()} mean {ages.mean():.1f}"
-    )
+    sald = list(load_fomo_task3())
+    dlbs = list(load_fomo_task3_dlbs())
+    logger.info(f"fit: {len(sald)} SALD subjects; evaluate: {len(dlbs)} DLBS subjects")
 
     method = Task3Method(cfg)
     start = time.perf_counter()
-    y, oof = cross_validate(rows, method)
+    y, predicted = evaluate(sald, dlbs, method)
     run_time = time.perf_counter() - start
-    summary = score(y, oof)
+    summary = metrics(y, predicted)
 
-    # the shipped head sees all n subjects, so it is not any of the models scored above
-    method.fit(rows)
+    # This is the same SALD-fitted head scored above; DLBS never influences its weights.
     method.save(run_dir / "model")
 
     preds = [
         {"subject": row["subject"], "age": float(age), "pred": float(pred)}
-        for row, age, pred in zip(rows, y, oof)
+        for row, age, pred in zip(dlbs, y, predicted)
     ]
     (run_dir / "preds.json").write_text("".join(json.dumps(pred) + "\n" for pred in preds))
 
@@ -209,7 +443,7 @@ def predict(args: argparse.Namespace) -> None:
     """The challenge contract: a t1 path in, one age written to `--output`.
 
     `/app/predict.py` in the container is a shim over this, so what scores the submission is the
-    code cross-validation already ran, not something generated at build time.
+    code the DLBS protocol already ran, not something generated at build time.
     """
     overrides = {"device": args.device}
     if args.ckpt_path:
@@ -225,7 +459,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     modes = parser.add_subparsers(required=True)
 
-    train_parser = modes.add_parser("train", help="cross-validate over the task, then fit and save")
+    train_parser = modes.add_parser(
+        "train", help="fit on all SALD, evaluate on fixed DLBS, then save"
+    )
     train_parser.add_argument("overrides", nargs="*", help="config overrides, e.g. device=cpu")
     train_parser.set_defaults(run=train)
 

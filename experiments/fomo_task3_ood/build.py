@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import zipfile
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -173,5 +174,12 @@ if __name__ == "__main__":
     ]
     with ProcessPoolExecutor(max_workers=32) as pool:
         rows = list(pool.map(augment_subject, jobs))
-    pd.DataFrame(rows).to_csv(args.output_dir / "eval.tsv", sep="\t", index=False)
+    frame = pd.DataFrame(rows)
+    frame.to_csv(args.output_dir / "eval.tsv", sep="\t", index=False)
+    with zipfile.ZipFile(args.output_dir / "Task_3_DLBS.zip", "w") as zf:
+        for row in frame.itertuples(index=False):
+            root = "Task_3_DLBS"
+            zf.write(row.path, f"{root}/preprocessed/{row.subject}/ses-01/t1w.nii.gz")
+            zf.writestr(f"{root}/labels/{row.subject}/ses-01/labels.txt", str(row.age))
+            zf.writestr(f"{root}/params/{row.subject}/ses-01/params.json", row.params)
     print(f"wrote {len(rows)} DLBS evaluation images to {args.output_dir}")

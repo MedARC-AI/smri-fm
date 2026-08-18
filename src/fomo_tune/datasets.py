@@ -17,6 +17,10 @@ FOMO_EVAL_TASK5_URL = os.getenv(
     "FOMO_EVAL_TASK5_URL",
     "https://huggingface.co/datasets/medarc/smri-fm/resolve/main/fomo_eval/Task_5.zip",
 )
+FOMO_EVAL_TASK3_DLBS_URL = os.getenv(
+    "FOMO_EVAL_TASK3_DLBS_URL",
+    "https://huggingface.co/datasets/medarc/smri-fm/resolve/main/fomo_eval/Task_3_DLBS.zip",
+)
 
 
 @contextmanager
@@ -137,6 +141,34 @@ def _fomo_task3_generator():
                 "t1w": {"path": None, "bytes": image_gz},
             }
             yield sample
+
+
+def load_fomo_task3_dlbs() -> Dataset:
+    """Fixed 128-subject augmented DLBS development test; never use these rows for fitting."""
+    features = Features(
+        {
+            "subject": Value("string"),
+            "age": Value("int32"),
+            "t1w": Nifti(),
+        }
+    )
+    return Dataset.from_generator(
+        _fomo_task3_dlbs_generator,
+        features=features,
+        writer_batch_size=16,
+    )
+
+
+def _fomo_task3_dlbs_generator():
+    with open_zip(FOMO_EVAL_TASK3_DLBS_URL) as zf:
+        for sub in subject_ids(zf):
+            age = int(zf.read(f"Task_3_DLBS/labels/{sub}/ses-01/labels.txt").strip())
+            image_gz = zf.read(f"Task_3_DLBS/preprocessed/{sub}/ses-01/t1w.nii.gz")
+            yield {
+                "subject": sub,
+                "age": age,
+                "t1w": {"path": None, "bytes": image_gz},
+            }
 
 
 # ---- Task 4: trigeminal nerve/vessel segmentation --------------------------------------
