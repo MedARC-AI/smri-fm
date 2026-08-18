@@ -12,6 +12,8 @@ submission will run.
 import argparse
 import json
 import logging
+import os
+import re
 import time
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -211,8 +213,8 @@ def augment_row(row: dict, seed: int) -> Generator[dict, None, None]:
             axis = int(rng.integers(0, 3))
             shift = np.zeros(3)
             shift[axis] = rng.uniform(6, 16)
-            weight = rng.uniform(0.15, 0.30)
-            data = (1 - weight) * data + weight * ndimage.shift(data, shift, order=1)
+            mix = rng.uniform(0.15, 0.30)
+            data = (1 - mix) * data + mix * ndimage.shift(data, shift, order=1)
             dropout_axis = int(rng.integers(0, 3))
             for _ in range(int(rng.integers(2, 6))):
                 start = int(rng.integers(0, data.shape[dropout_axis] - 3))
@@ -238,8 +240,8 @@ def augment_row(row: dict, seed: int) -> Generator[dict, None, None]:
             axis = int(rng.integers(0, 3))
             shift = np.zeros(3)
             shift[axis] = rng.uniform(6, 12)
-            weight = rng.uniform(0.12, 0.22)
-            data = (1 - weight) * data + weight * ndimage.shift(data, shift, order=1)
+            mix = rng.uniform(0.12, 0.22)
+            data = (1 - mix) * data + mix * ndimage.shift(data, shift, order=1)
             erosion = int(rng.integers(0, 3))
             if erosion:
                 mask = ndimage.binary_erosion(mask, iterations=erosion)
@@ -266,6 +268,45 @@ def augment_row(row: dict, seed: int) -> Generator[dict, None, None]:
             "variant": variant,
             "fit_weight": weight,
             "t1w": nib.Nifti1Image(data, affine),
+        }
+
+
+AUGMENT_CACHE = Path("/data/smri-datasets/task3_sald_augmented")
+
+
+def cached_augment_row(row: dict, seed: int) -> Generator[dict, None, None]:
+    """`augment_row` backed by a disk cache. The views are fixed-seed, so a cached view is
+    identical to a fresh one and the ~10s/subject CPU cost is paid once across all runs."""
+    cache_dir = AUGMENT_CACHE / f"seed{seed}"
+    paths = {
+        variant: cache_dir / f"{row['subject']}__{variant}.npz"
+        for variant in FIT_WEIGHTS
+        if variant != "clean"
+    }
+    if not all(path.exists() for path in paths.values()):
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        for view in augment_row(row, seed):
+            if view["variant"] == "clean":
+                continue
+            path = paths[view["variant"]]
+            tmp = path.with_name(path.name + ".tmp.npz")
+            np.savez(tmp, data=np.asarray(view["t1w"].dataobj), affine=view["t1w"].affine)
+            os.replace(tmp, path)
+    age_bin = int(np.searchsorted(AGE_EDGES, row["age"], side="right") - 1)
+    for variant, weight in FIT_WEIGHTS.items():
+        if variant == "clean":
+            t1w = row["t1w"]
+        else:
+            cached = np.load(paths[variant])
+            t1w = nib.Nifti1Image(cached["data"], cached["affine"])
+        yield {
+            "subject": f"{row['subject']}__{variant}",
+            "base_subject": row["subject"],
+            "age": row["age"],
+            "age_bin": age_bin,
+            "variant": variant,
+            "fit_weight": weight,
+            "t1w": t1w,
         }
 
 
@@ -296,15 +337,27 @@ class Task3Method:
         return embed[0].float().cpu().numpy()
 
     def cached_features(self, row: dict) -> np.ndarray:
+        """Per-view features, cached on disk per backbone checkpoint. Delete the cache dir if the
+        transform or pooling changes -- the key only identifies the checkpoint and view."""
         if row["subject"] not in self.cache:
-            self.cache[row["subject"]] = self.features(row)
+            tag = re.sub(r"[^A-Za-z0-9]+", "_", self.cfg.ckpt_path)
+            cache_dir = Path(self.cfg.output_root) / "feature_cache"
+            path = cache_dir / f"{tag}_{row['subject']}.npy"
+            if path.exists():
+                self.cache[row["subject"]] = np.load(path)
+            else:
+                self.cache[row["subject"]] = self.features(row)
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_name(path.name + ".tmp.npy")
+                np.save(tmp, self.cache[row["subject"]])
+                os.replace(tmp, path)
         return self.cache[row["subject"]]
 
     def fit(self, rows: list[dict]) -> None:
         if self.cfg.augmentation:
             features, ages, variants, weights, bins = [], [], [], [], []
             for row in rows:
-                for view in augment_row(row, self.cfg.seed):
+                for view in cached_augment_row(row, self.cfg.seed):
                     features.append(self.cached_features(view))
                     ages.append(view["age"])
                     variants.append(view["variant"])

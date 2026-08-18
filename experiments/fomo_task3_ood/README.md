@@ -45,8 +45,14 @@ head to all seven views using inverse-frequency weights for six SALD age bins (1
 40-49, 50-59, 60-69, and 70-80), in addition to the view weights. DLBS labels are used only after
 fitting to compute the two metrics.
 
+The fixed-seed augmented views are cached under `/data/smri-datasets/task3_sald_augmented` and
+per-view features under `output/fomo_tune/feature_cache`, so only the first augmented run pays the
+~10s/subject augmentation cost. Warm the image cache in parallel before the GPU run:
+
 ```bash
 export HF_HOME="/data/smri-datasets/huggingface"
+srun --partition=main --qos=high --account=sophont --cpus-per-task=32 --mem=64G --time=00:15:00 \
+  uv run python experiments/fomo_task3_ood/precompute_sald_augmentations.py
 srun --partition=main --qos=high --account=sophont --gpus=1 --cpus-per-task=8 --mem=64G \
   --time=01:00:00 uv run python -m fomo_tune.main_task3 train \
   name=task3_dlbs_augmented augmentation=true age_balance=true \
