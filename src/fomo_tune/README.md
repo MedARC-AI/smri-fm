@@ -114,8 +114,12 @@ challenge zips. The fixed-seed augmented SALD views used by the method are cache
 |---|---:|---:|---:|---|
 | current default / clean only | 0.676 | 23.68 | 141s | `RidgeCV` head |
 | walnut-v0.1 / clean only | 0.536 | 13.91 | 253s | `RidgeCV` head |
-| walnut-v0.1 / heavy augmentation | 0.868 | 7.24 | — | seven views weighted to one subject |
-| walnut-v0.1 / heavy augmentation + age balance | **0.878** | **7.01** | — | reproducible configuration below |
+| walnut-v0.1 / heavy augmentation | 0.868 | 7.24 | 99s | seven views weighted to one subject |
+| walnut-v0.1 / heavy augmentation + age balance | **0.878** | **7.01** | 500s | reproducible configuration below |
+| current default / heavy augmentation + age balance | 0.878 | 7.01 | 636s | augmentation closes the encoder gap |
+
+Augmented fits share the cached views and per-checkpoint features, so only the first augmented run
+per checkpoint pays the ~10-minute feature extraction; later recipes refit in ~2 minutes.
 
 ```bash
 uv run python -m fomo_tune.main_task3 train \
