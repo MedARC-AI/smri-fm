@@ -1,0 +1,2 @@
+# regenerate with segment.py (~25 min on one GPU); 1GB of resampled volumes, 19MB of labels
+*.nii.gz
