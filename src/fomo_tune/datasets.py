@@ -240,3 +240,38 @@ def _camcan_generator():
                 "age": float(rec["age"]),
                 "t1w": {"path": None, "bytes": image_gz},
             }
+
+
+# ---- AOMIC-PIOP1: young-adult T1w holdout for task 3 -----------------------------------
+
+AOMIC_REPO = os.getenv("AOMIC_REPO", "medarc/AOMIC-T3")
+#Recommend setting HF Cache dir to /data/mihir-stuff/hf_cache_dir to avoid duplicate downloads if you're on Nebius.
+
+
+def load_aomic() -> Dataset:
+    features = Features(
+        {
+            "subject": Value("string"),
+            "age": Value("float32"),
+            "t1w": Nifti(),
+        }
+    )
+    dataset = Dataset.from_generator(
+        _aomic_generator,
+        features=features,
+        writer_batch_size=16,
+    )
+    return dataset
+
+
+def _aomic_generator():
+    root = Path(snapshot_download(AOMIC_REPO, repo_type="dataset"))
+    with (root / "participants.csv").open() as f:
+        for rec in csv.DictReader(f):
+            sub = rec["participant_id"]
+            image_gz = (root / sub / "anat" / f"{sub}_T1w.nii.gz").read_bytes()
+            yield {
+                "subject": sub,
+                "age": float(rec["age"]),
+                "t1w": {"path": None, "bytes": image_gz},
+            }
