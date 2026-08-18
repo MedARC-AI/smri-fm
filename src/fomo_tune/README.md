@@ -100,6 +100,16 @@ calibration, or ensemble weights. The frozen walnut-v0.1 encoder was pretrained 
 includes DLBS, so this tests head robustness to the imposed acquisition shifts rather than a wholly
 unseen pretraining cohort.
 
+The test set is 128 of the 464 first-wave run-1 MPRAGE scans from the public DLBS OpenNeuro
+release (ds004856), selected without replacement with NumPy seed 4466, oriented to RAS and
+skull-stripped with SynthSeg (matching FOMO's Task 3 preprocessing), then given one fixed-seed
+composite degradation each: pose/scale, contrast/bias-field/noise, ghosting/mask erosion, and one
+anisotropic-slice, isotropic-lowres, or reconstruction-blur acquisition family. Realized
+per-subject parameters are embedded in the zip, and `load_fomo_task3_dlbs()` streams it like the
+challenge zips. The fixed-seed augmented SALD views used by the method are cached under
+`/data/smri-datasets/task3_sald_augmented` and per-view features under
+`output/fomo_tune/feature_cache`, so a repeat fit with a seen checkpoint takes about a minute.
+
 | Encoder / SALD fitting recipe | Pearson r | MAE (y) | Time | Notes |
 |---|---:|---:|---:|---|
 | current default / clean only | 0.676 | 23.68 | 141s | `RidgeCV` head |
