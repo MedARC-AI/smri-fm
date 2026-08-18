@@ -32,6 +32,11 @@ class Config:
     output_root: str = "output/fomo_tune"
     name: str = "task6_and_7"
     device: str = "cuda"
+    # Pooled training embeddings, (N, D), whose mean is subtracted from every
+    # output. Fitted at export and frozen into the container: predict sees one
+    # image at a time, so there is nothing to take a mean over there. Empty
+    # leaves the embedding untouched.
+    center_from: str = ""
 
 
 # ---- method: the part we tune -----------------------------------------------------------
@@ -45,6 +50,7 @@ class Task6And7Method:
         self.backbone, self.transform = load_backbone(cfg.ckpt_path)
         self.device = torch.device(cfg.device)
         self.backbone.to(self.device).eval().requires_grad_(False)
+        self.center = None
 
     @torch.inference_mode()
     def predict(self, image: nib.Nifti1Image) -> np.ndarray:
@@ -58,13 +64,24 @@ class Task6And7Method:
         patch_embeds = out["patch_embeds"]
         token_mask = out["token_mask"].bool().unsqueeze(-1)
         embed = (patch_embeds * token_mask).sum(dim=1) / token_mask.sum(dim=1)
-        return embed[0].float().cpu().numpy()
+        embed = embed[0].float().cpu().numpy()
+        if self.center is not None:
+            embed = embed - self.center
+        return embed
+
+    def fit_center(self) -> None:
+        """Mean of the pooled training embeddings named by `center_from`."""
+        blob = np.load(self.cfg.center_from)
+        pooled = blob["mean"] if hasattr(blob, "files") else blob
+        self.center = pooled.mean(axis=0).astype(np.float32)
 
     def save(self, model_dir: Path) -> None:
-        """Nothing is fitted, so this is the config alone -- the backbone weights stay wherever
-        `ckpt_path` points, and `build.py` is what copies them into a container."""
+        """The config, plus the centering vector when one was fitted -- the backbone weights stay
+        wherever `ckpt_path` points, and `build.py` is what copies them into a container."""
         model_dir.mkdir(parents=True, exist_ok=True)
         OmegaConf.save(self.cfg, model_dir / "config.yaml")
+        if self.center is not None:
+            np.save(model_dir / "center.npy", self.center)
 
     @classmethod
     def load(cls, model_dir: Path, **overrides) -> "Task6And7Method":
@@ -73,7 +90,11 @@ class Task6And7Method:
         cfg = OmegaConf.merge(
             OmegaConf.structured(Config), OmegaConf.load(model_dir / "config.yaml"), overrides
         )
-        return cls(cfg)
+        method = cls(cfg)
+        center_path = model_dir / "center.npy"
+        if center_path.exists():
+            method.center = np.load(center_path)
+        return method
 
 
 # ---- entrypoints ------------------------------------------------------------------------
@@ -91,6 +112,8 @@ def export(args: argparse.Namespace) -> None:
     OmegaConf.save(cfg, run_dir / "config.yaml")
 
     method = Task6And7Method(cfg)
+    if cfg.center_from:
+        method.fit_center()
     method.save(run_dir / "model")
     logger.info(f"embedding dim {method.backbone.encoder.patch_embed.out_features}")
 
