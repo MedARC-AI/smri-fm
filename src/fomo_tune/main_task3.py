@@ -512,9 +512,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     modes = parser.add_subparsers(required=True)
 
-    train_parser = modes.add_parser(
-        "train", help="fit on all SALD, evaluate on fixed DLBS, then save"
-    )
+    train_parser = modes.add_parser("train", help="fit on SALD, evaluate on DLBS, then save")
     train_parser.add_argument("overrides", nargs="*", help="config overrides, e.g. device=cpu")
     train_parser.set_defaults(run=train)
 

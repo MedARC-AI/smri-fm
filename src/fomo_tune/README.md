@@ -7,7 +7,7 @@ The FOMO26 challenge tasks, one script each, tuned independently.
 | File | |
 |---|---|
 | `main_task<k>.py` | One task, end to end. Each has a **frozen** "protocol" section. Anything outside of the protocol is fair game. |
-| `datasets.py` | One loader per challenge or fixed development dataset, streaming its zip into an HF dataset. Raw niftis, no resampling — the backbone transform does that. |
+| `datasets.py` | **frozen**. One `load_fomo_task<k>()` per task plus the fixed DLBS development test, streaming the zips into HF datasets. Raw niftis, no resampling — the backbone transform does that. |
 | `backbone.py` | **frozen**. Frozen sMRI MAE encoder; the transform canonicalizes to RAS, rescales to 1mm, fits to the pretraining shape, z-scores in a mean-threshold brain mask. |
 | `utils.py` | **frozen**. Seeding, git sha, logging. |
 | `build.py` + `Apptainer.def` | **frozen**. Package a run dir into the challenge `.sif`. Shared by every task. |
@@ -117,9 +117,6 @@ challenge zips. The fixed-seed augmented SALD views used by the method are cache
 | walnut-v0.1 / heavy augmentation | 0.868 | 7.24 | 99s | seven views weighted to one subject |
 | walnut-v0.1 / heavy augmentation + age balance | **0.878** | **7.01** | 500s | reproducible configuration below |
 | current default / heavy augmentation + age balance | 0.878 | 7.01 | 636s | augmentation closes the encoder gap |
-
-Augmented fits share the cached views and per-checkpoint features, so only the first augmented run
-per checkpoint pays the ~10-minute feature extraction; later recipes refit in ~2 minutes.
 
 ```bash
 uv run python -m fomo_tune.main_task3 train \
