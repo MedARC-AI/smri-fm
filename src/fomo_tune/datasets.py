@@ -46,6 +46,7 @@ def load_fomo_task1() -> Dataset:
         {
             "subject": Value("string"),
             "label": Value("int32"),
+            "seg": Nifti(),
             **{suffix: Nifti() for suffix in suffixes},
         }
     )
@@ -63,7 +64,13 @@ def _fomo_task1_generator(suffixes: tuple[str, ...]):
     with open_zip(url) as zf:
         for sub in subject_ids(zf):
             label = int(zf.read(f"Task_1/labels/{sub}/ses-01/label.txt").strip())
-            sample = {"subject": sub, "label": label}
+            assert label in (0, 1)
+            seg = None
+            if label == 1:
+                name = f"Task_1/labels/{sub}/ses-01/seg.nii.gz"
+                seg = {"path": None, "bytes": zf.read(name)}
+
+            sample = {"subject": sub, "label": label, "seg": seg}
             for suffix in suffixes:
                 name = f"Task_1/preprocessed/{sub}/ses-01/{suffix}.nii.gz"
                 sample[suffix] = {"path": None, "bytes": zf.read(name)}

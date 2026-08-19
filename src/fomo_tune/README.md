@@ -34,6 +34,7 @@ You can also use the data in `/data/smri-datasets` for one-off exploration. If y
 
 ```bash
 uv run python -m fomo_tune.main_task1 train
+uv run python -m fomo_tune.main_task1 train pooling=local sweet_k=16 top_k=64
 uv run python -m fomo_tune.main_task1 predict \
     --adc data/fomo_eval/Task_1/preprocessed/sub-01/ses-01/adc.nii.gz \
     --dwi data/fomo_eval/Task_1/preprocessed/sub-01/ses-01/dwi_b1000.nii.gz \

@@ -14,24 +14,32 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
+from typing import NamedTuple
 
 import joblib
 import nibabel as nib
 import numpy as np
 import torch
+import torch.nn.functional as F
 from omegaconf import OmegaConf
 from sklearn.linear_model import LogisticRegressionCV
 from sklearn.metrics import roc_auc_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from fomo_tune.backbone import load_backbone
+from fomo_tune.backbone import fit_to_shape, load_backbone
 from fomo_tune.utils import git_sha, set_seed, setup_logging
 
 logger = logging.getLogger("fomo_tune")
 
 Images = dict[str, nib.Nifti1Image]
+
+
+class Pooling(str, Enum):
+    mean = "mean"
+    local = "local"
 
 
 @dataclass
@@ -43,13 +51,22 @@ class Config:
     name: str = "task1"
     device: str = "cuda"
     seed: int = 4466
+    pooling: Pooling = Pooling.mean
+    sweet_k: int = 16
+    top_k: int = 64
+
+
+class Embedding(NamedTuple):
+    pooled: np.ndarray
+    tokens: np.ndarray
+    patch_ids: np.ndarray
 
 
 # ---- method: the part we tune -----------------------------------------------------------
 
 
 class Task1Method:
-    """Frozen sMRI MAE, mean-pooled tokens per modality concatenated, logistic head."""
+    """Frozen sMRI MAE with a global or lesion-selected local logistic probe."""
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
@@ -57,35 +74,108 @@ class Task1Method:
         self.device = torch.device(cfg.device)
         self.backbone.to(self.device).eval().requires_grad_(False)
         self.modalities = list(cfg.modalities)
-        self.cache: dict[str, np.ndarray] = {}
         self.head = None
+        if cfg.pooling is Pooling.mean:
+            self.cache: dict[str, np.ndarray] = {}
+            return
+
+        assert len(self.modalities) == 1
+        assert cfg.sweet_k > 0 and cfg.top_k > 0
+        self.modality = self.modalities[0]
+        patchify = self.backbone.encoder.patchify
+        self.grid_size = tuple(patchify.grid_size)
+        self.patch_size = tuple(patchify.patch_size)
+        self.img_size = tuple(patchify.img_size)
+        self.embedding_cache: dict[str, Embedding] = {}
+
+    @torch.inference_mode()
+    def embed(self, image: nib.Nifti1Image) -> Embedding:
+        sample = self.transform(image)
+        batch = {key: value[None].to(self.device) for key, value in sample.items()}
+        with torch.autocast("cuda", torch.bfloat16, enabled=self.device.type == "cuda"):
+            out = self.backbone(batch)
+
+        patch_embeds = out["patch_embeds"]
+        token_mask = out["token_mask"].bool().unsqueeze(-1)
+        pooled = (patch_embeds * token_mask).sum(dim=1) / token_mask.sum(dim=1)
+
+        keep = token_mask[0, :, 0]
+        tokens = patch_embeds[0][keep].float().cpu().numpy()
+        patch_ids = out["patch_ids"][0][keep].cpu().numpy()
+        return Embedding(pooled[0].float().cpu().numpy(), tokens, patch_ids)
+
+    def lesion_channel_contrast(self, embedding: Embedding, seg: nib.Nifti1Image) -> np.ndarray:
+        seg = nib.Nifti1Image(seg.dataobj, seg.affine, seg.header)
+        seg = nib.as_closest_canonical(nib.funcs.squeeze_image(seg))
+        lesion = torch.from_numpy(np.ascontiguousarray(np.asarray(seg.dataobj) > 0))
+        assert lesion.ndim == 3
+
+        spacing = seg.header.get_zooms()[:3]
+        lesion = F.interpolate(lesion[None, None].float(), scale_factor=spacing, mode="nearest")[
+            0, 0
+        ]
+        lesion, _ = fit_to_shape(lesion, np.asarray(seg.affine), self.img_size)
+
+        gx, gy, gz = self.grid_size
+        px, py, pz = self.patch_size
+        lesion_patches = lesion.bool().reshape(gx, px, gy, py, gz, pz)
+        lesion_patches = lesion_patches.any(dim=(1, 3, 5)).numpy().reshape(-1)
+        inside = lesion_patches[embedding.patch_ids]
+        assert inside.any() and (~inside).any()
+
+        lesion_tokens = embedding.tokens[inside]
+        outside_tokens = embedding.tokens[~inside]
+        contrast_scale = np.sqrt((lesion_tokens.var(0) + outside_tokens.var(0)) / 2)
+        return (lesion_tokens.mean(0) - outside_tokens.mean(0)) / contrast_scale.clip(1e-6)
+
+    def select_sweet_channels(self, contrasts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        assert self.cfg.sweet_k <= contrasts.shape[1]
+        mean_contrast = contrasts.mean(0)
+        consistency = np.abs(mean_contrast) / contrasts.std(0, ddof=1).clip(1e-6)
+        channels = np.argsort(consistency)[-self.cfg.sweet_k :][::-1]
+        signs = np.sign(mean_contrast[channels])
+        signs[signs == 0] = 1
+        return channels, signs
+
+    def top_k_pool(self, embedding: Embedding) -> np.ndarray:
+        assert len(embedding.tokens) >= self.cfg.top_k
+        signed_channels = embedding.tokens[:, self.channels] * self.signs
+        top_tokens = np.partition(signed_channels, -self.cfg.top_k, axis=0)[-self.cfg.top_k :]
+        return top_tokens.mean(0)
 
     @torch.inference_mode()
     def features(self, images: Images) -> np.ndarray:
         """(D,) per subject. A pure function of the images, so training and inference agree."""
-        pooled = []
-        for modality in self.modalities:
-            sample = self.transform(images[modality])
-            batch = {key: value[None].to(self.device) for key, value in sample.items()}
+        if self.cfg.pooling is Pooling.local:
+            return self.top_k_pool(self.embed(images[self.modality]))
 
-            with torch.autocast("cuda", torch.bfloat16, enabled=self.device.type == "cuda"):
-                out = self.backbone(batch)
-
-            patch_embeds = out["patch_embeds"]
-            token_mask = out["token_mask"].bool().unsqueeze(-1)
-            embed = (patch_embeds * token_mask).sum(dim=1) / token_mask.sum(dim=1)
-            pooled.append(embed[0].float().cpu())
-
-        return torch.cat(pooled).numpy()
+        pooled = [self.embed(images[modality]).pooled for modality in self.modalities]
+        return np.concatenate(pooled)
 
     def cached_features(self, row: dict) -> np.ndarray:
         if row["subject"] not in self.cache:
             self.cache[row["subject"]] = self.features(row)
         return self.cache[row["subject"]]
 
+    def cached_embedding(self, row: dict) -> Embedding:
+        if row["subject"] not in self.embedding_cache:
+            self.embedding_cache[row["subject"]] = self.embed(row[self.modality])
+        return self.embedding_cache[row["subject"]]
+
     def fit(self, rows: list[dict]) -> None:
-        X = np.stack([self.cached_features(row) for row in rows])
         y = np.array([row["label"] for row in rows])
+
+        if self.cfg.pooling is Pooling.mean:
+            X = np.stack([self.cached_features(row) for row in rows])
+        else:
+            embeddings = [self.cached_embedding(row) for row in rows]
+            lesion_contrasts = [
+                self.lesion_channel_contrast(embedding, row["seg"])
+                for row, embedding in zip(rows, embeddings)
+                if row["label"] == 1
+            ]
+            self.channels, self.signs = self.select_sweet_channels(np.stack(lesion_contrasts))
+            X = np.stack([self.top_k_pool(embedding) for embedding in embeddings])
 
         clf = LogisticRegressionCV(
             Cs=10,
@@ -111,7 +201,10 @@ class Task1Method:
         points -- a few hundred KB, so a run saves one without copying a 3.7G checkpoint."""
         model_dir.mkdir(parents=True, exist_ok=True)
         OmegaConf.save(self.cfg, model_dir / "config.yaml")
-        joblib.dump({"head": self.head, "positive": self.positive}, model_dir / "head.joblib")
+        state = {"head": self.head, "positive": self.positive}
+        if self.cfg.pooling is Pooling.local:
+            state |= {"channels": self.channels, "signs": self.signs}
+        joblib.dump(state, model_dir / "head.joblib")
 
     @classmethod
     def load(cls, model_dir: Path, **overrides) -> "Task1Method":
@@ -123,6 +216,8 @@ class Task1Method:
         method = cls(cfg)
         state = joblib.load(model_dir / "head.joblib")
         method.head, method.positive = state["head"], state["positive"]
+        if cfg.pooling is Pooling.local:
+            method.channels, method.signs = state["channels"], state["signs"]
         return method
 
 
