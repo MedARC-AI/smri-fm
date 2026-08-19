@@ -112,11 +112,11 @@ challenge zips. The fixed-seed augmented SALD views used by the method are cache
 
 | Encoder / SALD fitting recipe | Pearson r | MAE (y) | Time | Notes |
 |---|---:|---:|---:|---|
-| current default / clean only | 0.676 | 23.68 | 141s | `RidgeCV` head |
+| baseline / clean only | 0.676 | 23.68 | 141s | `RidgeCV` head |
 | walnut-v0.1 / clean only | 0.536 | 13.91 | 253s | `RidgeCV` head |
 | walnut-v0.1 / heavy augmentation | 0.868 | 7.24 | 99s | seven views weighted to one subject |
 | walnut-v0.1 / heavy augmentation + age balance | **0.878** | **7.01** | 500s | reproducible configuration below |
-| current default / heavy augmentation + age balance | 0.878 | 7.01 | 636s | augmentation closes the encoder gap |
+| baseline / heavy augmentation + age balance | 0.878 | 7.01 | 636s | augmentation closes the encoder gap |
 
 ```bash
 uv run python -m fomo_tune.main_task3 train \
