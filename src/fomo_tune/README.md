@@ -7,7 +7,7 @@ The FOMO26 challenge tasks, one script each, tuned independently.
 | File | |
 |---|---|
 | `main_task<k>.py` | One task, end to end. Each has a **frozen** "protocol" section. Anything outside of the protocol is fair game. |
-| `datasets.py` | **frozen**. One `load_fomo_task<k>()` per task, streaming the challenge zips into an HF dataset. Raw niftis, no resampling — the backbone transform does that. |
+| `datasets.py` | **frozen**. One `load_fomo_task<k>()` per task plus the fixed DLBS development test, streaming the zips into HF datasets. Raw niftis, no resampling — the backbone transform does that. |
 | `backbone.py` | **frozen**. Frozen sMRI MAE encoder; the transform canonicalizes to RAS, rescales to 1mm, fits to the pretraining shape, z-scores in a mean-threshold brain mask. |
 | `utils.py` | **frozen**. Seeding, git sha, logging. |
 | `build.py` + `Apptainer.def` | **frozen**. Package a run dir into the challenge `.sif`. Shared by every task. |
@@ -68,7 +68,7 @@ uv run python third_party/container-validator/container_validator/validate.py \
 |---|---|---|---|---|---|
 | 1 infarct | 21 | adc, dwi_b1000, flair (+t2s/swi) | probability | LOO | done |
 | 2 meningioma | 23 | dwi_b1000, flair (+t2s/swi) | mask, input grid | LOO | drafted — flair only, per-subject **Dice** |
-| 3 brain age | 494 | t1w | age in years | 20-fold | done — RidgeCV head, **Pearson r and MAE**, each with its own bootstrap CI |
+| 3 brain age | 494 + 128 | t1w | age in years | fit SALD, test DLBS | **Pearson r and MAE** |
 | 4 trigeminal | 40 | t2w | mask, labels 1=nerve 2=vessel | — | tabled |
 | 5 polymicrogyria | 48 | t1w | probability | 20-fold | done |
 | 6+7 probing, fairness | — | one image, any modality | 1024-d embedding `.npy` | — | drafted — no labels and no head, so `export` in place of `train` |
@@ -92,7 +92,40 @@ uv run python third_party/container-validator/container_validator/validate.py \
 
 Oracle is the per-subject best threshold — the ceiling any thresholding rule could reach.
 
-### Task 3 — brain age, 20-fold over 494
+### Task 3 — brain age, fit 494 SALD / test 128 augmented DLBS
+
+Fit on all 494 supplied SALD subjects and evaluate on the fixed augmented DLBS test with
+`main_task3.py train`. DLBS is evaluation-only and must not influence submitted model weights,
+calibration, or ensemble weights. The frozen walnut-v0.1 encoder was pretrained on FOMO300K, which
+includes DLBS, so this tests head robustness to the imposed acquisition shifts rather than a wholly
+unseen pretraining cohort.
+
+The test set is 128 of the 464 first-wave run-1 MPRAGE scans from the public DLBS OpenNeuro
+release (ds004856), selected without replacement with NumPy seed 4466, oriented to RAS and
+skull-stripped with SynthSeg (matching FOMO's Task 3 preprocessing), then given one fixed-seed
+composite degradation each: pose/scale, contrast/bias-field/noise, ghosting/mask erosion, and one
+anisotropic-slice, isotropic-lowres, or reconstruction-blur acquisition family. Realized
+per-subject parameters are embedded in the zip, and `load_fomo_task3_dlbs()` streams it like the
+challenge zips. The fixed-seed augmented SALD views used by the method are cached under
+`/data/smri-datasets/task3_sald_augmented` and per-view features under
+`output/fomo_tune/feature_cache`, so a repeat fit with a seen checkpoint takes about a minute.
+
+| Encoder / SALD fitting recipe | Pearson r | MAE (y) | Time | Notes |
+|---|---:|---:|---:|---|
+| baseline / clean only | 0.676 | 23.68 | 141s | `RidgeCV` head |
+| walnut-v0.1 / clean only | 0.536 | 13.91 | 253s | `RidgeCV` head |
+| walnut-v0.1 / heavy augmentation | 0.868 | 7.24 | 99s | seven views weighted to one subject |
+| walnut-v0.1 / heavy augmentation + age balance | **0.878** | **7.01** | 500s | reproducible configuration below |
+| baseline / heavy augmentation + age balance | 0.878 | 7.01 | 636s | augmentation closes the encoder gap |
+
+```bash
+uv run python -m fomo_tune.main_task3 train \
+  name=task3_dlbs_augmented augmentation=true age_balance=true \
+  ckpt_path=hf://medarc/walnut/checkpoints/walnut-v0-1/vitl/sub-52k/checkpoint-last.pth
+```
+
+Previous protocol, 20-fold over the 494 SALD subjects (kept for reference; the DLBS test above
+replaces it):
 
 | Run | Pearson r | 95% CI | MAE (y) | 95% CI | Time | Git | Notes |
 |---|---|---|---|---|---|---|---|
