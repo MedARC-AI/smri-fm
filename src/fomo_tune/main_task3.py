@@ -136,6 +136,15 @@ def cross_validate(
     return y, oof
 
 
+def evaluate(rows: list[dict], method: Task3Method) -> tuple[np.ndarray, np.ndarray]:
+    """Age for every subject from an already-fitted method, through `predict`."""
+    y = np.array([row["age"] for row in rows], dtype=float)
+    pred = np.array(
+        [method.predict({key: row[key] for key in IMAGE_COLS}) for row in rows], dtype=float
+    )
+    return y, pred
+
+
 def metrics(y: np.ndarray, oof: np.ndarray) -> dict:
     return {
         "pearson_r": float(np.corrcoef(y, oof)[0, 1]),
@@ -165,7 +174,11 @@ def score(
 
 def train(args: argparse.Namespace) -> None:
     # imported here, not at the top, so the container needs no dataset stack to run `predict`
-    from fomo_tune.datasets import load_fomo_task3
+    from fomo_tune.datasets import load_aomic, load_fomo_task3
+
+    eval_loaders = {
+        "aomic": load_aomic,
+    }
 
     cfg = OmegaConf.merge(OmegaConf.structured(Config), OmegaConf.from_dotlist(args.overrides))
     run_dir = Path(cfg.output_root) / cfg.name
@@ -200,9 +213,31 @@ def train(args: argparse.Namespace) -> None:
     (run_dir / "preds.json").write_text("".join(json.dumps(pred) + "\n" for pred in preds))
 
     record = {"name": cfg.name, **summary, "run_time": round(run_time, 1)}
-    (run_dir / "metrics.json").write_text(json.dumps(record) + "\n")
     scores = "  ".join(f"{k}={v:.4f}" for k, v in summary.items())
     logger.info(f"result: {scores}  ({run_time:.0f}s)")
+
+    record["evals"] = {}
+    for eval_name in args.evals:
+        holdout = list(eval_loaders[eval_name]())
+        holdout_ages = np.array([row["age"] for row in holdout])
+        logger.info(
+            f"{eval_name}: {len(holdout)} subjects, age {holdout_ages.min():.1f}-"
+            f"{holdout_ages.max():.1f} mean {holdout_ages.mean():.1f}"
+        )
+        y_eval, pred_eval = evaluate(holdout, method)
+        eval_summary = score(y_eval, pred_eval)
+        eval_preds = [
+            {"subject": row["subject"], "age": float(age), "pred": float(p)}
+            for row, age, p in zip(holdout, y_eval, pred_eval)
+        ]
+        (run_dir / f"{eval_name}_preds.json").write_text(
+            "".join(json.dumps(row) + "\n" for row in eval_preds)
+        )
+        record["evals"][eval_name] = eval_summary
+        eval_scores = "  ".join(f"{k}={v:.4f}" for k, v in eval_summary.items())
+        logger.info(f"{eval_name}: {eval_scores}")
+
+    (run_dir / "metrics.json").write_text(json.dumps(record) + "\n")
 
 
 def predict(args: argparse.Namespace) -> None:
@@ -226,6 +261,12 @@ def main() -> None:
     modes = parser.add_subparsers(required=True)
 
     train_parser = modes.add_parser("train", help="cross-validate over the task, then fit and save")
+    train_parser.add_argument(
+        "--evals",
+        nargs="*",
+        default=["aomic"],
+        help="holdout datasets to score with the fitted head, e.g. --evals camcan dlbs aomic",
+    )
     train_parser.add_argument("overrides", nargs="*", help="config overrides, e.g. device=cpu")
     train_parser.set_defaults(run=train)
 
