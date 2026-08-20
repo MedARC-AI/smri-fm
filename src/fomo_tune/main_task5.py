@@ -7,11 +7,16 @@ out-of-fold predictions, bootstrap subjects for the CI.
 `train` runs that protocol then fits and saves a head; `predict` is the challenge contract, one t1
 path in and one probability out. Both go through `Task5Method.predict`, so every fold exercises
 the path the submission will run.
+
+Skull-strips with deepbet before pooling. No AP crop here, unlike the strip+crop variant: the
+material that differs between the groups is not brain. Confound background in
+experiments/explore_fomo_task5/README.md.
 """
 
 import argparse
 import json
 import logging
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,12 +25,14 @@ import joblib
 import nibabel as nib
 import numpy as np
 import torch
+from deepbet import run_bet
 from omegaconf import OmegaConf
 from sklearn.linear_model import LogisticRegressionCV
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import KFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from torch import Tensor
 
 from fomo_tune.backbone import load_backbone
 from fomo_tune.utils import git_sha, set_seed, setup_logging
@@ -33,6 +40,8 @@ from fomo_tune.utils import git_sha, set_seed, setup_logging
 logger = logging.getLogger("fomo_tune")
 
 Images = dict[str, nib.Nifti1Image]
+
+N_DILATE = 2  # keep a rim of CSF
 
 
 @dataclass
@@ -59,10 +68,26 @@ class Task5Method:
         self.cache: dict[str, np.ndarray] = {}
         self.head = None
 
+    def _strip(self, sample: dict[str, Tensor]) -> dict[str, Tensor]:
+        """Swap the transform's mean-threshold mask, which keeps skull and neck, for a brain
+        mask. Runs on the transform's output so no second resample is needed, and restandardises
+        inside the new mask."""
+        data = sample["image"][0]
+        with tempfile.TemporaryDirectory() as tmp:
+            volume, mask_path = Path(tmp) / "in.nii.gz", Path(tmp) / "mask.nii.gz"
+            nib.save(nib.Nifti1Image(data.numpy(), sample["affine"].numpy()), volume)
+            run_bet([str(volume)], mask_paths=[str(mask_path)], n_dilate=N_DILATE,
+                    no_gpu=self.device.type != "cuda")
+            mask = torch.from_numpy(np.asarray(nib.load(mask_path).dataobj) > 0)
+
+        brain = data[mask]
+        data = torch.where(mask, (data - brain.mean()) / brain.std().clamp_min(1e-6), 0.0)
+        return {"image": data.unsqueeze(0), "mask": mask.unsqueeze(0), "affine": sample["affine"]}
+
     @torch.inference_mode()
     def features(self, images: Images) -> np.ndarray:
         """(D,) per subject. A pure function of the images, so training and inference agree."""
-        sample = self.transform(images["t1w"])
+        sample = self._strip(self.transform(images["t1w"]))
         batch = {key: value[None].to(self.device) for key, value in sample.items()}
 
         with torch.autocast("cuda", torch.bfloat16, enabled=self.device.type == "cuda"):

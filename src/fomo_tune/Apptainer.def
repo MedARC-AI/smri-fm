@@ -25,7 +25,8 @@ From: python:3.11-slim
         huggingface-hub==0.36.2 \
         scikit-learn==1.8.0 \
         joblib==1.5.3 \
-        omegaconf==2.3.0
+        omegaconf==2.3.0 \
+        deepbet==1.0.2
 
 %runscript
     exec python /app/predict.py "$@"

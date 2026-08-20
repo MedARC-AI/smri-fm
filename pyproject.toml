@@ -11,6 +11,7 @@ requires-python = ">=3.11,<3.13"
 dependencies = [
     "braceexpand",
     "datasets",
+    "deepbet",
     "einops",
     "huggingface-hub",
     "ipython",
