@@ -1,0 +1,40 @@
+# @package _global_
+defaults:
+  - /default_finetune_reg
+  - /hardware/cpu@hardware
+  - /model/smri_mae@model
+  - _self_
+
+task: REGR002_FOMO26_BrainAge_Normalized
+
+checkpoint_path: /data/luka.secerovic/checkpoint-last-asparagus-NEW.ckpt
+
+data:
+  train_split: split_80_10_10
+  test_split: TEST_80_10_10
+  fold: 0
+
+hardware:
+  accelerator: gpu
+  num_devices: 1
+  num_workers: 2
+  precision: 32-true
+  compile_mode: default
+
+training:
+  batch_size: 4
+  epochs: 10
+  limit_train_batches: 100
+  limit_val_batches: 100
+  target_size: [208, 240, 208]
+  warmup_epochs: 0
+
+logger:
+  wandb_logging: true
+  log_every_n_steps: 1
+
+model:
+  _cls_net:
+    img_size: [208, 240, 208]
+    patch_size: 8
+    pool: mean
