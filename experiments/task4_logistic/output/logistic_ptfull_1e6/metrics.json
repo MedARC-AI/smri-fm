@@ -1,0 +1,1 @@
+{"name": "logistic_ptfull_1e6", "dice": 0.0, "dice_ci_low": 0.0, "dice_ci_high": 0.0, "dice_nerve": 0.0, "dice_vessel": 0.0, "dice_oracle": 0.0, "thresholds": [0.001, 0.001], "run_time": 855.9}

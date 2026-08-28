@@ -1,0 +1,185 @@
+16:14:06 run logistic_walnut_1e0 (git 2eb1685)
+16:14:06 config:
+task: task4
+ckpt_path: hf://medarc/walnut/checkpoints/walnut-v0-1/vitl/sub-52k/checkpoint-last.pth
+output_root: experiments/task4_logistic/output
+name: logistic_walnut_1e0
+scale: 4
+subcell: 4
+target_sigma_mm: 0.0
+head: logistic
+depth: 4
+alphas:
+- 1000.0
+- 10000.0
+- 100000.0
+- 1000000.0
+- 10000000.0
+- 100000000.0
+alpha: 1.0
+n_splits: 5
+device: cuda
+seed: 4466
+16:14:52 dataset: 40 subjects
+16:15:10 embed prepare=12.1s forward=0.5s
+16:15:11 cache sub-01 embed=12.7s targets=0.8s
+16:15:23 embed prepare=12.1s forward=0.2s
+16:15:24 cache sub-02 embed=12.3s targets=0.8s
+16:15:36 embed prepare=11.9s forward=0.2s
+16:15:37 cache sub-03 embed=12.1s targets=0.9s
+16:15:49 embed prepare=11.7s forward=0.2s
+16:15:50 cache sub-04 embed=11.9s targets=0.9s
+16:16:02 embed prepare=11.7s forward=0.2s
+16:16:03 cache sub-05 embed=12.0s targets=0.9s
+16:16:15 embed prepare=11.9s forward=0.2s
+16:16:16 cache sub-06 embed=12.1s targets=0.9s
+16:16:28 embed prepare=12.0s forward=0.2s
+16:16:29 cache sub-07 embed=12.3s targets=0.9s
+16:16:41 embed prepare=12.3s forward=0.2s
+16:16:42 cache sub-08 embed=12.6s targets=0.9s
+16:16:54 embed prepare=11.9s forward=0.2s
+16:16:55 cache sub-09 embed=12.1s targets=0.9s
+16:17:07 embed prepare=12.0s forward=0.2s
+16:17:08 cache sub-10 embed=12.2s targets=0.8s
+16:17:21 embed prepare=12.5s forward=0.2s
+16:17:22 cache sub-11 embed=12.7s targets=0.9s
+16:17:34 embed prepare=12.1s forward=0.2s
+16:17:35 cache sub-12 embed=12.3s targets=0.8s
+16:17:47 embed prepare=12.2s forward=0.3s
+16:17:48 cache sub-13 embed=12.5s targets=0.9s
+16:18:01 embed prepare=12.2s forward=0.2s
+16:18:02 cache sub-14 embed=12.4s targets=0.9s
+16:18:14 embed prepare=11.9s forward=0.2s
+16:18:15 cache sub-15 embed=12.2s targets=0.9s
+16:18:27 embed prepare=12.2s forward=0.2s
+16:18:28 cache sub-16 embed=12.4s targets=0.9s
+16:18:40 embed prepare=12.2s forward=0.2s
+16:18:41 cache sub-17 embed=12.4s targets=0.9s
+16:18:54 embed prepare=12.2s forward=0.2s
+16:18:55 cache sub-18 embed=12.5s targets=1.0s
+16:19:07 embed prepare=12.3s forward=0.3s
+16:19:08 cache sub-19 embed=12.6s targets=0.9s
+16:19:21 embed prepare=12.3s forward=0.2s
+16:19:22 cache sub-20 embed=12.6s targets=0.9s
+16:19:34 embed prepare=11.8s forward=0.2s
+16:19:35 cache sub-21 embed=12.1s targets=0.9s
+16:19:46 embed prepare=11.7s forward=0.2s
+16:19:47 cache sub-22 embed=11.9s targets=0.9s
+16:20:00 embed prepare=12.2s forward=0.2s
+16:20:01 cache sub-23 embed=12.4s targets=0.9s
+16:20:13 embed prepare=12.3s forward=0.2s
+16:20:14 cache sub-24 embed=12.5s targets=0.9s
+16:20:26 embed prepare=12.1s forward=0.2s
+16:20:27 cache sub-25 embed=12.3s targets=0.9s
+16:20:39 embed prepare=12.0s forward=0.2s
+16:20:40 cache sub-26 embed=12.2s targets=0.9s
+16:20:52 embed prepare=11.7s forward=0.2s
+16:20:53 cache sub-27 embed=11.9s targets=0.9s
+16:21:05 embed prepare=11.5s forward=0.2s
+16:21:06 cache sub-28 embed=11.8s targets=0.9s
+16:21:18 embed prepare=11.8s forward=0.2s
+16:21:19 cache sub-29 embed=12.0s targets=0.9s
+16:21:31 embed prepare=11.9s forward=0.2s
+16:21:32 cache sub-30 embed=12.2s targets=0.9s
+16:21:44 embed prepare=12.0s forward=0.2s
+16:21:45 cache sub-31 embed=12.2s targets=0.9s
+16:21:57 embed prepare=11.7s forward=0.2s
+16:21:58 cache sub-32 embed=12.0s targets=0.9s
+16:22:10 embed prepare=11.8s forward=0.2s
+16:22:11 cache sub-33 embed=12.0s targets=0.9s
+16:22:23 embed prepare=11.8s forward=0.2s
+16:22:24 cache sub-34 embed=12.0s targets=0.9s
+16:22:36 embed prepare=11.8s forward=0.2s
+16:22:36 cache sub-35 embed=12.1s targets=0.9s
+16:22:48 embed prepare=11.8s forward=0.2s
+16:22:49 cache sub-36 embed=12.0s targets=0.9s
+16:23:01 embed prepare=11.7s forward=0.2s
+16:23:02 cache sub-37 embed=11.9s targets=0.9s
+16:23:17 embed prepare=14.5s forward=0.2s
+16:23:18 cache sub-38 embed=14.7s targets=0.9s
+16:23:30 embed prepare=11.9s forward=0.2s
+16:23:31 cache sub-39 embed=12.2s targets=0.9s
+16:23:43 embed prepare=12.1s forward=0.2s
+16:23:44 cache sub-40 embed=12.3s targets=0.9s
+16:23:44 cache: 40 subjects in 527s
+16:23:58 fold 1/40 sub-01 phases: fit=8.5s predict=4.3s curves=1.0s save=0.4s
+16:23:58 fold 1/40 sub-01 mean=0.568 at thr=2.2e-01/1.7e-01 oracle nerve=0.742 vessel=0.396 alpha=1e+00 score_max=0.993 candidates=31547 (14s)
+16:24:10 fold 2/40 sub-02 phases: fit=6.2s predict=4.4s curves=1.0s save=0.4s
+16:24:10 fold 2/40 sub-02 mean=0.237 at thr=2.2e-01/1.1e-01 oracle nerve=0.330 vessel=0.155 alpha=1e+00 score_max=0.963 candidates=26338 (26s)
+16:24:25 fold 3/40 sub-03 phases: fit=6.8s predict=4.3s curves=2.8s save=0.4s
+16:24:25 fold 3/40 sub-03 mean=0.108 at thr=1.0e-01/4.5e-01 oracle nerve=0.142 vessel=0.094 alpha=1e+00 score_max=0.992 candidates=35741 (41s)
+16:24:39 fold 4/40 sub-04 phases: fit=6.7s predict=4.3s curves=2.8s save=0.4s
+16:24:39 fold 4/40 sub-04 mean=0.454 at thr=2.4e-01/1.0e-01 oracle nerve=0.602 vessel=0.315 alpha=1e+00 score_max=0.996 candidates=24595 (55s)
+16:24:53 fold 5/40 sub-05 phases: fit=6.7s predict=4.4s curves=2.9s save=0.3s
+16:24:54 fold 5/40 sub-05 mean=0.371 at thr=1.1e-01/1.7e-01 oracle nerve=0.458 vessel=0.333 alpha=1e+00 score_max=0.993 candidates=28923 (69s)
+16:25:08 fold 6/40 sub-06 phases: fit=6.5s predict=4.4s curves=2.8s save=0.3s
+16:25:08 fold 6/40 sub-06 mean=0.486 at thr=1.9e-01/5.0e-01 oracle nerve=0.676 vessel=0.298 alpha=1e+00 score_max=0.998 candidates=24278 (84s)
+16:25:22 fold 7/40 sub-07 phases: fit=6.4s predict=4.3s curves=2.8s save=0.3s
+16:25:22 fold 7/40 sub-07 mean=0.400 at thr=2.2e-01/3.0e-01 oracle nerve=0.521 vessel=0.289 alpha=1e+00 score_max=0.993 candidates=22836 (98s)
+16:25:36 fold 8/40 sub-08 phases: fit=6.6s predict=4.4s curves=2.8s save=0.3s
+16:25:36 fold 8/40 sub-08 mean=0.334 at thr=1.7e-01/3.7e-01 oracle nerve=0.469 vessel=0.205 alpha=1e+00 score_max=0.997 candidates=25444 (112s)
+16:25:49 fold 9/40 sub-09 phases: fit=5.3s predict=4.4s curves=2.8s save=0.4s
+16:25:49 fold 9/40 sub-09 mean=0.320 at thr=3.3e-01/4.5e-01 oracle nerve=0.538 vessel=0.147 alpha=1e+00 score_max=0.989 candidates=27647 (125s)
+16:26:02 fold 10/40 sub-10 phases: fit=5.6s predict=4.3s curves=2.6s save=0.3s
+16:26:02 fold 10/40 sub-10 mean=0.452 at thr=2.2e-01/1.9e-01 oracle nerve=0.576 vessel=0.343 alpha=1e+00 score_max=0.996 candidates=26957 (138s)
+16:26:16 fold 11/40 sub-11 phases: fit=7.3s predict=4.3s curves=2.4s save=0.4s
+16:26:16 fold 11/40 sub-11 mean=0.191 at thr=4.0e-02/2.2e-01 oracle nerve=0.259 vessel=0.140 alpha=1e+00 score_max=0.988 candidates=27012 (152s)
+16:26:30 fold 12/40 sub-12 phases: fit=6.5s predict=4.3s curves=1.9s save=0.3s
+16:26:30 fold 12/40 sub-12 mean=0.483 at thr=5.5e-02/1.1e-01 oracle nerve=0.544 vessel=0.437 alpha=1e+00 score_max=0.995 candidates=21937 (166s)
+16:26:43 fold 13/40 sub-13 phases: fit=7.3s predict=4.4s curves=1.0s save=0.3s
+16:26:43 fold 13/40 sub-13 mean=0.451 at thr=3.0e-01/3.7e-01 oracle nerve=0.695 vessel=0.216 alpha=1e+00 score_max=0.996 candidates=31417 (179s)
+16:26:58 fold 14/40 sub-14 phases: fit=9.4s predict=4.3s curves=1.0s save=0.4s
+16:26:58 fold 14/40 sub-14 mean=0.453 at thr=3.3e-01/3.3e-01 oracle nerve=0.576 vessel=0.349 alpha=1e+00 score_max=0.999 candidates=27580 (194s)
+16:27:14 fold 15/40 sub-15 phases: fit=9.6s predict=4.4s curves=1.6s save=0.4s
+16:27:14 fold 15/40 sub-15 mean=0.525 at thr=5.0e-01/3.0e-01 oracle nerve=0.513 vessel=0.542 alpha=1e+00 score_max=0.998 candidates=31155 (210s)
+16:27:32 fold 16/40 sub-16 phases: fit=11.5s predict=4.4s curves=1.4s save=0.4s
+16:27:32 fold 16/40 sub-16 mean=0.068 at thr=8.4e-02/1.3e-01 oracle nerve=0.028 vessel=0.115 alpha=1e+00 score_max=0.933 candidates=20476 (228s)
+16:27:49 fold 17/40 sub-17 phases: fit=11.1s predict=4.3s curves=1.4s save=0.4s
+16:27:49 fold 17/40 sub-17 mean=0.458 at thr=3.0e-01/1.9e-01 oracle nerve=0.573 vessel=0.346 alpha=1e+00 score_max=0.999 candidates=30744 (245s)
+16:28:07 fold 18/40 sub-18 phases: fit=12.1s predict=4.3s curves=1.2s save=0.3s
+16:28:07 fold 18/40 sub-18 mean=0.522 at thr=3.3e-01/1.0e-01 oracle nerve=0.607 vessel=0.440 alpha=1e+00 score_max=0.998 candidates=19314 (263s)
+16:28:23 fold 19/40 sub-19 phases: fit=10.6s predict=4.3s curves=1.0s save=0.3s
+16:28:23 fold 19/40 sub-19 mean=0.316 at thr=2.7e-01/1.1e-01 oracle nerve=0.392 vessel=0.265 alpha=1e+00 score_max=0.989 candidates=29804 (279s)
+16:28:37 fold 20/40 sub-20 phases: fit=7.9s predict=4.3s curves=1.0s save=0.3s
+16:28:37 fold 20/40 sub-20 mean=0.044 at thr=3.6e-02/1.1e-01 oracle nerve=0.050 vessel=0.045 alpha=1e+00 score_max=0.995 candidates=32608 (293s)
+16:28:49 fold 21/40 sub-21 phases: fit=6.8s predict=4.3s curves=1.0s save=0.4s
+16:28:50 fold 21/40 sub-21 mean=0.345 at thr=3.0e-01/3.3e-01 oracle nerve=0.536 vessel=0.162 alpha=1e+00 score_max=0.993 candidates=36464 (306s)
+16:29:03 fold 22/40 sub-22 phases: fit=6.9s predict=4.4s curves=2.2s save=0.4s
+16:29:04 fold 22/40 sub-22 mean=0.381 at thr=5.0e-01/2.7e-01 oracle nerve=0.573 vessel=0.201 alpha=1e+00 score_max=1 candidates=22640 (320s)
+16:29:18 fold 23/40 sub-23 phases: fit=7.0s predict=4.3s curves=2.8s save=0.4s
+16:29:18 fold 23/40 sub-23 mean=0.202 at thr=4.0e-02/3.7e-01 oracle nerve=0.163 vessel=0.251 alpha=1e+00 score_max=0.978 candidates=26198 (334s)
+16:29:33 fold 24/40 sub-24 phases: fit=7.2s predict=4.4s curves=2.8s save=0.4s
+16:29:33 fold 24/40 sub-24 mean=0.390 at thr=1.9e-01/1.9e-01 oracle nerve=0.441 vessel=0.348 alpha=1e+00 score_max=1 candidates=27472 (349s)
+16:29:47 fold 25/40 sub-25 phases: fit=6.7s predict=4.4s curves=2.9s save=0.4s
+16:29:47 fold 25/40 sub-25 mean=0.117 at thr=3.2e-02/2.4e-01 oracle nerve=0.134 vessel=0.123 alpha=1e+00 score_max=0.987 candidates=28009 (363s)
+16:30:01 fold 26/40 sub-26 phases: fit=5.6s predict=4.4s curves=2.8s save=0.4s
+16:30:01 fold 26/40 sub-26 mean=0.441 at thr=1.9e-01/2.7e-01 oracle nerve=0.517 vessel=0.366 alpha=1e+00 score_max=0.998 candidates=37788 (377s)
+16:30:15 fold 27/40 sub-27 phases: fit=6.3s predict=4.4s curves=2.8s save=0.4s
+16:30:15 fold 27/40 sub-27 mean=0.176 at thr=2.6e-02/2.6e-02 oracle nerve=0.277 vessel=0.081 alpha=1e+00 score_max=0.901 candidates=13569 (391s)
+16:30:28 fold 28/40 sub-28 phases: fit=5.6s predict=4.4s curves=2.8s save=0.4s
+16:30:28 fold 28/40 sub-28 mean=0.388 at thr=2.4e-01/2.2e-01 oracle nerve=0.450 vessel=0.333 alpha=1e+00 score_max=0.997 candidates=27844 (404s)
+16:30:41 fold 29/40 sub-29 phases: fit=5.7s predict=4.4s curves=2.8s save=0.4s
+16:30:41 fold 29/40 sub-29 mean=0.399 at thr=9.3e-02/4.4e-02 oracle nerve=0.474 vessel=0.358 alpha=1e+00 score_max=0.996 candidates=24178 (417s)
+16:30:54 fold 30/40 sub-30 phases: fit=5.6s predict=4.5s curves=2.8s save=0.4s
+16:30:55 fold 30/40 sub-30 mean=0.398 at thr=1.7e-01/4.1e-01 oracle nerve=0.499 vessel=0.326 alpha=1e+00 score_max=0.997 candidates=29289 (431s)
+16:31:12 fold 31/40 sub-31 phases: fit=5.9s predict=6.7s curves=3.9s save=0.4s
+16:31:12 fold 31/40 sub-31 mean=0.272 at thr=4.5e-01/4.5e-01 oracle nerve=0.395 vessel=0.156 alpha=1e+00 score_max=0.999 candidates=42622 (448s)
+16:31:25 fold 32/40 sub-32 phases: fit=6.5s predict=4.4s curves=1.9s save=0.8s
+16:31:25 fold 32/40 sub-32 mean=0.352 at thr=3.3e-01/2.2e-01 oracle nerve=0.431 vessel=0.286 alpha=1e+00 score_max=0.999 candidates=29001 (461s)
+16:31:37 fold 33/40 sub-33 phases: fit=6.4s predict=4.3s curves=1.0s save=0.4s
+16:31:38 fold 33/40 sub-33 mean=0.345 at thr=1.9e-01/2.4e-01 oracle nerve=0.419 vessel=0.299 alpha=1e+00 score_max=0.997 candidates=30089 (474s)
+16:31:53 fold 34/40 sub-34 phases: fit=9.7s predict=4.3s curves=1.3s save=0.4s
+16:31:53 fold 34/40 sub-34 mean=0.469 at thr=1.9e-01/1.4e-01 oracle nerve=0.566 vessel=0.384 alpha=1e+00 score_max=0.995 candidates=29170 (489s)
+16:32:13 fold 35/40 sub-35 phases: fit=13.0s predict=4.5s curves=1.8s save=0.4s
+16:32:13 fold 35/40 sub-35 mean=0.379 at thr=3.0e-01/1.4e-01 oracle nerve=0.497 vessel=0.286 alpha=1e+00 score_max=0.997 candidates=36384 (509s)
+16:32:28 fold 36/40 sub-36 phases: fit=9.3s predict=4.4s curves=1.0s save=0.3s
+16:32:28 fold 36/40 sub-36 mean=0.468 at thr=1.6e-01/1.6e-01 oracle nerve=0.678 vessel=0.367 alpha=1e+00 score_max=0.996 candidates=30220 (524s)
+16:32:42 fold 37/40 sub-37 phases: fit=8.2s predict=4.4s curves=1.0s save=0.4s
+16:32:42 fold 37/40 sub-37 mean=0.281 at thr=3.3e-01/1.1e-01 oracle nerve=0.358 vessel=0.224 alpha=1e+00 score_max=0.985 candidates=21360 (538s)
+16:32:55 fold 38/40 sub-38 phases: fit=7.3s predict=4.4s curves=1.0s save=0.4s
+16:32:56 fold 38/40 sub-38 mean=0.347 at thr=4.1e-01/2.2e-01 oracle nerve=0.368 vessel=0.328 alpha=1e+00 score_max=0.989 candidates=25337 (552s)
+16:33:09 fold 39/40 sub-39 phases: fit=7.9s predict=4.4s curves=1.0s save=0.4s
+16:33:09 fold 39/40 sub-39 mean=0.450 at thr=3.0e-01/2.7e-01 oracle nerve=0.661 vessel=0.243 alpha=1e+00 score_max=0.999 candidates=36175 (565s)
+16:33:22 fold 40/40 sub-40 phases: fit=6.8s predict=4.4s curves=1.6s save=0.3s
+16:33:22 fold 40/40 sub-40 mean=0.539 at thr=1.1e-01/1.9e-01 oracle nerve=0.646 vessel=0.436 alpha=1e+00 score_max=0.998 candidates=24734 (578s)
+16:33:30 result: dice=0.3366  dice_ci_low=0.2890  dice_ci_high=0.3788  dice_nerve=0.4197  dice_vessel=0.2534  dice_oracle=0.3595  thr=1.94e-01/1.94e-01  (1105s)

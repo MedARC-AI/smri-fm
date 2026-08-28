@@ -63,16 +63,16 @@ CANVAS_CENTRE_VOXELS = (0.0, -9.4, -5.2)
 @dataclass
 class Config:
     task: str = "task4"
-    ckpt_path: str = "hf://medarc/walnut/checkpoints/pretrain_full_90_10_h100/checkpoint-last.pth"
+    ckpt_path: str = "hf://medarc/walnut/checkpoints/walnut-v0-1/vitl/sub-52k/checkpoint-last.pth"
     output_root: str = "output/fomo_tune"
     name: str = "task4"
     scale: int = 4
     subcell: int = 4
     target_sigma_mm: float = 0.0
-    head: str = "ridge"
+    head: str = "logistic"
     depth: int | None = 4
     alphas: list[float] = field(default_factory=lambda: [1e3, 1e4, 1e5, 1e6, 1e7, 1e8])
-    alpha: float = 1e4
+    alpha: float = 1e1
     n_splits: int = 5
     device: str = "cuda"
     seed: int = 4466
