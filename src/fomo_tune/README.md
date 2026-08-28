@@ -132,10 +132,6 @@ Oracle is the per-subject best threshold — the ceiling any thresholding rule c
 | scale 2 | 0.130 | 0.106 – 0.156 | 0.148 | 786s | `1889e8b` | otherwise identical |
 | first sweep | 0.082 | 0.068 – 0.097 | 0.093 | 1956s | `69c2d36` | one shared cut, final block |
 
-The head is worth +0.082 and the checkpoint +0.017, each reproducing under the other.
-`experiments/task4_logistic`. Rows above the baseline use a threshold grid truncated to 1e-3, worth
-about +0.004 on its own.
-
 *Nb, NSD metric is not yet implemented.*
 
 ### Task 5 — polymicrogyria, AUROC, 20-fold over 48
