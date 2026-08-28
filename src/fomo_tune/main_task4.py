@@ -39,6 +39,7 @@ from omegaconf import OmegaConf
 from scipy import ndimage
 
 from fomo_tune.backbone import load_backbone, rescale
+from fomo_tune.logistic import Logistic
 from fomo_tune.ridge import Ridge
 from fomo_tune.utils import git_sha, set_seed, setup_logging
 
@@ -68,8 +69,10 @@ class Config:
     scale: int = 4
     subcell: int = 4
     target_sigma_mm: float = 0.0
+    head: str = "ridge"
     depth: int | None = 4
     alphas: list[float] = field(default_factory=lambda: [1e3, 1e4, 1e5, 1e6, 1e7, 1e8])
+    alpha: float = 1e4
     n_splits: int = 5
     device: str = "cuda"
     seed: int = 4466
@@ -295,8 +298,12 @@ class Task4Method:
         targets = torch.from_numpy(np.concatenate([s.targets for s in subjects]))
         groups = np.concatenate([np.full(len(s.features), i) for i, s in enumerate(subjects)])
 
-        head = Ridge(alphas=self.cfg.alphas, n_splits=self.cfg.n_splits, seed=self.cfg.seed)
-        head.fit(features.to(self.device), targets.to(self.device), groups)
+        if self.cfg.head == "ridge":
+            head = Ridge(alphas=self.cfg.alphas, n_splits=self.cfg.n_splits, seed=self.cfg.seed)
+            head.fit(features.to(self.device), targets.to(self.device), groups)
+        else:
+            head = Logistic(alpha=self.cfg.alpha)
+            head.fit(features.to(self.device), targets.to(self.device))
         # kept on the host: predict is one small matmul, and the saved model has to load on cpu
         self.head = head.to("cpu")
 
@@ -386,9 +393,9 @@ class Task4Method:
 # Task 4 only has t2w
 IMAGE_COLS = ("t2w",)
 
-# Scores are ridge fits of a sub-cell label fraction whose prevalence is ~2e-3, so the grid is
-# geometric rather than linear.
-THRESHOLDS = np.logspace(-6, -0.3, 60)
+# Scores estimate a sub-cell label fraction whose prevalence is ~2e-3, so the grid is geometric
+# rather than linear. The floor doubles as the candidate filter in `leave_one_out`.
+THRESHOLDS = np.logspace(-3, -0.3, 60)
 
 
 class Curves(NamedTuple):
