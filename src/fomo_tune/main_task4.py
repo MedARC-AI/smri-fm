@@ -86,28 +86,6 @@ def repack(img: nib.Nifti1Image) -> nib.Nifti1Image:
     return nib.Nifti1Image(img.dataobj, img.affine, img.header)
 
 
-def decode(rows: list[dict]) -> list[dict]:
-    """Gunzip every volume up front.
-
-    The rows hold compressed bytes, and `repack` builds a fresh image whose fdata cache
-    is empty, so every `prepare` call decompresses the data again.
-    """
-    decoded = []
-    for row in rows:
-        t2w = repack(row["t2w"])
-        seg = repack(row["seg"])
-        decoded.append(
-            {
-                **row,
-                "t2w": nib.Nifti1Image(t2w.get_fdata(dtype=np.float32), t2w.affine),
-                "seg": nib.Nifti1Image(
-                    np.asarray(seg.dataobj, dtype=np.float32).round().astype(np.uint8), seg.affine
-                ),
-            }
-        )
-    return decoded
-
-
 def resample_nearest(
     volume: np.ndarray, source_affine: np.ndarray, target_affine: np.ndarray, target_shape: tuple
 ) -> np.ndarray:
@@ -124,11 +102,12 @@ def resample_nearest(
 
 
 class Patches(NamedTuple):
-    """One subject's tokens and the label fractions of every sub-cell of every token."""
+    """One subject's tokens, the grid they sit on, and each sub-cell's label fractions."""
 
     features: np.ndarray  # (n_patches, dim)
     patch_ids: np.ndarray  # (n_patches,) indices into the flattened patch grid
-    targets: np.ndarray  # (n_patches, n_labels * subcell ** 3)
+    grid_affine: np.ndarray  # (4, 4) voxel-to-world of the grid the tokens were read from
+    targets: np.ndarray | None = None  # (n_patches, n_labels * subcell ** 3), None at inference
 
 
 class Task4Method:
@@ -157,7 +136,7 @@ class Task4Method:
 
     def prepare(self, image: nib.Nifti1Image) -> dict[str, torch.Tensor]:
         """One volume at `1 / scale` mm, cropped to the canvas around the subject's own anchor."""
-        image = nib.as_closest_canonical(nib.funcs.squeeze_image(image))
+        image = nib.as_closest_canonical(nib.funcs.squeeze_image(repack(image)))
         volume = torch.from_numpy(np.ascontiguousarray(image.get_fdata(dtype=np.float32)))
         assert volume.ndim == 3, f"expected a 3D volume, got {tuple(volume.shape)}"
 
@@ -243,6 +222,7 @@ class Task4Method:
 
     def cell_targets(self, seg: nib.Nifti1Image, grid_affine: np.ndarray) -> np.ndarray:
         """Each label's fraction of every sub-cell, over the whole grid, in flattened order."""
+        seg = repack(seg)
         labels = np.asarray(seg.dataobj, dtype=np.float32).round()
         on_grid = resample_nearest(labels, seg.affine, grid_affine, self.img_size)
 
@@ -280,7 +260,9 @@ class Task4Method:
             features, patch_ids, grid_affine = self.embed(row)
             embedded = time.perf_counter()
             targets = self.cell_targets(row["seg"], grid_affine)
-            self.cache[row["subject"]] = Patches(features, patch_ids, targets[patch_ids])
+            self.cache[row["subject"]] = Patches(
+                features, patch_ids, grid_affine, targets[patch_ids]
+            )
             logger.info(
                 f"cache {row['subject']} embed={embedded - start:.1f}s "
                 f"targets={time.perf_counter() - embedded:.1f}s"
@@ -307,20 +289,23 @@ class Task4Method:
         # kept on the host: predict is one small matmul, and the saved model has to load on cpu
         self.head = head.to("cpu")
 
-    def predict_scores(self, images: Images) -> nib.Nifti1Image:
+    def predict_scores(self, images: Images, key: str | None = None) -> nib.Nifti1Image:
         """Per-label score per voxel on the input's own grid, constant within each sub-cell.
+
+        Pass `key` to score a subject already in the cache; the tokens are the frozen backbone's
+        and do not depend on the fold, so this is the same embedding the uncached path computes.
 
         The prediction is carried out to the input rather than the truth carried in: at `scale=1` a
         cell is larger than a label voxel, and scoring on the model's grid would credit a cell-sized
         prediction with matching a voxel-sized label.
         """
-        features, patch_ids, grid_affine = self.embed(images)
+        patches = self.cache[key] if key is not None else Patches(*self.embed(images))
 
-        predicted = self.head.predict(torch.from_numpy(features)).numpy()
+        predicted = self.head.predict(torch.from_numpy(patches.features)).numpy()
         scores = np.zeros(
             (int(np.prod(self.grid_size)), len(LABELS), self.subcell**3), dtype=np.float32
         )
-        scores[patch_ids] = rearrange(
+        scores[patches.patch_ids] = rearrange(
             predicted, "patch (label cell) -> patch label cell", label=len(LABELS)
         )
 
@@ -344,11 +329,11 @@ class Task4Method:
             cz=cz,
         )
 
-        image = images[MODALITY]
+        image = repack(images[MODALITY])
         on_input = np.empty((*image.shape, len(LABELS)), dtype=np.float32)
         for label, volume in enumerate(on_grid):
             on_input[..., label] = resample_nearest(
-                np.ascontiguousarray(volume), grid_affine, image.affine, image.shape
+                np.ascontiguousarray(volume), patches.grid_affine, image.affine, image.shape
             )
         return nib.Nifti1Image(on_input, image.affine)
 
@@ -389,9 +374,6 @@ class Task4Method:
 
 
 # ---- protocol: the part we hold fixed ---------------------------------------------------
-
-# Task 4 only has t2w
-IMAGE_COLS = ("t2w",)
 
 # Scores estimate a sub-cell label fraction whose prevalence is ~2e-3, so the grid is geometric
 # rather than linear. The floor doubles as the candidate filter in `leave_one_out`.
@@ -444,6 +426,12 @@ def leave_one_out(rows: list[dict], method: Task4Method, folds_dir: Path) -> Cur
     and with the sparse label map they give. The cuts are chosen on the subject's own labels, so
     they are for inspection and are not a score.
     """
+    # every subject embedded once up front, so a fold reads the cache on both sides of the split
+    start = time.perf_counter()
+    for row in rows:
+        method.cached_patches(row)
+    logger.info(f"cache: {len(rows)} subjects in {time.perf_counter() - start:.0f}s")
+
     dice, predicted, true = [], [], []
     start = time.perf_counter()
     for row in rows:
@@ -451,9 +439,9 @@ def leave_one_out(rows: list[dict], method: Task4Method, folds_dir: Path) -> Cur
         method.fit([r for r in rows if r["subject"] != row["subject"]])
         fitted = time.perf_counter()
 
-        scores_img = method.predict_scores({key: row[key] for key in IMAGE_COLS})
+        scores_img = method.predict_scores({MODALITY: row[MODALITY]}, key=row["subject"])
         scores = np.asarray(scores_img.dataobj)
-        truth = np.asarray(row["seg"].dataobj, dtype=np.float32).round().astype(np.uint8)
+        truth = np.asarray(repack(row["seg"]).dataobj, dtype=np.float32).round().astype(np.uint8)
         assert scores.shape[:3] == truth.shape, "scores are not on the label grid"
         assert scores.shape[3] == len(LABELS) == 2, "expected two classes"
 
@@ -551,10 +539,8 @@ def train(args: argparse.Namespace) -> None:
     logger.info(f"config:\n{OmegaConf.to_yaml(cfg).rstrip()}")
     OmegaConf.save(cfg, run_dir / "config.yaml")
 
-    # decoded once: leave-one-out revisits every subject n times
-    start = time.perf_counter()
-    rows = decode(list(load_fomo_task4()))
-    logger.info(f"dataset: {len(rows)} subjects, decoded in {time.perf_counter() - start:.0f}s")
+    rows = list(load_fomo_task4())
+    logger.info(f"dataset: {len(rows)} subjects")
 
     method = Task4Method(cfg)
     start = time.perf_counter()
