@@ -90,7 +90,8 @@ uv run python third_party/container-validator/container_validator/validate.py \
 | baseline | 0.195 | 0.098 – 0.303 | 0.271 | 174s | `7d13f45` | flair only, largest-component filter, threshold 0.011 |
 | no largest component | 0.170 | 0.082 – 0.266 | 0.226 | 132s | `7508a46`-dirty | threshold 0.085 |
 | walnut-v0.1 | 0.195 | 0.092 – 0.306 | 0.234 | 173s | `ead1264` | vitl/sub-52k checkpoint, baseline otherwise, threshold 0.018 |
-| walnut-v0.1: progressive grid ensemble | 0.260 | 0.143 – 0.384 | 0.336 | 1070s | `580cd3a` | 9 progressive CNN heads, shared crops, uniform probability average, threshold 0.165 |
+| progressive grid: walnut-v0.1 | 0.277 | 0.149 – 0.408 | 0.345 | 1022s | `27e43b2` | 9 progressive CNN heads, uniform average, threshold 0.401 — the current default |
+| progressive grid: pretrain_full | 0.286 | 0.159 – 0.418 | 0.326 | 1062s | `27e43b2` | otherwise identical, threshold 0.257. Ties walnut |
 
 Oracle is the per-subject best threshold — the ceiling any thresholding rule could reach.
 

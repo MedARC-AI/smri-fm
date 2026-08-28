@@ -1,0 +1,1 @@
+{"name": "ckpt-walnut_folds", "dice": 0.276536736507246, "dice_ci_low": 0.14947207977457577, "dice_ci_high": 0.40844813663883717, "dice_oracle": 0.34521573547880136, "threshold": 0.40122670431669816, "run_time": 1021.5}
