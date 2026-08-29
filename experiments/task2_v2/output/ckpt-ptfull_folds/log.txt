@@ -1,0 +1,35 @@
+12:11:07 run ckpt-ptfull_folds (git 27e43b2)
+12:11:07 config:
+task: task2
+ckpt_path: hf://medarc/walnut/checkpoints/pretrain_full_90_10_h100/checkpoint-last.pth
+modality: flair
+output_root: experiments/task2_v2/output
+name: ckpt-ptfull_folds
+largest_component: true
+device: cuda
+seed: 4466
+12:11:11 dataset: 23 subjects
+12:12:19 fold 1/23 sub-01 best=0.009 at thr=4.34e-02 vox=3695 (64s)
+12:13:04 fold 2/23 sub-02 best=0.816 at thr=2.06e-01 vox=3047 (109s)
+12:13:48 fold 3/23 sub-03 best=0.002 at thr=4.69e-03 vox=292 (153s)
+12:14:32 fold 4/23 sub-04 best=0.704 at thr=2.06e-01 vox=4112 (197s)
+12:15:16 fold 5/23 sub-05 best=0.719 at thr=5.01e-01 vox=2026 (241s)
+12:15:59 fold 6/23 sub-06 best=0.557 at thr=2.57e-01 vox=67 (284s)
+12:16:43 fold 7/23 sub-07 best=0.002 at thr=1.78e-02 vox=124 (328s)
+12:17:26 fold 8/23 sub-08 best=0.032 at thr=3.47e-02 vox=189 (371s)
+12:18:09 fold 9/23 sub-09 best=0.007 at thr=3.75e-03 vox=97 (414s)
+12:18:53 fold 10/23 sub-10 best=0.490 at thr=1.65e-01 vox=562 (458s)
+12:19:36 fold 11/23 sub-11 best=0.797 at thr=3.21e-01 vox=1058 (501s)
+12:20:24 fold 12/23 sub-12 best=0.149 at thr=1.06e-01 vox=543 (549s)
+12:21:13 fold 13/23 sub-13 best=0.479 at thr=5.01e-01 vox=229 (598s)
+12:22:01 fold 14/23 sub-14 best=0.008 at thr=2.23e-02 vox=1689 (646s)
+12:22:50 fold 15/23 sub-15 best=0.177 at thr=1.14e-02 vox=85042 (695s)
+12:23:39 fold 16/23 sub-16 best=0.000 at thr=4.69e-03 vox=58 (744s)
+12:24:27 fold 17/23 sub-17 best=0.002 at thr=4.39e-05 vox=283 (792s)
+12:25:10 fold 18/23 sub-18 best=0.761 at thr=1.32e-01 vox=7908 (835s)
+12:25:57 fold 19/23 sub-19 best=0.000 at thr=1.00e-06 vox=1047 (882s)
+12:26:41 fold 20/23 sub-20 best=0.464 at thr=8.46e-02 vox=137 (926s)
+12:27:27 fold 21/23 sub-21 best=0.660 at thr=1.06e-01 vox=22872 (972s)
+12:28:13 fold 22/23 sub-22 best=0.002 at thr=6.77e-02 vox=320 (1018s)
+12:28:57 fold 23/23 sub-23 best=0.661 at thr=3.21e-01 vox=1103 (1062s)
+12:29:38 result: dice=0.2857  dice_ci_low=0.1589  dice_ci_high=0.4184  dice_oracle=0.3260  threshold=0.2571  (1062s)

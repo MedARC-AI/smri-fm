@@ -90,7 +90,8 @@ uv run python third_party/container-validator/container_validator/validate.py \
 | baseline | 0.195 | 0.098 – 0.303 | 0.271 | 174s | `7d13f45` | flair only, largest-component filter, threshold 0.011 |
 | no largest component | 0.170 | 0.082 – 0.266 | 0.226 | 132s | `7508a46`-dirty | threshold 0.085 |
 | walnut-v0.1 | 0.195 | 0.092 – 0.306 | 0.234 | 173s | `ead1264` | vitl/sub-52k checkpoint, baseline otherwise, threshold 0.018 |
-| walnut-v0.1: progressive grid ensemble | 0.260 | 0.143 – 0.384 | 0.336 | 1070s | `580cd3a` | 9 progressive CNN heads, shared crops, uniform probability average, threshold 0.165 |
+| progressive grid: walnut-v0.1 | 0.277 | 0.149 – 0.408 | 0.345 | 1022s | `27e43b2` | 9 progressive CNN heads, uniform average, threshold 0.401 — the current default |
+| progressive grid: pretrain_full | 0.286 | 0.159 – 0.418 | 0.326 | 1062s | `27e43b2` | otherwise identical, threshold 0.257. Ties walnut |
 
 Oracle is the per-subject best threshold — the ceiling any thresholding rule could reach.
 
@@ -122,7 +123,11 @@ Oracle is the per-subject best threshold — the ceiling any thresholding rule c
 
 | Run | Dice | 95% CI | Oracle | Time | Git | Notes |
 |---|---|---|---|---|---|---|
-| baseline | 0.252 | 0.212 – 0.293 | 0.275 | 1216s | `51772f4` | scale 4, subcell 4, depth 4 — the current default |
+| logistic: walnut-v0.1 | 0.355 | 0.302 – 0.402 | 0.385 | 1091s | `2eb1685` | alpha 1e1, cut 0.157 on both labels — the current default |
+| logistic: pretrain_full | 0.339 | 0.283 – 0.387 | 0.370 | 1093s | `2eb1685` | otherwise identical |
+| ridge: walnut-v0.1 | 0.274 | 0.228 – 0.320 | 0.300 | 842s | `2eb1685` | the previous head, on the better checkpoint |
+| ridge: pretrain_full | 0.256 | 0.211 – 0.301 | 0.283 | 871s | `2eb1685` | the baseline below, re-measured on the truncated cut grid |
+| baseline | 0.252 | 0.212 – 0.293 | 0.275 | 1216s | `51772f4` | ridge, scale 4, subcell 4, depth 4 |
 | scale 3 | 0.199 | 0.162 – 0.234 | 0.219 | 762s | `51772f4` | otherwise identical |
 | scale 2 | 0.130 | 0.106 – 0.156 | 0.148 | 786s | `1889e8b` | otherwise identical |
 | first sweep | 0.082 | 0.068 – 0.097 | 0.093 | 1956s | `69c2d36` | one shared cut, final block |

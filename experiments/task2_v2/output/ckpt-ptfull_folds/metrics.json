@@ -1,0 +1,1 @@
+{"name": "ckpt-ptfull_folds", "dice": 0.2857359221931516, "dice_ci_low": 0.15892749519917992, "dice_ci_high": 0.4183538877159721, "dice_oracle": 0.32604014921343033, "threshold": 0.2571399123459715, "run_time": 1061.6}

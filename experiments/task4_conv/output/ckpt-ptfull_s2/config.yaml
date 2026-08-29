@@ -1,0 +1,8 @@
+task: task4
+ckpt_path: hf://medarc/walnut/checkpoints/pretrain_full_90_10_h100/checkpoint-last.pth
+output_root: experiments/task4_conv/output
+name: ckpt-ptfull_s2
+scale: 4
+depth: 4
+device: cuda
+seed: 1234

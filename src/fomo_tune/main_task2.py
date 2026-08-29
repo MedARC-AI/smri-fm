@@ -387,8 +387,12 @@ def subject_curves(
     return dice, predicted
 
 
-def leave_one_out(rows: list[dict], method: Task2Method) -> Curves:
-    """Every subject's threshold curves, predicted by heads fit on the other n-1."""
+def leave_one_out(rows: list[dict], method: Task2Method, folds_dir: Path) -> Curves:
+    """Every subject's threshold curves, predicted by heads fit on the other n-1.
+
+    Per-fold heads and predicted probability volumes are saved to `folds_dir/<held-out subject>`.
+    Nb the head stores the subject's oracle threshold.
+    """
     dice, predicted, true = [], [], []
     start = time.perf_counter()
     for held_out, row in enumerate(rows):
@@ -397,18 +401,28 @@ def leave_one_out(rows: list[dict], method: Task2Method) -> Curves:
             method.cfg.seed + held_out,
         )
 
-        probabilities = method.predict_proba({key: row[key] for key in IMAGE_COLS})
+        image = method.predict_proba({key: row[key] for key in IMAGE_COLS})
+        probabilities = np.asarray(image.dataobj)
         truth = np.asarray(repack(row["seg"]).dataobj).round() > 0
         assert probabilities.shape == truth.shape, "probabilities are not on the label grid"
 
-        subject_dice, subject_predicted = subject_curves(
-            method, np.asarray(probabilities.dataobj), truth
-        )
+        subject_dice, subject_predicted = subject_curves(method, probabilities, truth)
         dice.append(subject_dice)
         predicted.append(subject_predicted)
         true.append(int(truth.sum()))
 
         best = subject_dice.argmax()
+        fold_dir = folds_dir / row["subject"]
+        method.threshold = float(THRESHOLDS[best])
+        method.save(fold_dir)
+        np.savez_compressed(
+            fold_dir / "prediction.npz",
+            probability=probabilities,
+            truth_voxels=np.flatnonzero(truth),
+            affine=image.affine,
+            threshold=method.threshold,
+        )
+
         logger.info(
             f"fold {len(dice)}/{len(rows)} {row['subject']} best={subject_dice[best]:.3f} "
             f"at thr={THRESHOLDS[best]:.2e} vox={true[-1]} "
@@ -462,7 +476,7 @@ def train(args: argparse.Namespace) -> None:
 
     method = Task2Method(cfg)
     start = time.perf_counter()
-    curves = leave_one_out(rows, method)
+    curves = leave_one_out(rows, method, run_dir / "folds")
     run_time = time.perf_counter() - start
     summary = score(curves)
 

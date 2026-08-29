@@ -1,4 +1,4 @@
-"""FOMO task 4: trigeminal nerve and vessel segmentation.
+"""FOMO task 4: trigeminal nerve and vessel segmentation, with a convolutional head.
 
 Method (tune):
 
@@ -6,12 +6,12 @@ Method (tune):
    crop around an anchor relative to the subject's mask centroid.
 2. Extract patch features, `depth` blocks in. `depth=0` is the patch embedding, `depth=None`
    the full model post-norm.
-3. Ridge regression head predicting "subcell" targets. At `subcell=8`, you get a
-   separate prediction per voxel.
+3. Task 2's grid of progressive CNN decoders, climbing from the token grid back to the voxel grid
+   in three 2x stages. Both labels come off one decoder as independent sigmoids.
 
 The rationale is that the structures are ~2mm, so one prediction per 8mm patch will be
-too coarse. Too address this, we have two strategies: upscaling the model input, and
-making sub-patch predictions.
+too coarse. Where `main_task4.py` buys the resolution with sub-patch ridge targets, here the
+decoder carries the upsampling, and can shape a boundary the ridge could only step across.
 
 Protocol (fixed):
 
@@ -23,24 +23,23 @@ Protocol (fixed):
 """
 
 import argparse
+import itertools
 import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
-import joblib
 import nibabel as nib
 import numpy as np
 import torch
-from einops import rearrange, reduce, repeat
+import torch.nn as nn
+import torch.nn.functional as F
 from omegaconf import OmegaConf
 from scipy import ndimage
 
 from fomo_tune.backbone import load_backbone, rescale
-from fomo_tune.logistic import Logistic
-from fomo_tune.ridge import Ridge
 from fomo_tune.utils import git_sha, set_seed, setup_logging
 
 logger = logging.getLogger("fomo_tune")
@@ -63,19 +62,24 @@ CANVAS_CENTRE_VOXELS = (0.0, -9.4, -5.2)
 @dataclass
 class Config:
     task: str = "task4"
-    ckpt_path: str = "hf://medarc/walnut/checkpoints/walnut-v0-1/vitl/sub-52k/checkpoint-last.pth"
+    ckpt_path: str = "hf://medarc/walnut/checkpoints/pretrain_full_90_10_h100/checkpoint-last.pth"
     output_root: str = "output/fomo_tune"
-    name: str = "task4"
+    name: str = "task4_conv"
     scale: int = 4
-    subcell: int = 4
-    target_sigma_mm: float = 0.0
-    head: str = "logistic"
     depth: int | None = 4
-    alphas: list[float] = field(default_factory=lambda: [1e3, 1e4, 1e5, 1e6, 1e7, 1e8])
-    alpha: float = 1e1
-    n_splits: int = 5
     device: str = "cuda"
     seed: int = 4466
+
+
+# CAPI trains a Cartesian grid of heads in one module and optimizer. Positive weight is the
+# task-specific second axis here, lifted from task 2's 10-40 for a much rarer structure.
+RECIPES = tuple(itertools.product((1e-3, 2e-3, 4e-3), (20.0, 60.0, 180.0)))
+CORE_TOKENS = 8
+HALO_TOKENS = 2
+BATCH_SIZE = 4
+STEPS = 300
+EMA_START = 100
+EMA_DECAY = 0.99
 
 
 # ---- geometry -----------------------------------------------------------------------------
@@ -102,16 +106,45 @@ def resample_nearest(
 
 
 class Patches(NamedTuple):
-    """One subject's tokens, the grid they sit on, and each sub-cell's label fractions."""
+    """One subject's dense token and label grids, sampling locations, and token statistics."""
 
-    features: np.ndarray  # (n_patches, dim)
-    patch_ids: np.ndarray  # (n_patches,) indices into the flattened patch grid
+    tokens: np.ndarray  # (dim, gx + 2h, gy + 2h, gz + 2h) float16
+    kept: np.ndarray  # (1, gx + 2h, gy + 2h, gz + 2h) bool
+    seg: np.ndarray  # (X, Y, Z) uint8 label map on the canvas
     grid_affine: np.ndarray  # (4, 4) voxel-to-world of the grid the tokens were read from
-    targets: np.ndarray | None = None  # (n_patches, n_labels * subcell ** 3), None at inference
+    positive: np.ndarray  # (n_labelled, 3) canvas voxel indices carrying either label
+    brain_tokens: np.ndarray  # (n_kept, 3) grid indices the encoder kept
+    sum: np.ndarray
+    square: np.ndarray
+    count: int
 
 
-class Task4Method:
-    """Frozen sMRI MAE over a rescaled crop, one ridge decoding each token to its sub-cells."""
+class ProgressiveDecoder(nn.Module):
+    """Three 2x upsampling stages turn the token grid into per-voxel logits, one channel a label."""
+
+    def __init__(self):
+        super().__init__()
+        self.projection = nn.Conv3d(1024, 32, 1)
+        self.convolutions = nn.ModuleList(
+            [
+                nn.Conv3d(32, 16, 3, padding=1),
+                nn.Conv3d(16, 8, 3, padding=1),
+                nn.Conv3d(8, 4, 3, padding=1),
+            ]
+        )
+        self.output = nn.Conv3d(4, len(LABELS), 3, padding=1)
+        nn.init.constant_(self.output.bias, -4.0)
+
+    def forward(self, tokens: torch.Tensor) -> torch.Tensor:
+        x = F.gelu(self.projection(tokens))
+        for convolution in self.convolutions:
+            x = F.interpolate(x, scale_factor=2, mode="trilinear", align_corners=False)
+            x = F.gelu(convolution(x))
+        return self.output(x)
+
+
+class Task4ConvMethod:
+    """Frozen MAE features over a magnified crop, and a uniformly averaged grid of CNN decoders."""
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
@@ -123,15 +156,12 @@ class Task4Method:
         self.grid_size = tuple(patchify.grid_size)
         self.patch_size = tuple(patchify.patch_size)
         self.img_size = tuple(patchify.img_size)
-
-        self.subcell = cfg.subcell
-        self.cell_size = tuple(size // cfg.subcell for size in self.patch_size)
-        assert all(size % cfg.subcell == 0 for size in self.patch_size), (
-            f"subcell {cfg.subcell} does not divide patch {self.patch_size}"
-        )
+        assert self.patch_size == (8, 8, 8), "the decoder's three 2x stages assume a patch of 8"
 
         self.cache: dict[str, Patches] = {}
         self.head = None
+        self.mean = None
+        self.inverse_std = None
         self.thresholds = None
 
     def prepare(self, image: nib.Nifti1Image) -> dict[str, torch.Tensor]:
@@ -220,38 +250,17 @@ class Task4Method:
             sample["affine"].numpy(),
         )
 
-    def cell_targets(self, seg: nib.Nifti1Image, grid_affine: np.ndarray) -> np.ndarray:
-        """Each label's fraction of every sub-cell, over the whole grid, in flattened order."""
-        seg = repack(seg)
-        labels = np.asarray(seg.dataobj, dtype=np.float32).round()
-        on_grid = resample_nearest(labels, seg.affine, grid_affine, self.img_size)
-
-        voxel_mm = np.linalg.norm(grid_affine[:3, :3], axis=0).mean()
-        gx, gy, gz = self.grid_size
-        cx, cy, cz = self.cell_size
-
-        fractions = []
-        for value in LABELS:
-            field_ = (on_grid == value).astype(np.float32)
-            if self.cfg.target_sigma_mm > 0:
-                field_ = ndimage.gaussian_filter(field_, self.cfg.target_sigma_mm / voxel_mm)
-            fractions.append(
-                reduce(
-                    field_,
-                    "(gx sx cx) (gy sy cy) (gz sz cz) -> (gx gy gz) (sx sy sz)",
-                    "mean",
-                    gx=gx,
-                    gy=gy,
-                    gz=gz,
-                    sx=self.subcell,
-                    sy=self.subcell,
-                    sz=self.subcell,
-                    cx=cx,
-                    cy=cy,
-                    cz=cz,
-                )
-            )
-        return rearrange(np.stack(fractions), "label patch cell -> patch (label cell)")
+    def scatter(self, features: np.ndarray, patch_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """The token sequence back onto the dense patch grid, and which cells it filled."""
+        dim = features.shape[1]
+        dense = np.zeros((int(np.prod(self.grid_size)), dim), dtype=np.float32)
+        dense[patch_ids] = features
+        kept = np.zeros(int(np.prod(self.grid_size)), dtype=bool)
+        kept[patch_ids] = True
+        return (
+            np.moveaxis(dense.reshape(*self.grid_size, dim), -1, 0),
+            kept.reshape(self.grid_size)[None],
+        )
 
     def cached_patches(self, row: dict) -> Patches:
         """Cached: leave-one-out revisits every subject n times."""
@@ -259,81 +268,162 @@ class Task4Method:
             start = time.perf_counter()
             features, patch_ids, grid_affine = self.embed(row)
             embedded = time.perf_counter()
-            targets = self.cell_targets(row["seg"], grid_affine)
+            tokens, kept = self.scatter(features, patch_ids)
+            tokens = tokens.astype(np.float16)
+            assert np.isfinite(tokens).all(), "features do not fit in float16"
+
+            seg = repack(row["seg"])
+            labels = np.asarray(seg.dataobj, dtype=np.float32).round()
+            on_grid = resample_nearest(labels, seg.affine, grid_affine, self.img_size)
+            on_grid = on_grid.astype(np.uint8)
+
+            halo = ((0, 0),) + ((HALO_TOKENS, HALO_TOKENS),) * 3
             self.cache[row["subject"]] = Patches(
-                features, patch_ids, grid_affine, targets[patch_ids]
+                np.pad(tokens, halo),
+                np.pad(kept, halo),
+                on_grid,
+                grid_affine,
+                np.argwhere(on_grid > 0),
+                np.argwhere(kept[0]),
+                features.sum(0, dtype=np.float64),
+                np.square(features, dtype=np.float64).sum(0),
+                len(features),
+            )
+            counts = " ".join(
+                f"{name}={int((on_grid == value).sum())}"
+                for name, value in zip(LABEL_NAMES, LABELS)
             )
             logger.info(
                 f"cache {row['subject']} embed={embedded - start:.1f}s "
-                f"targets={time.perf_counter() - embedded:.1f}s"
+                f"targets={time.perf_counter() - embedded:.1f}s {counts}"
             )
         return self.cache[row["subject"]]
 
-    def fit(self, rows: list[dict]) -> None:
-        """One ridge from a token to every sub-cell's label fraction, alpha shared over outputs.
-
-        Alpha is chosen by held-out *subjects*: tokens within a subject are far from independent, so
-        splitting on them would pick an alpha for a sample size we do not have.
-        """
+    def fit(self, rows: list[dict], seed: int) -> None:
+        """Fit the entire decoder grid on one shared stream of balanced spatial crops."""
         subjects = [self.cached_patches(row) for row in rows]
-        features = torch.from_numpy(np.concatenate([s.features for s in subjects]))
-        targets = torch.from_numpy(np.concatenate([s.targets for s in subjects]))
-        groups = np.concatenate([np.full(len(s.features), i) for i, s in enumerate(subjects)])
+        count = sum(subject.count for subject in subjects)
+        total = sum((subject.sum for subject in subjects), start=np.zeros(1024))
+        square = sum((subject.square for subject in subjects), start=np.zeros(1024))
+        mean = total / count
+        variance = square / count - np.square(mean)
+        self.mean = torch.from_numpy(mean.astype(np.float32)).to(self.device)[
+            None, :, None, None, None
+        ]
+        self.inverse_std = torch.from_numpy(
+            np.maximum(variance, 1e-6).astype(np.float32) ** -0.5
+        ).to(self.device)[None, :, None, None, None]
 
-        if self.cfg.head == "ridge":
-            head = Ridge(alphas=self.cfg.alphas, n_splits=self.cfg.n_splits, seed=self.cfg.seed)
-            head.fit(features.to(self.device), targets.to(self.device), groups)
-        else:
-            head = Logistic(alpha=self.cfg.alpha)
-            head.fit(features.to(self.device), targets.to(self.device))
-        # kept on the host: predict is one small matmul, and the saved model has to load on cpu
-        self.head = head.to("cpu")
+        torch.manual_seed(seed)
+        rng = np.random.default_rng(seed)
+        self.head = nn.ModuleList([ProgressiveDecoder() for _ in RECIPES]).to(self.device)
+        optimizer = torch.optim.AdamW(
+            [
+                {"params": list(head.parameters()), "lr": learning_rate}
+                for head, (learning_rate, _) in zip(self.head, RECIPES)
+            ],
+            lr=0.0,
+            weight_decay=1e-4,
+        )
+        ema = None
+        for step in range(STEPS):
+            token_crops, kept_crops, targets = [], [], []
+            for batch_index in range(BATCH_SIZE):
+                subject = subjects[(step * BATCH_SIZE + batch_index) % len(subjects)]
+                if batch_index < BATCH_SIZE // 2:
+                    center = subject.positive[rng.integers(len(subject.positive))] // 8
+                else:
+                    center = subject.brain_tokens[rng.integers(len(subject.brain_tokens))]
+                origin = np.clip(
+                    center - rng.integers(1, CORE_TOKENS, size=3),
+                    0,
+                    np.asarray(self.grid_size) - CORE_TOKENS,
+                )
+                ox, oy, oz = (int(value) for value in origin)
+                width = CORE_TOKENS + 2 * HALO_TOKENS
+                token_crops.append(
+                    subject.tokens[:, ox : ox + width, oy : oy + width, oz : oz + width]
+                )
+                kept_crops.append(
+                    subject.kept[:, ox : ox + width, oy : oy + width, oz : oz + width]
+                )
+                x, y, z = ox * 8, oy * 8, oz * 8
+                voxels = CORE_TOKENS * 8
+                seg = subject.seg[x : x + voxels, y : y + voxels, z : z + voxels]
+                targets.append(np.stack([seg == value for value in LABELS]))
+
+            tokens = torch.from_numpy(np.stack(token_crops)).to(self.device, dtype=torch.float32)
+            kept = torch.from_numpy(np.stack(kept_crops)).to(self.device)
+            target = torch.from_numpy(np.stack(targets)).to(self.device, dtype=torch.float32)
+            inputs = (tokens - self.mean) * self.inverse_std * kept
+
+            optimizer.zero_grad(set_to_none=True)
+            for head, (_, positive_weight) in zip(self.head, RECIPES):
+                with torch.autocast("cuda", torch.bfloat16, enabled=self.device.type == "cuda"):
+                    halo = HALO_TOKENS * 8
+                    logits = head(inputs)[:, :, halo:-halo, halo:-halo, halo:-halo]
+                    bce = F.binary_cross_entropy_with_logits(
+                        logits, target, pos_weight=torch.tensor(positive_weight, device=self.device)
+                    )
+                    probability = torch.sigmoid(logits)
+                    # per label, so the nerve is not pooled into the vessel's overlap
+                    dims = (2, 3, 4)
+                    dice = (2 * (probability * target).sum(dims) + 1) / (
+                        probability.sum(dims) + target.sum(dims) + 1
+                    )
+                    loss = bce + 1 - dice.mean()
+                loss.backward()
+            optimizer.step()
+
+            if step == EMA_START:
+                ema = [
+                    [parameter.detach().clone() for parameter in head.parameters()]
+                    for head in self.head
+                ]
+            elif step > EMA_START:
+                for averages, head in zip(ema, self.head):
+                    for average, parameter in zip(averages, head.parameters()):
+                        average.lerp_(parameter.detach(), 1 - EMA_DECAY)
+
+        with torch.no_grad():
+            for averages, head in zip(ema, self.head):
+                for parameter, average in zip(head.parameters(), averages):
+                    parameter.copy_(average)
+        self.head.eval()
 
     def predict_scores(self, images: Images, key: str | None = None) -> nib.Nifti1Image:
-        """Per-label score per voxel on the input's own grid, constant within each sub-cell.
+        """Per-label score per voxel on the input's own grid, averaged over the heads.
 
         Pass `key` to score a subject already in the cache; the tokens are the frozen backbone's
         and do not depend on the fold, so this is the same embedding the uncached path computes.
-
-        The prediction is carried out to the input rather than the truth carried in: at `scale=1` a
-        cell is larger than a label voxel, and scoring on the model's grid would credit a cell-sized
-        prediction with matching a voxel-sized label.
         """
-        patches = self.cache[key] if key is not None else Patches(*self.embed(images))
+        if key is not None:
+            patches = self.cache[key]
+            interior = slice(HALO_TOKENS, -HALO_TOKENS)
+            dense = patches.tokens[:, interior, interior, interior].astype(np.float32)
+            kept_grid = patches.kept[:, interior, interior, interior]
+            grid_affine = patches.grid_affine
+        else:
+            features, patch_ids, grid_affine = self.embed(images)
+            dense, kept_grid = self.scatter(features, patch_ids)
 
-        predicted = self.head.predict(torch.from_numpy(patches.features)).numpy()
-        scores = np.zeros(
-            (int(np.prod(self.grid_size)), len(LABELS), self.subcell**3), dtype=np.float32
-        )
-        scores[patches.patch_ids] = rearrange(
-            predicted, "patch (label cell) -> patch label cell", label=len(LABELS)
-        )
+        tokens = torch.from_numpy(dense[None]).to(self.device)
+        kept = torch.from_numpy(kept_grid[None]).to(self.device)
+        inputs = (tokens - self.mean) * self.inverse_std * kept
 
-        gx, gy, gz = self.grid_size
-        cx, cy, cz = self.cell_size
-        on_grid = rearrange(
-            scores,
-            "(gx gy gz) label (sx sy sz) -> label gx sx gy sy gz sz",
-            gx=gx,
-            gy=gy,
-            gz=gz,
-            sx=self.subcell,
-            sy=self.subcell,
-            sz=self.subcell,
-        )
-        on_grid = repeat(
-            on_grid,
-            "label gx sx gy sy gz sz -> label (gx sx cx) (gy sy cy) (gz sz cz)",
-            cx=cx,
-            cy=cy,
-            cz=cz,
-        )
+        probability = torch.zeros((len(LABELS), *self.img_size), device=self.device)
+        with (
+            torch.inference_mode(),
+            torch.autocast("cuda", torch.bfloat16, enabled=self.device.type == "cuda"),
+        ):
+            for head in self.head:
+                probability += torch.sigmoid(head(inputs)[0].float()) / len(self.head)
 
         image = repack(images[MODALITY])
         on_input = np.empty((*image.shape, len(LABELS)), dtype=np.float32)
-        for label, volume in enumerate(on_grid):
+        for label, volume in enumerate(probability.cpu().numpy()):
             on_input[..., label] = resample_nearest(
-                np.ascontiguousarray(volume), patches.grid_affine, image.affine, image.shape
+                np.ascontiguousarray(volume), grid_affine, image.affine, image.shape
             )
         return nib.Nifti1Image(on_input, image.affine)
 
@@ -341,8 +431,8 @@ class Task4Method:
         """Scores to a label map, one cut per label. All postprocessing lives here, so the protocol
         can search it by calling this at every candidate rather than knowing what it does.
 
-        The two labels' scores are not on a common scale, so each fires on its own cut and a voxel
-        both claim goes to whichever is furthest above its own.
+        The two labels are independent sigmoids rather than a softmax, so each fires on its own cut
+        and a voxel both claim goes to whichever is furthest above its own.
         """
         cuts = torch.as_tensor(thresholds, dtype=scores.dtype, device=scores.device)
         best, labels = (scores / cuts).max(dim=-1)
@@ -356,28 +446,41 @@ class Task4Method:
         return nib.Nifti1Image(labels.numpy(), scores.affine)
 
     def save(self, model_dir: Path) -> None:
-        """Config, head and thresholds; the weights stay wherever `ckpt_path` points."""
+        """Config, heads and thresholds; the weights stay wherever `ckpt_path` points."""
         model_dir.mkdir(parents=True, exist_ok=True)
         OmegaConf.save(self.cfg, model_dir / "config.yaml")
-        joblib.dump({"head": self.head, "thresholds": self.thresholds}, model_dir / "head.joblib")
+        torch.save(
+            {
+                "head": self.head.state_dict(),
+                "mean": self.mean.cpu(),
+                "inverse_std": self.inverse_std.cpu(),
+                "thresholds": torch.as_tensor(self.thresholds, dtype=torch.float64),
+            },
+            model_dir / "head.pt",
+        )
 
     @classmethod
-    def load(cls, model_dir: Path, **overrides) -> "Task4Method":
+    def load(cls, model_dir: Path, **overrides) -> "Task4ConvMethod":
         """Rebuild a fitted method from `save`. Overrides are Config fields: ckpt path, device."""
         cfg = OmegaConf.merge(
             OmegaConf.structured(Config), OmegaConf.load(model_dir / "config.yaml"), overrides
         )
         method = cls(cfg)
-        state = joblib.load(model_dir / "head.joblib")
-        method.head, method.thresholds = state["head"], state["thresholds"]
+        state = torch.load(model_dir / "head.pt", map_location=method.device, weights_only=True)
+        method.head = nn.ModuleList([ProgressiveDecoder() for _ in RECIPES]).to(method.device)
+        method.head.load_state_dict(state["head"])
+        method.head.eval()
+        method.mean = state["mean"].to(method.device)
+        method.inverse_std = state["inverse_std"].to(method.device)
+        method.thresholds = state["thresholds"].cpu().numpy()
         return method
 
 
 # ---- protocol: the part we hold fixed ---------------------------------------------------
 
-# Scores estimate a sub-cell label fraction whose prevalence is ~2e-3, so the grid is geometric
-# rather than linear. The floor doubles as the candidate filter in `leave_one_out`.
-THRESHOLDS = np.logspace(-3, -0.3, 60)
+# Scores are sigmoid probabilities rather than label fractions, so the grid runs to ~0.95. It stays
+# geometric, and the floor doubles as the candidate filter in `leave_one_out`.
+THRESHOLDS = np.logspace(-3, -0.02, 60)
 
 
 class Curves(NamedTuple):
@@ -393,7 +496,7 @@ class Curves(NamedTuple):
 
 
 def subject_curves(
-    method: Task4Method, scores: np.ndarray, truth: np.ndarray
+    method: Task4ConvMethod, scores: np.ndarray, truth: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
     """One subject's per-label Dice and predicted voxel count at every pair of cuts in THRESHOLDS."""
     scores = torch.as_tensor(scores, device=method.device)
@@ -419,8 +522,8 @@ def subject_curves(
     return dice.cpu().numpy(), predicted.cpu().numpy()
 
 
-def leave_one_out(rows: list[dict], method: Task4Method, folds_dir: Path) -> Curves:
-    """Every subject's threshold curves, predicted by a head fit on the other n-1.
+def leave_one_out(rows: list[dict], method: Task4ConvMethod, folds_dir: Path) -> Curves:
+    """Every subject's threshold curves, predicted by heads fit on the other n-1.
 
     Each fold is saved under `folds_dir/<held-out subject>`, at that subject's oracle pair of cuts
     and with the sparse label map they give. The cuts are chosen on the subject's own labels, so
@@ -434,9 +537,9 @@ def leave_one_out(rows: list[dict], method: Task4Method, folds_dir: Path) -> Cur
 
     dice, predicted, true = [], [], []
     start = time.perf_counter()
-    for row in rows:
+    for held_out, row in enumerate(rows):
         fold_start = time.perf_counter()
-        method.fit([r for r in rows if r["subject"] != row["subject"]])
+        method.fit([r for r in rows if r["subject"] != row["subject"]], method.cfg.seed + held_out)
         fitted = time.perf_counter()
 
         scores_img = method.predict_scores({MODALITY: row[MODALITY]}, key=row["subject"])
@@ -491,8 +594,7 @@ def leave_one_out(rows: list[dict], method: Task4Method, folds_dir: Path) -> Cur
         cuts = "/".join(f"{cut:.1e}" for cut in method.thresholds)
         logger.info(
             f"fold {len(dice)}/{len(rows)} {row['subject']} mean={mean_dice[best]:.3f} "
-            f"at thr={cuts} oracle {peak} alpha={method.head.alpha_:.0e} "
-            f"score_max={scores.max():.3g} "
+            f"at thr={cuts} oracle {peak} score_max={scores.max():.3g} "
             f"candidates={int(candidates.sum())} ({time.perf_counter() - start:.0f}s)"
         )
     return Curves(np.stack(dice), np.stack(predicted), np.array(true))
@@ -542,14 +644,14 @@ def train(args: argparse.Namespace) -> None:
     rows = list(load_fomo_task4())
     logger.info(f"dataset: {len(rows)} subjects")
 
-    method = Task4Method(cfg)
+    method = Task4ConvMethod(cfg)
     start = time.perf_counter()
     curves = leave_one_out(rows, method, run_dir / "folds")
     run_time = time.perf_counter() - start
     summary = score(curves)
 
     # the shipped model sees all n subjects, so it is not any of the models scored above
-    method.fit(rows)
+    method.fit(rows, cfg.seed + len(rows))
     method.thresholds = np.array(summary["thresholds"])
     method.save(run_dir / "model")
 
@@ -571,7 +673,7 @@ def predict(args: argparse.Namespace) -> None:
     overrides = {"device": args.device}
     if args.ckpt_path:
         overrides["ckpt_path"] = args.ckpt_path
-    method = Task4Method.load(args.model_dir, **overrides)
+    method = Task4ConvMethod.load(args.model_dir, **overrides)
 
     labels = method.predict({"t2w": nib.load(args.t2w)})
     nib.save(labels, args.output)
