@@ -1,0 +1,11 @@
+task: task5
+ckpt_path: hf://medarc/walnut/checkpoints/pretrain_full_90_10_h100/checkpoint-last.pth
+output_root: experiments/task5_cortex/output
+name: ckpt-ptfull_pool-global
+device: cuda
+seed: 4466
+masking: zero
+crop_ap: true
+crop_test_ap: true
+pooling: global
+cortex_frac: 0.0

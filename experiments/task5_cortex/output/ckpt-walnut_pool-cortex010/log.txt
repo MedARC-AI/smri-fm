@@ -1,0 +1,35 @@
+21:28:43 run ckpt-walnut_pool-cortex010 (git 5014a39)
+21:28:43 config:
+task: task5
+ckpt_path: hf://medarc/walnut/checkpoints/walnut-v0-1/vitl/sub-52k/checkpoint-last.pth
+output_root: experiments/task5_cortex/output
+name: ckpt-walnut_pool-cortex010
+device: cuda
+seed: 4466
+masking: zero
+crop_ap: true
+crop_test_ap: true
+pooling: cortex
+cortex_frac: 0.1
+21:28:59 dataset: 48 subjects, 24 positive
+21:30:06 fold 1/20 n=3 y=[0 1 1] p=[0.514 0.514 0.551] (60s)
+21:30:11 fold 2/20 n=3 y=[1 1 1] p=[0.873 0.982 0.406] (65s)
+21:30:15 fold 3/20 n=3 y=[0 1 1] p=[0.417 0.684 0.68 ] (70s)
+21:30:20 fold 4/20 n=3 y=[0 0 1] p=[0.435 0.215 0.821] (75s)
+21:30:22 fold 5/20 n=3 y=[1 1 1] p=[0.533 0.507 0.478] (77s)
+21:30:26 fold 6/20 n=3 y=[0 0 1] p=[0.3   0.507 0.452] (81s)
+21:30:31 fold 7/20 n=3 y=[0 0 1] p=[0.479 0.251 0.996] (85s)
+21:30:37 fold 8/20 n=3 y=[0 0 1] p=[0.08  0.048 0.795] (92s)
+21:30:40 fold 9/20 n=2 y=[0 1] p=[0.424 0.486] (94s)
+21:30:41 fold 10/20 n=2 y=[0 1] p=[0.478 0.509] (95s)
+21:30:44 fold 11/20 n=2 y=[0 0] p=[0.014 0.014] (98s)
+21:30:48 fold 12/20 n=2 y=[0 1] p=[0.287 0.704] (102s)
+21:30:51 fold 13/20 n=2 y=[0 1] p=[0.516 0.527] (105s)
+21:30:54 fold 14/20 n=2 y=[0 1] p=[0.208 0.968] (108s)
+21:30:58 fold 15/20 n=2 y=[0 1] p=[0.237 0.836] (113s)
+21:31:00 fold 16/20 n=2 y=[0 1] p=[0.032 0.973] (115s)
+21:31:04 fold 17/20 n=2 y=[0 0] p=[0.243 0.265] (119s)
+21:31:06 fold 18/20 n=2 y=[0 1] p=[0.273 0.958] (121s)
+21:31:09 fold 19/20 n=2 y=[0 1] p=[0.469 0.548] (123s)
+21:31:13 fold 20/20 n=2 y=[0 1] p=[0.029 0.984] (127s)
+21:31:15 result: auroc=0.9514  auroc_ci_low=0.8861  auroc_ci_high=0.9929  (127s)

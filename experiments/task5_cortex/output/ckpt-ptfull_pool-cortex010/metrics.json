@@ -1,0 +1,1 @@
+{"name": "ckpt-ptfull_pool-cortex010", "auroc": 0.9357638888888888, "auroc_ci_low": 0.8588948424701601, "auroc_ci_high": 0.9892890211640211, "run_time": 151.5}

@@ -1,0 +1,1 @@
+{"name": "ckpt-ptfull_pool-global", "auroc": 0.8975694444444445, "auroc_ci_low": 0.7899144345238095, "auroc_ci_high": 0.9788406038406038, "run_time": 149.6}

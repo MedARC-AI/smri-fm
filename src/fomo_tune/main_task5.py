@@ -1,12 +1,15 @@
-"""FOMO task 5: polymicrogyria classification, scored by AUROC as the challenge scores it.
+"""FOMO task 5: polymicrogyria classification
 
-`Task5Method` is the part we tune -- features, head, hyperparameters. The protocol below it is
-fixed so scores stay comparable across iterations: 20-fold over the 48 subjects, pool the
-out-of-fold predictions, bootstrap subjects for the CI.
+Method (tune):
 
-`train` runs that protocol then fits and saves a head; `predict` is the challenge contract, one t1
-path in and one probability out. Both go through `Task5Method.predict`, so every fold exercises
-the path the submission will run.
+1. Extract patch features
+2. Global average pool, or cortex pool
+3. sklearn logistic regression
+
+Protocol (fixed):
+
+- 20 fold cross-validation
+- AUROC metric on out-of-fold predictions
 """
 
 import argparse
@@ -38,6 +41,7 @@ Images = dict[str, nib.Nifti1Image]
 # The cohort's controls are clipped and its cases are not, which scores AUROC 0.997 by
 # itself. 133mm is the smallest extent any subject covers.
 AP_EXTENT_MM = 133.0
+CORTEX = (3, 42)  # SynthSeg's left/right cerebral cortex labels
 
 
 @dataclass
@@ -51,10 +55,11 @@ class Config:
     masking: str = "zero"
     crop_ap: bool = True
     crop_test_ap: bool = True
+    pooling: str = "cortex"
+    cortex_frac: float = 0.1
 
 
-def crop_ap(img: nib.Nifti1Image, extent_mm: float) -> nib.Nifti1Image:
-    """Cut a fixed anterior-posterior slab centred on the brain's own AP extent."""
+def ap_window(img: nib.Nifti1Image, extent_mm: float) -> tuple[int, int]:
     img = nib.Nifti1Image(img.dataobj, img.affine, img.header)
     img = nib.as_closest_canonical(nib.funcs.squeeze_image(img))
     data = img.get_fdata(dtype=np.float32)
@@ -62,10 +67,16 @@ def crop_ap(img: nib.Nifti1Image, extent_mm: float) -> nib.Nifti1Image:
 
     live = np.flatnonzero((data > 0).sum(axis=(0, 2)))
     extent = round(extent_mm / zoom)
-    start = round((live[0] + live[-1] - extent) / 2)
-    lo, hi = max(start, 0), min(start + extent, data.shape[1])
+    return round((live[0] + live[-1] - extent) / 2), extent
 
-    # zeros wherever the window runs past the scan, so the slab is `extent` wide for everyone
+
+def crop_ap(img: nib.Nifti1Image, window: tuple[int, int]) -> nib.Nifti1Image:
+    img = nib.Nifti1Image(img.dataobj, img.affine, img.header)
+    img = nib.as_closest_canonical(nib.funcs.squeeze_image(img))
+    data = img.get_fdata(dtype=np.float32)
+
+    start, extent = window
+    lo, hi = max(start, 0), min(start + extent, data.shape[1])
     cropped = np.zeros((data.shape[0], extent, data.shape[2]), dtype=np.float32)
     cropped[:, lo - start : hi - start] = data[:, lo:hi]
     step = np.eye(4)
@@ -88,15 +99,20 @@ class Task5Method:
         )
         self.device = torch.device(cfg.device)
         self.backbone.to(self.device).eval().requires_grad_(False)
+        patchify = self.backbone.encoder.patchify
+        self.grid_size = tuple(patchify.grid_size)
+        self.patch_size = tuple(patchify.patch_size)
         self.cache: dict[str, np.ndarray] = {}
         self.head = None
 
     @torch.inference_mode()
     def features(self, images: Images) -> np.ndarray:
         """(D,) per subject. A pure function of the images, so training and inference agree."""
-        img = images["t1w"]
+        img, seg = images["t1w"], images["synthseg"]
         if self.cfg.crop_ap:
-            img = crop_ap(img, AP_EXTENT_MM)
+            window = ap_window(img, AP_EXTENT_MM)
+            img = crop_ap(img, window)
+            seg = crop_ap(seg, window)
 
         sample = self.transform(img)
         batch = {key: value[None].to(self.device) for key, value in sample.items()}
@@ -104,8 +120,22 @@ class Task5Method:
         with torch.autocast("cuda", torch.bfloat16, enabled=self.device.type == "cuda"):
             out = self.backbone(batch)
 
+        if self.cfg.pooling == "cortex":
+            cortex, _ = self.transform.resize(seg, mode="nearest-exact")
+            cortex = cortex.to(self.device)
+            gx, gy, gz = self.grid_size
+            px, py, pz = self.patch_size
+            is_cortex_grid = ((cortex == CORTEX[0]) | (cortex == CORTEX[1])).float()
+            is_cortex_grid = (
+                is_cortex_grid.reshape(gx, px, gy, py, gz, pz).mean(dim=(1, 3, 5)).reshape(-1)
+            )
+            is_cortex_grid = is_cortex_grid > self.cfg.cortex_frac
+            is_cortex = is_cortex_grid[out["patch_ids"]]
+            token_mask = (out["token_mask"].bool() & is_cortex).unsqueeze(-1)
+        else:
+            token_mask = out["token_mask"].bool().unsqueeze(-1)
+
         patch_embeds = out["patch_embeds"]
-        token_mask = out["token_mask"].bool().unsqueeze(-1)
         embed = (patch_embeds * token_mask).sum(dim=1) / token_mask.sum(dim=1)
         return embed[0].float().cpu().numpy()
 
@@ -161,7 +191,7 @@ class Task5Method:
 
 # Every image the task ships. The method picks which of them it wants, as at inference, where the
 # challenge hands over the modalities whether or not a model uses them.
-IMAGE_COLS = ("t1w",)
+IMAGE_COLS = ("t1w", "synthseg")
 
 
 def cross_validate(
@@ -181,7 +211,8 @@ def cross_validate(
         for i in test:
             images = {key: rows[i][key] for key in IMAGE_COLS}
             if crop_test_ap:
-                images = {key: crop_ap(img, AP_EXTENT_MM) for key, img in images.items()}
+                window = ap_window(images["t1w"], AP_EXTENT_MM)
+                images = {key: crop_ap(img, window) for key, img in images.items()}
             oof[i] = method.predict(images)
         logger.info(
             f"fold {fold + 1}/{n_folds} n={len(test)} y={y[test]} "
@@ -228,7 +259,7 @@ def train(args: argparse.Namespace) -> None:
     OmegaConf.save(cfg, run_dir / "config.yaml")
 
     ds = load_fomo_task5()
-    # skullstrip with synthseg, cached with hf
+    # skullstrip with synthseg, cached with hf (keeps the label map too, as a "synthseg" column)
     ds = synthseg.synthseg_strip_dataset(ds, source="t1w")
     rows = list(ds)
     logger.info(f"dataset: {len(rows)} subjects, {sum(r['label'] for r in rows)} positive")
@@ -269,7 +300,7 @@ def predict(args: argparse.Namespace) -> None:
     img = nib.load(args.t1)
     seg = synthseg.synthseg(img)
     img = synthseg.applymask(img, seg)
-    probability = method.predict({"t1w": img})
+    probability = method.predict({"t1w": img, "synthseg": seg})
 
     args.output.write_text(f"{probability:.6f}\n")
 
