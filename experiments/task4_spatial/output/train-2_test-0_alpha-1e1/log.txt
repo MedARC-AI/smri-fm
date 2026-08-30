@@ -1,0 +1,357 @@
+12:51:47 run train-2_test-0_alpha-1e1 (git 7b50d02)
+12:51:47 config:
+task: task4
+ckpt_path: hf://medarc/walnut/checkpoints/walnut-v0-1/vitl/sub-52k/checkpoint-last.pth
+output_root: experiments/task4_spatial/output
+name: train-2_test-0_alpha-1e1
+scale: 4
+subcell: 4
+target_sigma_mm: 0.0
+head: logistic
+depth: 4
+train_spatial: true
+train_views: 2
+max_rotation_deg: 4.0
+max_translation_mm: 2.0
+scale_low: 0.97
+scale_high: 1.03
+tta_spatial: false
+tta_views: 4
+tta_rotation_deg: 2.0
+tta_translation_mm: 1.0
+tta_scale_low: 0.99
+tta_scale_high: 1.01
+alphas:
+- 1000.0
+- 10000.0
+- 100000.0
+- 1000000.0
+- 10000000.0
+- 100000000.0
+alpha: 10.0
+n_splits: 5
+device: cuda
+seed: 4466
+12:52:33 dataset: 40 subjects
+12:52:41 embed warp=0.0s forward=0.3s
+12:52:42 cache sub-01 embed=3.0s targets=0.9s
+12:52:45 embed warp=0.0s forward=0.2s
+12:52:46 cache sub-02 embed=3.0s targets=1.0s
+12:52:49 embed warp=0.0s forward=0.2s
+12:52:50 cache sub-03 embed=3.1s targets=1.0s
+12:52:53 embed warp=0.0s forward=0.2s
+12:52:54 cache sub-04 embed=2.9s targets=0.9s
+12:52:56 embed warp=0.0s forward=0.2s
+12:52:57 cache sub-05 embed=2.8s targets=0.9s
+12:53:00 embed warp=0.0s forward=0.2s
+12:53:01 cache sub-06 embed=3.0s targets=0.9s
+12:53:04 embed warp=0.0s forward=0.2s
+12:53:05 cache sub-07 embed=3.0s targets=0.9s
+12:53:08 embed warp=0.0s forward=0.2s
+12:53:09 cache sub-08 embed=3.1s targets=0.9s
+12:53:12 embed warp=0.0s forward=0.2s
+12:53:13 cache sub-09 embed=2.8s targets=1.0s
+12:53:16 embed warp=0.0s forward=0.2s
+12:53:17 cache sub-10 embed=3.0s targets=1.0s
+12:53:20 embed warp=0.0s forward=0.2s
+12:53:21 cache sub-11 embed=3.0s targets=1.0s
+12:53:24 embed warp=0.0s forward=0.2s
+12:53:25 cache sub-12 embed=3.1s targets=1.0s
+12:53:28 embed warp=0.0s forward=0.2s
+12:53:29 cache sub-13 embed=2.9s targets=1.0s
+12:53:32 embed warp=0.0s forward=0.2s
+12:53:33 cache sub-14 embed=2.9s targets=0.9s
+12:53:36 embed warp=0.0s forward=0.2s
+12:53:37 cache sub-15 embed=3.0s targets=1.0s
+12:53:40 embed warp=0.0s forward=0.2s
+12:53:41 cache sub-16 embed=3.0s targets=0.9s
+12:53:43 embed warp=0.0s forward=0.2s
+12:53:44 cache sub-17 embed=2.3s targets=0.9s
+12:53:46 embed warp=0.0s forward=0.2s
+12:53:47 cache sub-18 embed=2.1s targets=0.9s
+12:53:50 embed warp=0.0s forward=0.2s
+12:53:51 cache sub-19 embed=2.7s targets=0.9s
+12:53:54 embed warp=0.0s forward=0.2s
+12:53:55 cache sub-20 embed=2.9s targets=0.9s
+12:53:57 embed warp=0.0s forward=0.2s
+12:53:58 cache sub-21 embed=2.9s targets=1.0s
+12:54:01 embed warp=0.0s forward=0.2s
+12:54:02 cache sub-22 embed=2.9s targets=1.0s
+12:54:05 embed warp=0.0s forward=0.2s
+12:54:06 cache sub-23 embed=3.0s targets=1.0s
+12:54:09 embed warp=0.0s forward=0.2s
+12:54:10 cache sub-24 embed=2.9s targets=1.0s
+12:54:13 embed warp=0.0s forward=0.2s
+12:54:14 cache sub-25 embed=3.1s targets=1.0s
+12:54:17 embed warp=0.0s forward=0.2s
+12:54:18 cache sub-26 embed=3.2s targets=1.0s
+12:54:21 embed warp=0.0s forward=0.2s
+12:54:22 cache sub-27 embed=3.0s targets=1.0s
+12:54:26 embed warp=0.0s forward=0.2s
+12:54:27 cache sub-28 embed=3.1s targets=1.0s
+12:54:30 embed warp=0.0s forward=0.2s
+12:54:31 cache sub-29 embed=3.1s targets=1.0s
+12:54:33 embed warp=0.0s forward=0.2s
+12:54:34 cache sub-30 embed=2.9s targets=0.9s
+12:54:37 embed warp=0.0s forward=0.2s
+12:54:38 cache sub-31 embed=3.0s targets=1.0s
+12:54:41 embed warp=0.0s forward=0.2s
+12:54:42 cache sub-32 embed=3.0s targets=1.0s
+12:54:45 embed warp=0.0s forward=0.2s
+12:54:46 cache sub-33 embed=3.0s targets=1.0s
+12:54:49 embed warp=0.0s forward=0.2s
+12:54:50 cache sub-34 embed=3.1s targets=1.0s
+12:54:53 embed warp=0.0s forward=0.2s
+12:54:54 cache sub-35 embed=3.1s targets=1.0s
+12:54:57 embed warp=0.0s forward=0.2s
+12:54:58 cache sub-36 embed=3.0s targets=1.0s
+12:55:02 embed warp=0.0s forward=0.2s
+12:55:03 cache sub-37 embed=3.1s targets=1.0s
+12:55:05 embed warp=0.0s forward=0.2s
+12:55:06 cache sub-38 embed=2.9s targets=0.9s
+12:55:09 embed warp=0.0s forward=0.2s
+12:55:10 cache sub-39 embed=2.7s targets=1.0s
+12:55:13 embed warp=0.0s forward=0.2s
+12:55:14 cache sub-40 embed=2.8s targets=1.0s
+12:55:14 cache: 40 subjects in 156s
+12:55:17 embed warp=0.1s forward=0.2s
+12:55:18 cache sub-02 embed=3.0s targets=1.1s
+12:55:21 embed warp=0.0s forward=0.2s
+12:55:22 cache sub-02 embed=3.0s targets=1.1s
+12:55:25 embed warp=0.0s forward=0.2s
+12:55:26 cache sub-03 embed=3.0s targets=1.1s
+12:55:29 embed warp=0.0s forward=0.2s
+12:55:30 cache sub-03 embed=3.0s targets=1.1s
+12:55:33 embed warp=0.0s forward=0.2s
+12:55:34 cache sub-04 embed=3.1s targets=1.1s
+12:55:37 embed warp=0.0s forward=0.2s
+12:55:38 cache sub-04 embed=3.0s targets=1.0s
+12:55:41 embed warp=0.0s forward=0.2s
+12:55:42 cache sub-05 embed=2.9s targets=1.1s
+12:55:45 embed warp=0.0s forward=0.2s
+12:55:46 cache sub-05 embed=2.9s targets=1.0s
+12:55:49 embed warp=0.0s forward=0.2s
+12:55:50 cache sub-06 embed=2.9s targets=1.1s
+12:55:53 embed warp=0.0s forward=0.2s
+12:55:54 cache sub-06 embed=3.0s targets=1.0s
+12:55:57 embed warp=0.0s forward=0.2s
+12:55:58 cache sub-07 embed=2.8s targets=1.0s
+12:56:01 embed warp=0.0s forward=0.2s
+12:56:02 cache sub-07 embed=2.9s targets=1.0s
+12:56:05 embed warp=0.0s forward=0.1s
+12:56:06 cache sub-08 embed=3.3s targets=1.1s
+12:56:09 embed warp=0.0s forward=0.2s
+12:56:10 cache sub-08 embed=3.0s targets=1.0s
+12:56:13 embed warp=0.0s forward=0.2s
+12:56:14 cache sub-09 embed=2.9s targets=1.0s
+12:56:17 embed warp=0.0s forward=0.2s
+12:56:18 cache sub-09 embed=2.9s targets=1.0s
+12:56:21 embed warp=0.0s forward=0.2s
+12:56:22 cache sub-10 embed=2.9s targets=1.1s
+12:56:25 embed warp=0.0s forward=0.2s
+12:56:26 cache sub-10 embed=2.8s targets=1.0s
+12:56:29 embed warp=0.0s forward=0.2s
+12:56:30 cache sub-11 embed=2.9s targets=1.1s
+12:56:33 embed warp=0.0s forward=0.2s
+12:56:34 cache sub-11 embed=3.0s targets=1.0s
+12:56:37 embed warp=0.0s forward=0.2s
+12:56:38 cache sub-12 embed=3.1s targets=1.0s
+12:56:41 embed warp=0.0s forward=0.2s
+12:56:42 cache sub-12 embed=2.9s targets=1.0s
+12:56:45 embed warp=0.0s forward=0.2s
+12:56:46 cache sub-13 embed=2.9s targets=1.0s
+12:56:49 embed warp=0.0s forward=0.2s
+12:56:50 cache sub-13 embed=2.8s targets=1.0s
+12:56:53 embed warp=0.0s forward=0.2s
+12:56:54 cache sub-14 embed=2.9s targets=1.0s
+12:56:57 embed warp=0.0s forward=0.2s
+12:56:58 cache sub-14 embed=2.8s targets=1.0s
+12:57:01 embed warp=0.0s forward=0.2s
+12:57:02 cache sub-15 embed=2.9s targets=1.0s
+12:57:04 embed warp=0.0s forward=0.2s
+12:57:05 cache sub-15 embed=2.8s targets=1.0s
+12:57:08 embed warp=0.0s forward=0.2s
+12:57:09 cache sub-16 embed=2.8s targets=1.0s
+12:57:12 embed warp=0.0s forward=0.2s
+12:57:13 cache sub-16 embed=2.8s targets=1.0s
+12:57:16 embed warp=0.0s forward=0.2s
+12:57:17 cache sub-17 embed=2.8s targets=1.0s
+12:57:19 embed warp=0.0s forward=0.2s
+12:57:20 cache sub-17 embed=2.7s targets=1.0s
+12:57:23 embed warp=0.0s forward=0.2s
+12:57:24 cache sub-18 embed=2.8s targets=1.1s
+12:57:27 embed warp=0.0s forward=0.2s
+12:57:28 cache sub-18 embed=2.9s targets=1.0s
+12:57:31 embed warp=0.0s forward=0.2s
+12:57:32 cache sub-19 embed=2.9s targets=1.0s
+12:57:35 embed warp=0.0s forward=0.2s
+12:57:36 cache sub-19 embed=2.8s targets=1.0s
+12:57:39 embed warp=0.0s forward=0.2s
+12:57:40 cache sub-20 embed=3.1s targets=1.1s
+12:57:43 embed warp=0.0s forward=0.2s
+12:57:44 cache sub-20 embed=3.0s targets=1.1s
+12:57:47 embed warp=0.0s forward=0.2s
+12:57:49 cache sub-21 embed=3.2s targets=1.1s
+12:57:51 embed warp=0.0s forward=0.2s
+12:57:52 cache sub-21 embed=2.9s targets=1.0s
+12:57:55 embed warp=0.0s forward=0.2s
+12:57:57 cache sub-22 embed=3.0s targets=1.0s
+12:57:59 embed warp=0.0s forward=0.1s
+12:58:00 cache sub-22 embed=2.9s targets=1.0s
+12:58:03 embed warp=0.0s forward=0.2s
+12:58:04 cache sub-23 embed=2.6s targets=1.0s
+12:58:07 embed warp=0.0s forward=0.2s
+12:58:08 cache sub-23 embed=2.7s targets=0.9s
+12:58:10 embed warp=0.0s forward=0.2s
+12:58:11 cache sub-24 embed=2.7s targets=1.0s
+12:58:14 embed warp=0.0s forward=0.2s
+12:58:15 cache sub-24 embed=2.5s targets=0.9s
+12:58:17 embed warp=0.0s forward=0.2s
+12:58:18 cache sub-25 embed=2.7s targets=1.0s
+12:58:21 embed warp=0.0s forward=0.2s
+12:58:22 cache sub-25 embed=2.7s targets=1.0s
+12:58:25 embed warp=0.0s forward=0.2s
+12:58:26 cache sub-26 embed=2.7s targets=1.1s
+12:58:29 embed warp=0.0s forward=0.2s
+12:58:30 cache sub-26 embed=3.0s targets=1.1s
+12:58:33 embed warp=0.0s forward=0.2s
+12:58:34 cache sub-27 embed=3.0s targets=1.0s
+12:58:37 embed warp=0.0s forward=0.2s
+12:58:38 cache sub-27 embed=2.8s targets=1.0s
+12:58:41 embed warp=0.0s forward=0.2s
+12:58:42 cache sub-28 embed=2.9s targets=1.0s
+12:58:45 embed warp=0.0s forward=0.2s
+12:58:46 cache sub-28 embed=2.9s targets=1.0s
+12:58:49 embed warp=0.0s forward=0.2s
+12:58:50 cache sub-29 embed=2.9s targets=1.0s
+12:58:52 embed warp=0.0s forward=0.2s
+12:58:54 cache sub-29 embed=2.8s targets=1.0s
+12:58:56 embed warp=0.0s forward=0.2s
+12:58:58 cache sub-30 embed=2.8s targets=1.1s
+12:59:00 embed warp=0.0s forward=0.2s
+12:59:02 cache sub-30 embed=3.0s targets=1.1s
+12:59:05 embed warp=0.0s forward=0.2s
+12:59:06 cache sub-31 embed=3.3s targets=1.1s
+12:59:09 embed warp=0.0s forward=0.1s
+12:59:10 cache sub-31 embed=3.0s targets=1.1s
+12:59:13 embed warp=0.0s forward=0.1s
+12:59:14 cache sub-32 embed=2.9s targets=1.0s
+12:59:17 embed warp=0.0s forward=0.1s
+12:59:18 cache sub-32 embed=2.7s targets=1.0s
+12:59:21 embed warp=0.0s forward=0.1s
+12:59:22 cache sub-33 embed=3.0s targets=1.1s
+12:59:25 embed warp=0.0s forward=0.2s
+12:59:26 cache sub-33 embed=3.0s targets=1.0s
+12:59:28 embed warp=0.0s forward=0.2s
+12:59:30 cache sub-34 embed=2.8s targets=1.0s
+12:59:32 embed warp=0.0s forward=0.2s
+12:59:33 cache sub-34 embed=2.9s targets=1.1s
+12:59:36 embed warp=0.0s forward=0.2s
+12:59:38 cache sub-35 embed=3.1s targets=1.1s
+12:59:40 embed warp=0.0s forward=0.2s
+12:59:41 cache sub-35 embed=2.9s targets=1.0s
+12:59:44 embed warp=0.0s forward=0.2s
+12:59:45 cache sub-36 embed=2.7s targets=1.0s
+12:59:48 embed warp=0.0s forward=0.2s
+12:59:49 cache sub-36 embed=2.8s targets=1.0s
+12:59:52 embed warp=0.0s forward=0.2s
+12:59:53 cache sub-37 embed=2.7s targets=1.0s
+12:59:56 embed warp=0.0s forward=0.2s
+12:59:57 cache sub-37 embed=2.8s targets=1.0s
+12:59:59 embed warp=0.0s forward=0.2s
+13:00:01 cache sub-38 embed=2.9s targets=1.1s
+13:00:03 embed warp=0.0s forward=0.2s
+13:00:05 cache sub-38 embed=3.0s targets=1.0s
+13:00:07 embed warp=0.0s forward=0.2s
+13:00:08 cache sub-39 embed=2.8s targets=1.1s
+13:00:11 embed warp=0.0s forward=0.2s
+13:00:12 cache sub-39 embed=2.9s targets=1.1s
+13:00:15 embed warp=0.0s forward=0.2s
+13:00:16 cache sub-40 embed=3.0s targets=1.1s
+13:00:20 embed warp=0.0s forward=0.2s
+13:00:21 cache sub-40 embed=3.1s targets=1.0s
+13:00:49 fold 1/40 sub-01 phases: fit=328.8s predict=4.9s curves=1.0s save=0.4s
+13:00:49 fold 1/40 sub-01 mean=0.626 at thr=1.9e-01/1.6e-01 oracle nerve=0.772 vessel=0.484 alpha=1e+01 score_max=0.977 candidates=43620 (335s)
+13:00:52 embed warp=0.0s forward=0.2s
+13:00:53 cache sub-01 embed=3.0s targets=1.1s
+13:00:56 embed warp=0.0s forward=0.2s
+13:00:57 cache sub-01 embed=2.9s targets=1.0s
+13:01:23 fold 2/40 sub-02 phases: fit=27.5s predict=4.7s curves=1.1s save=0.6s
+13:01:23 fold 2/40 sub-02 mean=0.246 at thr=4.4e-02/4.9e-02 oracle nerve=0.369 vessel=0.145 alpha=1e+01 score_max=0.901 candidates=37930 (369s)
+13:01:46 fold 3/40 sub-03 phases: fit=17.0s predict=4.6s curves=1.0s save=0.5s
+13:01:46 fold 3/40 sub-03 mean=0.140 at thr=9.3e-02/4.4e-02 oracle nerve=0.225 vessel=0.072 alpha=1e+01 score_max=0.96 candidates=44497 (393s)
+13:02:13 fold 4/40 sub-04 phases: fit=20.1s predict=5.1s curves=1.0s save=0.4s
+13:02:13 fold 4/40 sub-04 mean=0.490 at thr=1.6e-01/1.3e-01 oracle nerve=0.598 vessel=0.396 alpha=1e+01 score_max=0.975 candidates=36271 (419s)
+13:02:45 fold 5/40 sub-05 phases: fit=25.0s predict=5.0s curves=1.0s save=0.4s
+13:02:45 fold 5/40 sub-05 mean=0.405 at thr=1.0e-01/1.0e-01 oracle nerve=0.476 vessel=0.357 alpha=1e+01 score_max=0.961 candidates=42071 (451s)
+13:03:11 fold 6/40 sub-06 phases: fit=19.4s predict=4.8s curves=1.0s save=0.5s
+13:03:11 fold 6/40 sub-06 mean=0.532 at thr=1.4e-01/3.7e-01 oracle nerve=0.692 vessel=0.374 alpha=1e+01 score_max=0.978 candidates=35681 (477s)
+13:03:43 fold 7/40 sub-07 phases: fit=25.4s predict=5.3s curves=1.0s save=0.4s
+13:03:43 fold 7/40 sub-07 mean=0.500 at thr=1.7e-01/1.7e-01 oracle nerve=0.633 vessel=0.372 alpha=1e+01 score_max=0.967 candidates=34194 (509s)
+13:04:20 fold 8/40 sub-08 phases: fit=30.1s predict=5.1s curves=1.1s save=0.4s
+13:04:20 fold 8/40 sub-08 mean=0.395 at thr=2.4e-01/3.0e-01 oracle nerve=0.541 vessel=0.255 alpha=1e+01 score_max=0.983 candidates=37477 (546s)
+13:04:54 fold 9/40 sub-09 phases: fit=27.7s predict=4.9s curves=1.0s save=0.4s
+13:04:54 fold 9/40 sub-09 mean=0.378 at thr=2.2e-01/3.0e-01 oracle nerve=0.629 vessel=0.234 alpha=1e+01 score_max=0.977 candidates=36635 (580s)
+13:05:28 fold 10/40 sub-10 phases: fit=27.3s predict=5.3s curves=1.0s save=0.4s
+13:05:28 fold 10/40 sub-10 mean=0.487 at thr=1.3e-01/1.1e-01 oracle nerve=0.612 vessel=0.371 alpha=1e+01 score_max=0.97 candidates=33719 (614s)
+13:06:01 fold 11/40 sub-11 phases: fit=26.6s predict=5.2s curves=1.0s save=0.4s
+13:06:01 fold 11/40 sub-11 mean=0.236 at thr=2.9e-02/2.4e-01 oracle nerve=0.333 vessel=0.186 alpha=1e+01 score_max=0.898 candidates=39745 (647s)
+13:06:30 fold 12/40 sub-12 phases: fit=22.9s predict=4.3s curves=1.0s save=0.3s
+13:06:30 fold 12/40 sub-12 mean=0.534 at thr=1.0e-01/1.9e-01 oracle nerve=0.627 vessel=0.471 alpha=1e+01 score_max=0.956 candidates=33544 (676s)
+13:07:00 fold 13/40 sub-13 phases: fit=24.0s predict=4.7s curves=0.9s save=0.7s
+13:07:00 fold 13/40 sub-13 mean=0.512 at thr=3.0e-01/3.3e-01 oracle nerve=0.781 vessel=0.278 alpha=1e+01 score_max=0.979 candidates=42236 (706s)
+13:07:26 fold 14/40 sub-14 phases: fit=18.7s predict=5.5s curves=1.0s save=0.4s
+13:07:26 fold 14/40 sub-14 mean=0.510 at thr=3.0e-01/1.7e-01 oracle nerve=0.548 vessel=0.474 alpha=1e+01 score_max=0.995 candidates=39862 (732s)
+13:07:53 fold 15/40 sub-15 phases: fit=19.0s predict=5.7s curves=1.0s save=1.7s
+13:07:54 fold 15/40 sub-15 mean=0.560 at thr=5.0e-01/2.7e-01 oracle nerve=0.567 vessel=0.561 alpha=1e+01 score_max=0.983 candidates=41267 (760s)
+13:08:23 fold 16/40 sub-16 phases: fit=22.8s predict=5.2s curves=1.0s save=0.7s
+13:08:23 fold 16/40 sub-16 mean=0.127 at thr=2.6e-02/1.9e-01 oracle nerve=0.052 vessel=0.203 alpha=1e+01 score_max=0.815 candidates=29309 (789s)
+13:08:54 fold 17/40 sub-17 phases: fit=23.8s predict=5.2s curves=1.0s save=0.4s
+13:08:54 fold 17/40 sub-17 mean=0.499 at thr=2.4e-01/1.9e-01 oracle nerve=0.611 vessel=0.388 alpha=1e+01 score_max=0.995 candidates=43814 (820s)
+13:09:21 fold 18/40 sub-18 phases: fit=21.0s predict=4.8s curves=1.0s save=0.3s
+13:09:21 fold 18/40 sub-18 mean=0.573 at thr=3.0e-01/1.3e-01 oracle nerve=0.640 vessel=0.519 alpha=1e+01 score_max=0.997 candidates=31760 (847s)
+13:09:56 fold 19/40 sub-19 phases: fit=29.1s predict=4.2s curves=1.0s save=0.3s
+13:09:56 fold 19/40 sub-19 mean=0.351 at thr=2.7e-01/1.4e-01 oracle nerve=0.451 vessel=0.325 alpha=1e+01 score_max=0.897 candidates=43725 (882s)
+13:10:26 fold 20/40 sub-20 phases: fit=23.0s predict=5.1s curves=1.0s save=0.8s
+13:10:26 fold 20/40 sub-20 mean=0.088 at thr=6.1e-02/1.3e-02 oracle nerve=0.143 vessel=0.068 alpha=1e+01 score_max=0.809 candidates=39762 (912s)
+13:10:50 fold 21/40 sub-21 phases: fit=17.7s predict=4.7s curves=1.0s save=0.4s
+13:10:50 fold 21/40 sub-21 mean=0.382 at thr=2.7e-01/2.2e-01 oracle nerve=0.579 vessel=0.189 alpha=1e+01 score_max=0.962 candidates=45345 (936s)
+13:11:23 fold 22/40 sub-22 phases: fit=26.5s predict=5.4s curves=1.0s save=0.4s
+13:11:23 fold 22/40 sub-22 mean=0.407 at thr=4.5e-01/1.9e-01 oracle nerve=0.589 vessel=0.251 alpha=1e+01 score_max=0.989 candidates=33669 (969s)
+13:11:55 fold 23/40 sub-23 phases: fit=25.7s predict=4.7s curves=1.0s save=0.3s
+13:11:55 fold 23/40 sub-23 mean=0.261 at thr=4.9e-02/1.9e-01 oracle nerve=0.273 vessel=0.255 alpha=1e+01 score_max=0.879 candidates=40154 (1001s)
+13:12:30 fold 24/40 sub-24 phases: fit=28.2s predict=5.0s curves=1.0s save=0.4s
+13:12:30 fold 24/40 sub-24 mean=0.458 at thr=1.6e-01/1.9e-01 oracle nerve=0.491 vessel=0.424 alpha=1e+01 score_max=0.99 candidates=38568 (1036s)
+13:13:03 fold 25/40 sub-25 phases: fit=27.0s predict=4.7s curves=1.0s save=0.3s
+13:13:03 fold 25/40 sub-25 mean=0.146 at thr=1.4e-02/2.7e-01 oracle nerve=0.187 vessel=0.146 alpha=1e+01 score_max=0.921 candidates=36459 (1069s)
+13:13:36 fold 26/40 sub-26 phases: fit=26.3s predict=5.4s curves=1.0s save=0.4s
+13:13:36 fold 26/40 sub-26 mean=0.516 at thr=1.0e-01/2.2e-01 oracle nerve=0.609 vessel=0.422 alpha=1e+01 score_max=0.973 candidates=50394 (1102s)
+13:14:06 fold 27/40 sub-27 phases: fit=23.4s predict=5.2s curves=1.0s save=0.4s
+13:14:06 fold 27/40 sub-27 mean=0.277 at thr=4.0e-02/6.8e-02 oracle nerve=0.463 vessel=0.104 alpha=1e+01 score_max=0.642 candidates=23199 (1132s)
+13:14:38 fold 28/40 sub-28 phases: fit=25.1s predict=5.0s curves=1.0s save=0.4s
+13:14:38 fold 28/40 sub-28 mean=0.439 at thr=1.9e-01/1.9e-01 oracle nerve=0.499 vessel=0.383 alpha=1e+01 score_max=0.912 candidates=40631 (1164s)
+13:15:09 fold 29/40 sub-29 phases: fit=25.3s predict=4.3s curves=1.0s save=0.4s
+13:15:09 fold 29/40 sub-29 mean=0.468 at thr=1.3e-01/6.8e-02 oracle nerve=0.541 vessel=0.432 alpha=1e+01 score_max=0.986 candidates=36392 (1195s)
+13:15:39 fold 30/40 sub-30 phases: fit=25.0s predict=4.4s curves=1.0s save=0.3s
+13:15:40 fold 30/40 sub-30 mean=0.451 at thr=1.1e-01/2.4e-01 oracle nerve=0.547 vessel=0.387 alpha=1e+01 score_max=0.978 candidates=42785 (1226s)
+13:16:09 fold 31/40 sub-31 phases: fit=21.8s predict=6.0s curves=1.0s save=0.3s
+13:16:09 fold 31/40 sub-31 mean=0.325 at thr=3.0e-01/3.3e-01 oracle nerve=0.431 vessel=0.231 alpha=1e+01 score_max=0.963 candidates=53351 (1255s)
+13:16:34 fold 32/40 sub-32 phases: fit=19.5s predict=4.4s curves=1.0s save=0.7s
+13:16:34 fold 32/40 sub-32 mean=0.422 at thr=3.7e-01/2.2e-01 oracle nerve=0.512 vessel=0.357 alpha=1e+01 score_max=0.992 candidates=42818 (1280s)
+13:17:03 fold 33/40 sub-33 phases: fit=23.0s predict=4.3s curves=1.0s save=0.3s
+13:17:03 fold 33/40 sub-33 mean=0.380 at thr=1.4e-01/2.2e-01 oracle nerve=0.433 vessel=0.349 alpha=1e+01 score_max=0.981 candidates=44433 (1309s)
+13:17:28 fold 34/40 sub-34 phases: fit=19.0s predict=4.6s curves=1.0s save=0.3s
+13:17:28 fold 34/40 sub-34 mean=0.526 at thr=1.9e-01/1.6e-01 oracle nerve=0.631 vessel=0.433 alpha=1e+01 score_max=0.989 candidates=42249 (1334s)
+13:17:53 fold 35/40 sub-35 phases: fit=18.5s predict=4.8s curves=1.0s save=0.4s
+13:17:53 fold 35/40 sub-35 mean=0.422 at thr=2.2e-01/1.1e-01 oracle nerve=0.556 vessel=0.307 alpha=1e+01 score_max=0.986 candidates=49527 (1359s)
+13:18:16 fold 36/40 sub-36 phases: fit=17.6s predict=4.3s curves=1.0s save=0.5s
+13:18:17 fold 36/40 sub-36 mean=0.558 at thr=1.7e-01/1.0e-01 oracle nerve=0.754 vessel=0.417 alpha=1e+01 score_max=0.974 candidates=40434 (1383s)
+13:18:45 fold 37/40 sub-37 phases: fit=22.9s predict=4.2s curves=1.0s save=0.3s
+13:18:45 fold 37/40 sub-37 mean=0.321 at thr=5.0e-01/9.3e-02 oracle nerve=0.424 vessel=0.239 alpha=1e+01 score_max=0.959 candidates=30727 (1411s)
+13:19:12 fold 38/40 sub-38 phases: fit=20.1s predict=5.5s curves=1.0s save=0.7s
+13:19:13 fold 38/40 sub-38 mean=0.371 at thr=2.4e-01/1.3e-01 oracle nerve=0.431 vessel=0.333 alpha=1e+01 score_max=0.973 candidates=38066 (1439s)
+13:19:39 fold 39/40 sub-39 phases: fit=19.5s predict=5.2s curves=0.9s save=0.5s
+13:19:39 fold 39/40 sub-39 mean=0.485 at thr=1.9e-01/1.4e-01 oracle nerve=0.688 vessel=0.281 alpha=1e+01 score_max=0.984 candidates=47916 (1465s)
+13:20:04 fold 40/40 sub-40 phases: fit=19.5s predict=4.3s curves=1.0s save=0.4s
+13:20:04 fold 40/40 sub-40 mean=0.581 at thr=1.7e-01/2.2e-01 oracle nerve=0.695 vessel=0.479 alpha=1e+01 score_max=0.98 candidates=36493 (1490s)
+13:20:25 result: dice=0.3795  dice_ci_low=0.3286  dice_ci_high=0.4253  dice_nerve=0.4624  dice_vessel=0.2966  dice_oracle=0.4096  thr=1.57e-01/1.75e-01  (1646s)

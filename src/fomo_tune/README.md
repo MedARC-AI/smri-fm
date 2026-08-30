@@ -123,14 +123,16 @@ Oracle is the per-subject best threshold — the ceiling any thresholding rule c
 
 | Run | Dice | 95% CI | Oracle | Time | Git | Notes |
 |---|---|---|---|---|---|---|
-| logistic: walnut-v0.1 | 0.355 | 0.302 – 0.402 | 0.385 | 1091s | `2eb1685` | alpha 1e1, cut 0.157 on both labels — the current default |
-| logistic: pretrain_full | 0.339 | 0.283 – 0.387 | 0.370 | 1093s | `2eb1685` | otherwise identical |
-| ridge: walnut-v0.1 | 0.274 | 0.228 – 0.320 | 0.300 | 842s | `2eb1685` | the previous head, on the better checkpoint |
-| ridge: pretrain_full | 0.256 | 0.211 – 0.301 | 0.283 | 871s | `2eb1685` | the baseline below, re-measured on the truncated cut grid |
-| baseline | 0.252 | 0.212 – 0.293 | 0.275 | 1216s | `51772f4` | ridge, scale 4, subcell 4, depth 4 |
-| scale 3 | 0.199 | 0.162 – 0.234 | 0.219 | 762s | `51772f4` | otherwise identical |
-| scale 2 | 0.130 | 0.106 – 0.156 | 0.148 | 786s | `1889e8b` | otherwise identical |
 | first sweep | 0.082 | 0.068 – 0.097 | 0.093 | 1956s | `69c2d36` | one shared cut, final block |
+| scale 2 | 0.130 | 0.106 – 0.156 | 0.148 | 786s | `1889e8b` | baseline otherwise |
+| scale 3 | 0.199 | 0.162 – 0.234 | 0.219 | 762s | `51772f4` | baseline otherwise |
+| initial baseline | 0.252 | 0.212 – 0.293 | 0.275 | 1216s | `51772f4` | ridge, scale 4, subcell 4, depth 4 |
+| ridge: pretrain_full | 0.256 | 0.211 – 0.301 | 0.283 | 871s | `2eb1685` | the baseline above, re-measured on the truncated cut grid |
+| ridge: walnut-v0.1 | 0.274 | 0.228 – 0.320 | 0.300 | 842s | `2eb1685` | the previous head, on the better checkpoint |
+| logistic: walnut-v0.1 | 0.355 | 0.302 – 0.402 | 0.385 | 1091s | `2eb1685` | replace ridge head with logistic |
+| spatial: train views only | 0.379 | 0.329 – 0.425 | 0.410 | 1646s | `7b50d02` | 2 augmented train views, no test views |
+| spatial: test views only | 0.419 | 0.355 – 0.472 | 0.460 | 617s | `7b50d02` | 4 augmented test views averaged, no train views |
+| spatial: train + test views | 0.440 | 0.378 – 0.491 | 0.481 | 1665s | `7b50d02` | 2 augmented train views and 4 test views |
 
 *Nb, NSD metric is not yet implemented.*
 
