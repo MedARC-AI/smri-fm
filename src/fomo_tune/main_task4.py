@@ -8,6 +8,7 @@ Method (tune):
    the full model post-norm.
 3. Ridge regression head predicting "subcell" targets. At `subcell=8`, you get a
    separate prediction per voxel.
+4. Add spatial views during training and average predictions at test time.
 
 The rationale is that the structures are ~2mm, so one prediction per 8mm patch will be
 too coarse. Too address this, we have two strategies: upscaling the model input, and
@@ -41,6 +42,13 @@ from scipy import ndimage
 from fomo_tune.backbone import load_backbone, rescale
 from fomo_tune.logistic import Logistic
 from fomo_tune.ridge import Ridge
+from fomo_tune.spatial_augmentation import (
+    SpatialTransform,
+    augmentation_seed,
+    resample_spatial,
+    sample_spatial_transform,
+    spatial_grid,
+)
 from fomo_tune.utils import git_sha, set_seed, setup_logging
 
 logger = logging.getLogger("fomo_tune")
@@ -71,6 +79,18 @@ class Config:
     target_sigma_mm: float = 0.0
     head: str = "logistic"
     depth: int | None = 4
+    train_spatial: bool = True
+    train_views: int = 2
+    max_rotation_deg: float = 4.0
+    max_translation_mm: float = 2.0
+    scale_low: float = 0.97
+    scale_high: float = 1.03
+    tta_spatial: bool = True
+    tta_views: int = 4
+    tta_rotation_deg: float = 2.0
+    tta_translation_mm: float = 1.0
+    tta_scale_low: float = 0.99
+    tta_scale_high: float = 1.01
     alphas: list[float] = field(default_factory=lambda: [1e3, 1e4, 1e5, 1e6, 1e7, 1e8])
     alpha: float = 1e1
     n_splits: int = 5
@@ -130,14 +150,32 @@ class Task4Method:
             f"subcell {cfg.subcell} does not divide patch {self.patch_size}"
         )
 
-        self.cache: dict[str, Patches] = {}
+        self.cache: dict[tuple[str, SpatialTransform | None], Patches] = {}
         self.head = None
         self.thresholds = None
+
+    def train_transform(self, seed: int) -> SpatialTransform:
+        return sample_spatial_transform(
+            seed,
+            self.cfg.max_rotation_deg,
+            self.cfg.max_translation_mm,
+            (self.cfg.scale_low, self.cfg.scale_high),
+        )
+
+    def tta_transform(self, seed: int) -> SpatialTransform:
+        return sample_spatial_transform(
+            seed,
+            self.cfg.tta_rotation_deg,
+            self.cfg.tta_translation_mm,
+            (self.cfg.tta_scale_low, self.cfg.tta_scale_high),
+        )
 
     def prepare(self, image: nib.Nifti1Image) -> dict[str, torch.Tensor]:
         """One volume at `1 / scale` mm, cropped to the canvas around the subject's own anchor."""
         image = nib.as_closest_canonical(nib.funcs.squeeze_image(repack(image)))
-        volume = torch.from_numpy(np.ascontiguousarray(image.get_fdata(dtype=np.float32)))
+        volume = torch.from_numpy(np.ascontiguousarray(image.get_fdata(dtype=np.float32))).to(
+            self.device
+        )
         assert volume.ndim == 3, f"expected a 3D volume, got {tuple(volume.shape)}"
 
         affine = np.asarray(image.affine)
@@ -147,12 +185,12 @@ class Task4Method:
             volume, affine = rescale(volume, affine, spacing, (target,) * 3)
         voxel_mm = np.linalg.norm(affine[:3, :3], axis=0)
 
-        data = volume.numpy()
+        data = volume
         head_mask = data > data.mean()
         brain = data[head_mask]
-        mean, std = brain.mean(), max(brain.std(), 1e-6)
+        mean, std = brain.mean(), brain.std(correction=0).clamp_min(1e-6)
 
-        centroid = np.array(ndimage.center_of_mass(head_mask))
+        centroid = np.array(ndimage.center_of_mass(head_mask.cpu().numpy()))
         assert (np.abs(centroid / np.array(data.shape) - 0.5) < 1 / 6).all(), (
             f"brain-mask centroid {centroid.round(1)} is not near the middle of {data.shape}"
         )
@@ -167,25 +205,38 @@ class Task4Method:
         source = tuple(slice(a, b) for a, b in zip(source_lo, source_hi))
         placed = tuple(slice(a, b) for a, b in zip(source_lo - start, source_hi - start))
 
-        canvas = np.zeros(self.img_size, dtype=np.float32)
-        mask = np.zeros(self.img_size, dtype=bool)
+        canvas = torch.zeros(self.img_size, dtype=torch.float32, device=self.device)
+        mask = torch.zeros(self.img_size, dtype=torch.bool, device=self.device)
         mask[placed] = head_mask[source]
-        canvas[placed] = np.where(head_mask[source], (data[source] - mean) / std, 0.0)
+        canvas[placed] = torch.where(head_mask[source], (data[source] - mean) / std, 0.0)
 
         # canvas voxel k holds resampled voxel k + start, a pure integer translation
         step = np.eye(4)
         step[:3, 3] = start
         return {
-            "image": torch.from_numpy(canvas).unsqueeze(0),
-            "mask": torch.from_numpy(mask).unsqueeze(0),
+            "image": canvas.unsqueeze(0),
+            "mask": mask.unsqueeze(0),
             "affine": torch.as_tensor(affine @ step, dtype=torch.float32),
         }
 
     @torch.inference_mode()
-    def embed(self, images: Images) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def embed(
+        self, images: Images, transform: SpatialTransform | None = None
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """The kept tokens' features and grid indices, and the affine of the grid they live on."""
         start = time.perf_counter()
         sample = self.prepare(images[MODALITY])
+        if transform is not None:
+            grid = spatial_grid(
+                self.img_size,
+                sample["affine"].numpy(),
+                transform,
+                restore=False,
+                device=self.device,
+                dtype=torch.float32,
+            )
+            sample["image"] = resample_spatial(sample["image"], grid)
+            sample["mask"] = resample_spatial(sample["mask"].float(), grid) > 0.5
         prepared = time.perf_counter()
         batch = {key: value[None].to(self.device) for key, value in sample.items()}
 
@@ -220,19 +271,40 @@ class Task4Method:
             sample["affine"].numpy(),
         )
 
-    def cell_targets(self, seg: nib.Nifti1Image, grid_affine: np.ndarray) -> np.ndarray:
+    def cell_targets(
+        self,
+        seg: nib.Nifti1Image,
+        grid_affine: np.ndarray,
+        transform: SpatialTransform | None = None,
+    ) -> np.ndarray:
         """Each label's fraction of every sub-cell, over the whole grid, in flattened order."""
         seg = repack(seg)
         labels = np.asarray(seg.dataobj, dtype=np.float32).round()
         on_grid = resample_nearest(labels, seg.affine, grid_affine, self.img_size)
+
+        fields = np.stack([(on_grid == value).astype(np.float32) for value in LABELS])
+        if transform is not None:
+            grid = spatial_grid(
+                self.img_size,
+                grid_affine,
+                transform,
+                restore=False,
+                device=self.device,
+                dtype=torch.float32,
+            )
+            fields = (
+                resample_spatial(torch.from_numpy(fields).to(self.device), grid)
+                .clamp(0, 1)
+                .cpu()
+                .numpy()
+            )
 
         voxel_mm = np.linalg.norm(grid_affine[:3, :3], axis=0).mean()
         gx, gy, gz = self.grid_size
         cx, cy, cz = self.cell_size
 
         fractions = []
-        for value in LABELS:
-            field_ = (on_grid == value).astype(np.float32)
+        for field_ in fields:
             if self.cfg.target_sigma_mm > 0:
                 field_ = ndimage.gaussian_filter(field_, self.cfg.target_sigma_mm / voxel_mm)
             fractions.append(
@@ -253,21 +325,20 @@ class Task4Method:
             )
         return rearrange(np.stack(fractions), "label patch cell -> patch (label cell)")
 
-    def cached_patches(self, row: dict) -> Patches:
+    def cached_patches(self, row: dict, transform: SpatialTransform | None = None) -> Patches:
         """Cached: leave-one-out revisits every subject n times."""
-        if row["subject"] not in self.cache:
+        key = (row["subject"], transform)
+        if key not in self.cache:
             start = time.perf_counter()
-            features, patch_ids, grid_affine = self.embed(row)
+            features, patch_ids, grid_affine = self.embed(row, transform)
             embedded = time.perf_counter()
-            targets = self.cell_targets(row["seg"], grid_affine)
-            self.cache[row["subject"]] = Patches(
-                features, patch_ids, grid_affine, targets[patch_ids]
-            )
+            targets = self.cell_targets(row["seg"], grid_affine, transform)
+            self.cache[key] = Patches(features, patch_ids, grid_affine, targets[patch_ids])
             logger.info(
                 f"cache {row['subject']} embed={embedded - start:.1f}s "
                 f"targets={time.perf_counter() - embedded:.1f}s"
             )
-        return self.cache[row["subject"]]
+        return self.cache[key]
 
     def fit(self, rows: list[dict]) -> None:
         """One ridge from a token to every sub-cell's label fraction, alpha shared over outputs.
@@ -275,10 +346,19 @@ class Task4Method:
         Alpha is chosen by held-out *subjects*: tokens within a subject are far from independent, so
         splitting on them would pick an alpha for a sample size we do not have.
         """
-        subjects = [self.cached_patches(row) for row in rows]
+        subjects, group_blocks = [], []
+        for group, row in enumerate(rows):
+            views = [self.cached_patches(row)]
+            if self.cfg.train_spatial:
+                for view in range(1, self.cfg.train_views + 1):
+                    seed = augmentation_seed(self.cfg.seed, row["subject"], view)
+                    views.append(self.cached_patches(row, self.train_transform(seed)))
+            for patches in views:
+                subjects.append(patches)
+                group_blocks.append(np.full(len(patches.features), group))
         features = torch.from_numpy(np.concatenate([s.features for s in subjects]))
         targets = torch.from_numpy(np.concatenate([s.targets for s in subjects]))
-        groups = np.concatenate([np.full(len(s.features), i) for i, s in enumerate(subjects)])
+        groups = np.concatenate(group_blocks)
 
         if self.cfg.head == "ridge":
             head = Ridge(alphas=self.cfg.alphas, n_splits=self.cfg.n_splits, seed=self.cfg.seed)
@@ -289,17 +369,16 @@ class Task4Method:
         # kept on the host: predict is one small matmul, and the saved model has to load on cpu
         self.head = head.to("cpu")
 
-    def predict_scores(self, images: Images, key: str | None = None) -> nib.Nifti1Image:
-        """Per-label score per voxel on the input's own grid, constant within each sub-cell.
-
-        Pass `key` to score a subject already in the cache; the tokens are the frozen backbone's
-        and do not depend on the fold, so this is the same embedding the uncached path computes.
-
-        The prediction is carried out to the input rather than the truth carried in: at `scale=1` a
-        cell is larger than a label voxel, and scoring on the model's grid would credit a cell-sized
-        prediction with matching a voxel-sized label.
-        """
-        patches = self.cache[key] if key is not None else Patches(*self.embed(images))
+    def predict_grid(
+        self,
+        images: Images,
+        key: str | None = None,
+        transform: SpatialTransform | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Decode one view on the encoder grid."""
+        patches = (
+            self.cache[(key, None)] if key is not None else Patches(*self.embed(images, transform))
+        )
 
         predicted = self.head.predict(torch.from_numpy(patches.features)).numpy()
         scores = np.zeros(
@@ -328,12 +407,45 @@ class Task4Method:
             cy=cy,
             cz=cz,
         )
+        if transform is not None:
+            grid = spatial_grid(
+                self.img_size,
+                patches.grid_affine,
+                transform,
+                restore=True,
+                device=self.device,
+                dtype=torch.float32,
+            )
+            on_grid = (
+                resample_spatial(torch.from_numpy(on_grid).to(self.device), grid).cpu().numpy()
+            )
+        return on_grid, patches.grid_affine
+
+    def predict_scores(self, images: Images, key: str | None = None) -> nib.Nifti1Image:
+        """Per-label score per voxel on the input's own grid, constant within each sub-cell.
+
+        Pass `key` to score a subject already in the cache; the tokens are the frozen backbone's
+        and do not depend on the fold, so this is the same embedding the uncached path computes.
+
+        The prediction is carried out to the input rather than the truth carried in: at `scale=1` a
+        cell is larger than a label voxel, and scoring on the model's grid would credit a cell-sized
+        prediction with matching a voxel-sized label.
+        """
+        on_grid, grid_affine = self.predict_grid(images, key)
+        if self.cfg.tta_spatial:
+            total = on_grid.copy()
+            for view in range(1, self.cfg.tta_views + 1):
+                transform = self.tta_transform(self.cfg.seed + 1_000_003 + view)
+                augmented, augmented_affine = self.predict_grid(images, transform=transform)
+                assert np.allclose(augmented_affine, grid_affine), "TTA views use different grids"
+                total += augmented
+            on_grid = total / (self.cfg.tta_views + 1)
 
         image = repack(images[MODALITY])
         on_input = np.empty((*image.shape, len(LABELS)), dtype=np.float32)
         for label, volume in enumerate(on_grid):
             on_input[..., label] = resample_nearest(
-                np.ascontiguousarray(volume), patches.grid_affine, image.affine, image.shape
+                np.ascontiguousarray(volume), grid_affine, image.affine, image.shape
             )
         return nib.Nifti1Image(on_input, image.affine)
 
