@@ -79,13 +79,13 @@ class Config:
     target_sigma_mm: float = 0.0
     head: str = "logistic"
     depth: int | None = 4
-    train_spatial: bool = True
+    train_spatial: bool = False
     train_views: int = 2
     max_rotation_deg: float = 4.0
     max_translation_mm: float = 2.0
     scale_low: float = 0.97
     scale_high: float = 1.03
-    tta_spatial: bool = True
+    tta_spatial: bool = False
     tta_views: int = 4
     tta_rotation_deg: float = 2.0
     tta_translation_mm: float = 1.0
@@ -190,7 +190,7 @@ class Task4Method:
         brain = data[head_mask]
         mean, std = brain.mean(), brain.std(correction=0).clamp_min(1e-6)
 
-        centroid = np.array(ndimage.center_of_mass(head_mask.cpu().numpy()))
+        centroid = torch.nonzero(head_mask).float().mean(dim=0).cpu().numpy()
         assert (np.abs(centroid / np.array(data.shape) - 0.5) < 1 / 6).all(), (
             f"brain-mask centroid {centroid.round(1)} is not near the middle of {data.shape}"
         )
@@ -221,11 +221,10 @@ class Task4Method:
 
     @torch.inference_mode()
     def embed(
-        self, images: Images, transform: SpatialTransform | None = None
+        self, sample: dict[str, torch.Tensor], transform: SpatialTransform | None = None
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """The kept tokens' features and grid indices, and the affine of the grid they live on."""
         start = time.perf_counter()
-        sample = self.prepare(images[MODALITY])
         if transform is not None:
             grid = spatial_grid(
                 self.img_size,
@@ -235,9 +234,12 @@ class Task4Method:
                 device=self.device,
                 dtype=torch.float32,
             )
-            sample["image"] = resample_spatial(sample["image"], grid)
-            sample["mask"] = resample_spatial(sample["mask"].float(), grid) > 0.5
-        prepared = time.perf_counter()
+            sample = {
+                **sample,
+                "image": resample_spatial(sample["image"], grid),
+                "mask": resample_spatial(sample["mask"].float(), grid) > 0.5,
+            }
+        warped = time.perf_counter()
         batch = {key: value[None].to(self.device) for key, value in sample.items()}
 
         encoder = self.backbone.encoder
@@ -262,9 +264,7 @@ class Task4Method:
             # batch size 1, so the jagged pack is one flat sequence behind the prefix tokens
             features = captured[0][encoder.num_prefix_tokens :]
 
-        logger.info(
-            f"embed prepare={prepared - start:.1f}s forward={time.perf_counter() - prepared:.1f}s"
-        )
+        logger.info(f"embed warp={warped - start:.1f}s forward={time.perf_counter() - warped:.1f}s")
         return (
             features.float().cpu().numpy(),
             out["patch_ids"][0].cpu().numpy(),
@@ -330,7 +330,7 @@ class Task4Method:
         key = (row["subject"], transform)
         if key not in self.cache:
             start = time.perf_counter()
-            features, patch_ids, grid_affine = self.embed(row, transform)
+            features, patch_ids, grid_affine = self.embed(self.prepare(row[MODALITY]), transform)
             embedded = time.perf_counter()
             targets = self.cell_targets(row["seg"], grid_affine, transform)
             self.cache[key] = Patches(features, patch_ids, grid_affine, targets[patch_ids])
@@ -371,14 +371,15 @@ class Task4Method:
 
     def predict_grid(
         self,
-        images: Images,
+        sample: dict[str, torch.Tensor] | None,
         key: str | None = None,
         transform: SpatialTransform | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Decode one view on the encoder grid."""
-        patches = (
-            self.cache[(key, None)] if key is not None else Patches(*self.embed(images, transform))
-        )
+        if (key, transform) in self.cache:
+            patches = self.cache[(key, transform)]
+        else:
+            patches = Patches(*self.embed(sample, transform))
 
         predicted = self.head.predict(torch.from_numpy(patches.features)).numpy()
         scores = np.zeros(
@@ -431,12 +432,14 @@ class Task4Method:
         cell is larger than a label voxel, and scoring on the model's grid would credit a cell-sized
         prediction with matching a voxel-sized label.
         """
-        on_grid, grid_affine = self.predict_grid(images, key)
+        needs_prepare = key is None or self.cfg.tta_spatial
+        sample = self.prepare(images[MODALITY]) if needs_prepare else None
+        on_grid, grid_affine = self.predict_grid(sample, key)
         if self.cfg.tta_spatial:
             total = on_grid.copy()
             for view in range(1, self.cfg.tta_views + 1):
                 transform = self.tta_transform(self.cfg.seed + 1_000_003 + view)
-                augmented, augmented_affine = self.predict_grid(images, transform=transform)
+                augmented, augmented_affine = self.predict_grid(sample, transform=transform)
                 assert np.allclose(augmented_affine, grid_affine), "TTA views use different grids"
                 total += augmented
             on_grid = total / (self.cfg.tta_views + 1)
