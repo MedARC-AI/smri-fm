@@ -132,6 +132,9 @@ class Task5Method:
             is_cortex_grid = is_cortex_grid > self.cfg.cortex_frac
             is_cortex = is_cortex_grid[out["patch_ids"]]
             token_mask = (out["token_mask"].bool() & is_cortex).unsqueeze(-1)
+            if not token_mask.any():
+                logger.warning("no patch cleared cortex_frac; pooling over every live token")
+                token_mask = out["token_mask"].bool().unsqueeze(-1)
         else:
             token_mask = out["token_mask"].bool().unsqueeze(-1)
 
