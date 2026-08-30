@@ -29,8 +29,19 @@ TASK_IO = {
         },
         "prediction.txt",
     ),
+    "task2": (
+        {"flair": "ses-01/flair.nii.gz", "dwi": "ses-01/dwi_b1000.nii.gz"},
+        "prediction.nii.gz",
+    ),
+    "task3": ({"t1": "ses-01/t1w.nii.gz"}, "prediction.txt"),
+    "task4": ({"t2": "ses-01/t2w.nii.gz"}, "prediction.nii.gz"),
     "task5": ({"t1": "ses_01/t1.nii.gz"}, "prediction.txt"),
+    "task6_and_7": ({"input": "ses-01/flair.nii.gz"}, "prediction.npy"),
 }
+
+# the eval folder a task's subjects come from, where it is not Task_<k>. Tasks 6 and 7 embed one
+# image of any modality, so they borrow task 1's.
+TASK_DATA = {"task6_and_7": "Task_1"}
 
 
 def versions(python: list[str], packages: list[str]) -> dict[str, str]:
@@ -93,7 +104,8 @@ def check_host_against_container(
     only thing that differs is which environment runs them.
     """
     inputs, output_name = TASK_IO[task]
-    task_dir = data_root / f"Task_{task.removeprefix('task')}/preprocessed"
+    folder = TASK_DATA.get(task, f"Task_{task.removeprefix('task')}")
+    task_dir = data_root / folder / "preprocessed"
     subjects = sorted(p for p in task_dir.iterdir() if p.is_dir())[:n_subjects]
 
     print(f"\n{'subject':<12} {'host':>14} {'container':>14} {'max |diff|':>12}")
