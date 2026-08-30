@@ -19,16 +19,20 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from fomo_tune.backbone import load_backbone
+import fomo_tune.synthseg as synthseg
+from fomo_tune.backbone import SmriMaeTransform, load_backbone
 from fomo_tune.utils import git_sha, setup_logging
 
 logger = logging.getLogger("fomo_tune")
+NORMALIZATION_PATH = Path(__file__).parent / "assets/task6_and_7_walnut_normalization.npy"
 
 
 @dataclass
 class Config:
     task: str = "task6_and_7"
-    ckpt_path: str = "hf://medarc/walnut/checkpoints/pretrain_full_90_10_h100/checkpoint-last.pth"
+    ckpt_path: str = (
+        "hf://medarc/walnut/checkpoints/walnut-v0-1/vitl/sub-52k/checkpoint-last.pth"
+    )
     output_root: str = "output/fomo_tune"
     name: str = "task6_and_7"
     device: str = "cuda"
@@ -38,17 +42,26 @@ class Config:
 
 
 class Task6And7Method:
-    """Frozen sMRI MAE, mean-pooled tokens over whichever modality arrives."""
+    """SynthSeg-masked Walnut, mean-pooled over valid final-layer patch tokens."""
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        self.backbone, self.transform = load_backbone(cfg.ckpt_path)
+        self.backbone, transform = load_backbone(cfg.ckpt_path)
+        self.transform = SmriMaeTransform(
+            img_size=transform.img_size, spacing=transform.spacing, masking="zero"
+        )
         self.device = torch.device(cfg.device)
         self.backbone.to(self.device).eval().requires_grad_(False)
+        self.normalization = np.load(NORMALIZATION_PATH)
+        assert self.normalization.shape == (1024, 2)
 
     @torch.inference_mode()
     def predict(self, image: nib.Nifti1Image) -> np.ndarray:
         """(D,) float32. Pooling over the token axis, so D does not depend on the input grid."""
+        data, affine = self.transform.resize(image)
+        image = nib.Nifti1Image(data.numpy(), affine)
+        segmentation = synthseg.synthseg(image, device=str(self.device))
+        image = synthseg.applymask(image, segmentation)
         sample = self.transform(image)
         batch = {key: value[None].to(self.device) for key, value in sample.items()}
 
@@ -58,7 +71,9 @@ class Task6And7Method:
         patch_embeds = out["patch_embeds"]
         token_mask = out["token_mask"].bool().unsqueeze(-1)
         embed = (patch_embeds * token_mask).sum(dim=1) / token_mask.sum(dim=1)
-        return embed[0].float().cpu().numpy()
+        embedding = embed[0].float().cpu().numpy()
+        standardized = (embedding - self.normalization[:, 0]) / self.normalization[:, 1]
+        return standardized.astype(np.float32, copy=False)
 
     def save(self, model_dir: Path) -> None:
         """Nothing is fitted, so this is the config alone -- the backbone weights stay wherever
