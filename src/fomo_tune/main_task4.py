@@ -79,13 +79,13 @@ class Config:
     target_sigma_mm: float = 0.0
     head: str = "logistic"
     depth: int | None = 4
-    train_spatial: bool = False
+    train_spatial: bool = True
     train_views: int = 2
     max_rotation_deg: float = 4.0
     max_translation_mm: float = 2.0
     scale_low: float = 0.97
     scale_high: float = 1.03
-    tta_spatial: bool = False
+    tta_spatial: bool = True
     tta_views: int = 4
     tta_rotation_deg: float = 2.0
     tta_translation_mm: float = 1.0
