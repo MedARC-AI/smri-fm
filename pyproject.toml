@@ -46,6 +46,9 @@ SynthSeg = { git = "https://github.com/MedARC-AI/SynthSeg.git", rev = "2690d9ac9
 [tool.setuptools_scm]
 version_file = "src/_version.py"
 
+[tool.setuptools.package-data]
+fomo_tune = ["assets/*.npy"]
+
 [tool.ruff]
 line-length = 100
 
