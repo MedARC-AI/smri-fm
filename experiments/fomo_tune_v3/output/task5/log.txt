@@ -1,0 +1,35 @@
+21:08:38 run task5 (git 7faab4b)
+21:08:38 config:
+task: task5
+ckpt_path: hf://medarc/walnut/checkpoints/walnut-v0-1/vitl/sub-52k/checkpoint-last.pth
+output_root: experiments/fomo_tune_v3/output
+name: task5
+device: cuda
+seed: 4466
+masking: zero
+crop_ap: true
+crop_test_ap: true
+pooling: cortex
+cortex_frac: 0.1
+21:08:52 dataset: 48 subjects, 24 positive
+21:09:40 fold 1/20 n=3 y=[0 1 1] p=[0.514 0.514 0.551] (44s)
+21:09:43 fold 2/20 n=3 y=[1 1 1] p=[0.873 0.982 0.406] (48s)
+21:09:47 fold 3/20 n=3 y=[0 1 1] p=[0.417 0.684 0.68 ] (51s)
+21:09:50 fold 4/20 n=3 y=[0 0 1] p=[0.435 0.215 0.821] (55s)
+21:09:52 fold 5/20 n=3 y=[1 1 1] p=[0.533 0.507 0.478] (56s)
+21:09:55 fold 6/20 n=3 y=[0 0 1] p=[0.3   0.507 0.452] (59s)
+21:09:58 fold 7/20 n=3 y=[0 0 1] p=[0.479 0.251 0.996] (62s)
+21:10:02 fold 8/20 n=3 y=[0 0 1] p=[0.08  0.048 0.795] (67s)
+21:10:04 fold 9/20 n=2 y=[0 1] p=[0.424 0.486] (68s)
+21:10:05 fold 10/20 n=2 y=[0 1] p=[0.478 0.509] (69s)
+21:10:07 fold 11/20 n=2 y=[0 0] p=[0.014 0.014] (71s)
+21:10:10 fold 12/20 n=2 y=[0 1] p=[0.287 0.704] (74s)
+21:10:13 fold 13/20 n=2 y=[0 1] p=[0.516 0.527] (77s)
+21:10:15 fold 14/20 n=2 y=[0 1] p=[0.208 0.968] (79s)
+21:10:19 fold 15/20 n=2 y=[0 1] p=[0.237 0.836] (83s)
+21:10:21 fold 16/20 n=2 y=[0 1] p=[0.032 0.973] (85s)
+21:10:24 fold 17/20 n=2 y=[0 0] p=[0.243 0.265] (88s)
+21:10:25 fold 18/20 n=2 y=[0 1] p=[0.273 0.958] (89s)
+21:10:27 fold 19/20 n=2 y=[0 1] p=[0.469 0.548] (91s)
+21:10:30 fold 20/20 n=2 y=[0 1] p=[0.029 0.984] (94s)
+21:10:31 result: auroc=0.9514  auroc_ci_low=0.8861  auroc_ci_high=0.9929  (94s)

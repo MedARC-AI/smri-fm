@@ -1,0 +1,8 @@
+23:25:46 run task6_and_7 (git 3bf4169)
+23:25:46 config:
+task: task6_and_7
+ckpt_path: hf://medarc/walnut/checkpoints/walnut-v0-1/vitl/sub-52k/checkpoint-last.pth
+output_root: experiments/fomo_tune_v3/output
+name: task6_and_7
+device: cpu
+23:25:51 embedding dim 1024
