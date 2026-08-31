@@ -675,7 +675,7 @@ def predict(args: argparse.Namespace) -> None:
         overrides["ckpt_path"] = args.ckpt_path
     method = Task4ConvMethod.load(args.model_dir, **overrides)
 
-    labels = method.predict({"t2w": nib.load(args.t2w)})
+    labels = method.predict({"t2w": nib.load(args.t2)})
     nib.save(labels, args.output)
 
 
@@ -688,7 +688,7 @@ def main() -> None:
     train_parser.set_defaults(run=train)
 
     predict_parser = modes.add_parser("predict", help="one subject, one label nifti")
-    predict_parser.add_argument("--t2w", type=Path, required=True)
+    predict_parser.add_argument("--t2", type=Path, required=True)
     predict_parser.add_argument("--output", type=Path, required=True)
     predict_parser.add_argument("--model-dir", type=Path, default=Path("/app/model"))
     predict_parser.add_argument("--ckpt-path", help="overrides the trained config's backbone path")

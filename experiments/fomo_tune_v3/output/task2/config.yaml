@@ -1,0 +1,8 @@
+task: task2
+ckpt_path: hf://medarc/walnut/checkpoints/walnut-v0-1/vitl/sub-52k/checkpoint-last.pth
+modality: flair
+output_root: experiments/fomo_tune_v3/output
+name: task2
+largest_component: true
+device: cuda
+seed: 4466

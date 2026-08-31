@@ -1,0 +1,19 @@
+task: task3
+ckpt_path: hf://medarc/walnut/checkpoints/walnut-v0-1/vitl/sub-52k/checkpoint-last.pth
+output_root: experiments/fomo_tune_v3/output
+name: task3
+evals:
+- camcan
+- camcan-thick_slice_5mm
+- camcan-acquired_at_2mm
+- camcan-random_scale
+train_views:
+- thick_slice_5mm
+- acquired_at_2mm
+- random_scale
+depth: null
+alpha: null
+workers: 8
+feature_cache: cache/features
+device: cuda
+seed: 4466

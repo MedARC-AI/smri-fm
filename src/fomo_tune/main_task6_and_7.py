@@ -52,8 +52,6 @@ class Task6And7Method:
     @torch.inference_mode()
     def predict(self, image: nib.Nifti1Image) -> np.ndarray:
         """(D,) float32. Pooling over the token axis, so D does not depend on the input grid."""
-        data, affine = self.transform.resize(image)
-        image = nib.Nifti1Image(data.numpy(), affine)
         segmentation = synthseg.synthseg(image, device=str(self.device))
         image = synthseg.applymask(image, segmentation)
         sample = self.transform(image)

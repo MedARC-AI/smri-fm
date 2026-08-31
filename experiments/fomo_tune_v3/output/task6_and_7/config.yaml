@@ -1,0 +1,5 @@
+task: task6_and_7
+ckpt_path: hf://medarc/walnut/checkpoints/walnut-v0-1/vitl/sub-52k/checkpoint-last.pth
+output_root: experiments/fomo_tune_v3/output
+name: task6_and_7
+device: cpu

@@ -356,8 +356,7 @@ class Task2Method:
 # challenge hands over all the modalities whether or not a model uses them.
 IMAGE_COLS = ("dwi_b1000", "flair")
 
-# Keep the baseline protocol's geometric threshold grid.
-THRESHOLDS = np.logspace(-6, -0.3, 60)
+THRESHOLDS = np.logspace(-3, -0.3, 60)
 
 
 class Curves(NamedTuple):
